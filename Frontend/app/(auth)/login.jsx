@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase, resolveReporterPhone } from '../../src/services/supabase';
 import { Colors } from '../../src/constants/colors';
@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 import SuccessToast from '../../src/components/SuccessToast';
+import { showAppError, showAppValidation } from '../../src/utils/appAlert';
 import { useRef, useEffect } from 'react';
 
 export default function LoginScreen() {
@@ -29,7 +30,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!identifier.trim() || !password) {
-      toastRef.current?.show('Missing Fields', 'Please enter your ID and Password.', 'error');
+      showAppValidation('Please enter your ID and Password.', 'Missing fields');
       return;
     }
 
@@ -83,7 +84,7 @@ export default function LoginScreen() {
       }
 
     } catch (err) {
-      toastRef.current?.show('Login Failed', err.message, 'error');
+      showAppError('Login failed', err.message);
     } finally {
       setLoading(false);
     }
@@ -134,6 +135,13 @@ export default function LoginScreen() {
             />
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          style={styles.forgotLinkWrap}
+          onPress={() => router.push('/(auth)/forgot-password')}
+        >
+          <Text style={styles.forgotLink}>Forgot password?</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.button}
@@ -210,6 +218,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 40,
     elevation: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   label: {
     fontFamily: 'Inter_600SemiBold',
@@ -226,17 +236,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 56,
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.slate100,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
   },
   input: {
     flex: 1,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Inter_500Medium',
     fontSize: 14,
     color: Colors.slate900,
   },
+  forgotLinkWrap: {
+    alignSelf: 'flex-end',
+    marginBottom: 8,
+    marginTop: -8,
+  },
+  forgotLink: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: Colors.primary,
+  },
   button: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.primaryDark,
     borderRadius: 16,
     height: 56,
     justifyContent: 'center',

@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   TextInput,
-  Alert,
   Dimensions,
   Platform,
 } from 'react-native';
@@ -25,6 +24,7 @@ import {
   deleteLostItem,
   deleteFoundItem,
 } from '../../../src/services/supabase';
+import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -51,7 +51,7 @@ export default function PendingReportsScreen() {
       setFoundItems(pendingFound || []);
     } catch (error) {
       console.error('Error fetching pending reports:', error);
-      toastRef.current?.show('Load Failed', 'Failed to retrieve pending reports.', 'error');
+      showAppFailure('Failed to retrieve pending reports.', 'Load failed');
     } finally {
       setLoading(false);
     }
@@ -81,39 +81,34 @@ export default function PendingReportsScreen() {
       );
     } catch (err) {
       console.error('Approval failed:', err);
-      toastRef.current?.show('Action Failed', 'Failed to approve report.', 'error');
+      showAppFailure('Failed to approve report.', 'Action failed');
     }
   };
 
   // Reject (Delete) Report
   const handleReject = async (item, type) => {
-    Alert.alert(
-      'Reject & Delete Report',
-      `Are you sure you want to permanently reject and delete the report for "${item.itemName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reject',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              if (type === 'lost') {
-                await deleteLostItem(item.id);
-                setLostItems(prev => prev.filter(i => i.id !== item.id));
-              } else {
-                await deleteFoundItem(item.id);
-                setFoundItems(prev => prev.filter(i => i.id !== item.id));
-              }
-              
-              toastRef.current?.show('Report Rejected', 'Property report permanently deleted.', 'success');
-            } catch (err) {
-              console.error('Reject report failed:', err);
-              toastRef.current?.show('Action Failed', 'Failed to reject report.', 'error');
-            }
-          },
-        },
-      ]
-    );
+    showAppConfirm({
+      title: 'Reject & delete report',
+      message: `Are you sure you want to permanently reject and delete the report for "${item.itemName}"?`,
+      confirmText: 'Reject',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          if (type === 'lost') {
+            await deleteLostItem(item.id);
+            setLostItems(prev => prev.filter(i => i.id !== item.id));
+          } else {
+            await deleteFoundItem(item.id);
+            setFoundItems(prev => prev.filter(i => i.id !== item.id));
+          }
+
+          toastRef.current?.show('Report Rejected', 'Property report permanently deleted.', 'success');
+        } catch (err) {
+          console.error('Reject report failed:', err);
+          showAppFailure('Failed to reject report.', 'Action failed');
+        }
+      },
+    });
   };
 
   // Prepare combined listing with a 'type' property

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
-  Alert,
   Dimensions,
   Platform,
 } from 'react-native';
@@ -21,6 +20,7 @@ import {
   updateUserApproval,
   deleteUser,
 } from '../../../src/services/supabase';
+import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 
@@ -40,7 +40,7 @@ export default function AllUsersScreen() {
       setUsers(allUsers || []);
     } catch (error) {
       console.error('Error fetching all users:', error);
-      toastRef.current?.show('Load Failed', 'Failed to retrieve user directory.', 'error');
+      showAppFailure('Failed to retrieve user directory.', 'Load failed');
     } finally {
       setLoading(false);
     }
@@ -69,33 +69,28 @@ export default function AllUsersScreen() {
       );
     } catch (err) {
       console.error('Toggle approval failed:', err);
-      toastRef.current?.show('Action Failed', 'Failed to update status.', 'error');
+      showAppFailure('Failed to update account status.', 'Action failed');
     }
   };
 
   // Delete User account
   const handleDelete = async (user) => {
-    Alert.alert(
-      'Delete Student Account',
-      `Are you sure you want to permanently delete ${user.name}? All their listings and session access will be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteUser(user.email);
-              setUsers(prev => prev.filter(u => u.email !== user.email));
-              toastRef.current?.show('User Deleted', 'Account permanently removed.', 'success');
-            } catch (err) {
-              console.error('Delete user failed:', err);
-              toastRef.current?.show('Delete Failed', 'Failed to remove user account.', 'error');
-            }
-          },
-        },
-      ]
-    );
+    showAppConfirm({
+      title: 'Delete student account',
+      message: `Are you sure you want to permanently delete ${user.name}? All their listings and session access will be deleted.`,
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deleteUser(user.email);
+          setUsers(prev => prev.filter(u => u.email !== user.email));
+          toastRef.current?.show('User Deleted', 'Account permanently removed.', 'success');
+        } catch (err) {
+          console.error('Delete user failed:', err);
+          showAppFailure('Failed to remove user account.', 'Delete failed');
+        }
+      },
+    });
   };
 
   // Search Filter

@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, Platform, Dimensions, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Platform, Dimensions, StatusBar } from 'react-native';
 import ReAnimated, { FadeInDown, Layout } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { supabase, getMatchCountsForItems } from '../../../src/services/supabase';
+import { supabase, normalizeItemRow } from '../../../src/services/supabase';
+import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomBottomTab from '../../../src/components/CustomBottomTab';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRef } from 'react';
 import SuccessToast from '../../../src/components/SuccessToast';
+import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -23,8 +25,6 @@ export default function MyItemsPage() {
   const [foundItems, setFoundItems] = useState([]);
   const [user, setUser] = useState(null);
   const [nowTs, setNowTs] = useState(Date.now());
-  const [lostMatchCounts, setLostMatchCounts] = useState({});
-  const [foundMatchCounts, setFoundMatchCounts] = useState({});
   const toastRef = useRef(null);
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export default function MyItemsPage() {
         .order('created_at', { ascending: false });
 
       if (lostError) throw lostError;
-      setLostItems(lostData || []);
+      setLostItems((lostData || []).map(normalizeItemRow));
 
       // Fetch Found Items
       const { data: foundData, error: foundError } = await supabase
@@ -63,18 +63,11 @@ export default function MyItemsPage() {
         .order('created_at', { ascending: false });
 
       if (foundError) throw foundError;
-      setFoundItems(foundData || []);
-
-      const [lostCounts, foundCounts] = await Promise.all([
-        getMatchCountsForItems(lostData || [], 'lost'),
-        getMatchCountsForItems(foundData || [], 'found'),
-      ]);
-      setLostMatchCounts(lostCounts);
-      setFoundMatchCounts(foundCounts);
+      setFoundItems((foundData || []).map(normalizeItemRow));
 
     } catch (error) {
       console.error('Error fetching items:', error.message);
-      Alert.alert('Error', 'Failed to load your items.');
+      showAppError('Load failed', 'Failed to load your items.');
     } finally {
       setLoading(false);
     }
@@ -119,34 +112,29 @@ export default function MyItemsPage() {
       return;
     }
 
-    Alert.alert(
-      'Withdraw Item',
-      `Are you sure you want to withdraw this report? (${meta.minutesLeft} min left)`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Withdraw',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const table = type === 'lost' ? 'lost_items' : 'found_items';
-              const { error } = await supabase.from(table).delete().eq('id', item.id);
-              if (error) throw error;
+    showAppConfirm({
+      title: 'Withdraw item',
+      message: `Are you sure you want to withdraw this report? (${meta.minutesLeft} min left)`,
+      confirmText: 'Withdraw',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const table = type === 'lost' ? 'lost_items' : 'found_items';
+          const { error } = await supabase.from(table).delete().eq('id', item.id);
+          if (error) throw error;
 
-              toastRef.current?.show('Withdrawn!', 'Your report has been withdrawn successfully.');
+          toastRef.current?.show('Withdrawn!', 'Your report has been withdrawn successfully.');
 
-              if (type === 'lost') {
-                setLostItems(lostItems.filter(i => i.id !== item.id));
-              } else {
-                setFoundItems(foundItems.filter(i => i.id !== item.id));
-              }
-            } catch (error) {
-              toastRef.current?.show('Error', 'Could not withdraw item. Please try again.', 'error');
-            }
+          if (type === 'lost') {
+            setLostItems(lostItems.filter(i => i.id !== item.id));
+          } else {
+            setFoundItems(foundItems.filter(i => i.id !== item.id));
           }
+        } catch (error) {
+          showAppFailure('Could not withdraw item. Please try again.', 'Withdraw failed');
         }
-      ]
-    );
+      },
+    });
   };
 
   const handleClearAll = async () => {
@@ -162,48 +150,39 @@ export default function MyItemsPage() {
       return;
     }
 
-    Alert.alert(
-      'Withdraw Recent Items',
-      `Withdraw ${withdrawableItems.length} ${activeTab} item(s)? ${skippedCount > 0 ? `${skippedCount} old item(s) will be kept.` : ''}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Withdraw',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const table = activeTab === 'lost' ? 'lost_items' : 'found_items';
-              const withdrawIds = withdrawableItems.map((item) => item.id);
-              const { error } = await supabase.from(table).delete().in('id', withdrawIds);
-              if (error) throw error;
+    showAppConfirm({
+      title: 'Withdraw recent items',
+      message: `Withdraw ${withdrawableItems.length} ${activeTab} item(s)? ${skippedCount > 0 ? `${skippedCount} old item(s) will be kept.` : ''}`,
+      confirmText: 'Withdraw',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const table = activeTab === 'lost' ? 'lost_items' : 'found_items';
+          const withdrawIds = withdrawableItems.map((item) => item.id);
+          const { error } = await supabase.from(table).delete().in('id', withdrawIds);
+          if (error) throw error;
 
-              toastRef.current?.show(
-                'Withdraw Complete',
-                skippedCount > 0
-                  ? `${withdrawableItems.length} withdrawn. ${skippedCount} older item(s) were not changed.`
-                  : `All eligible ${activeTab} items were withdrawn.`
-              );
+          toastRef.current?.show(
+            'Withdraw Complete',
+            skippedCount > 0
+              ? `${withdrawableItems.length} withdrawn. ${skippedCount} older item(s) were not changed.`
+              : `All eligible ${activeTab} items were withdrawn.`
+          );
 
-              if (activeTab === 'lost') {
-                setLostItems((prev) => prev.filter((i) => !withdrawIds.includes(i.id)));
-              } else {
-                setFoundItems((prev) => prev.filter((i) => !withdrawIds.includes(i.id)));
-              }
-            } catch (error) {
-              Alert.alert('Error', 'Could not withdraw items.');
-            }
+          if (activeTab === 'lost') {
+            setLostItems((prev) => prev.filter((i) => !withdrawIds.includes(i.id)));
+          } else {
+            setFoundItems((prev) => prev.filter((i) => !withdrawIds.includes(i.id)));
           }
+        } catch (error) {
+          showAppError('Withdraw failed', 'Could not withdraw items.');
         }
-      ]
-    );
+      },
+    });
   };
 
   const ItemCard = ({ item, type, index }) => {
     const withdrawMeta = getWithdrawMeta(item);
-    const matchCount = type === 'lost'
-      ? (lostMatchCounts[item.id] || 0)
-      : (foundMatchCounts[item.id] || 0);
-
     return (
     <TouchableOpacity
       activeOpacity={0.95}
@@ -248,12 +227,7 @@ export default function MyItemsPage() {
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>{item.category.toUpperCase()}</Text>
           </View>
-          {matchCount > 0 && item.is_approved !== false && (
-            <View style={styles.matchBadge}>
-              <MaterialCommunityIcons name="auto-fix" size={10} color="#1E40AF" />
-              <Text style={styles.matchBadgeText}>{matchCount} match{matchCount > 1 ? 'es' : ''}</Text>
-            </View>
-          )}
+          <ItemStatusBadge item={item} compact />
         </View>
 
         <Text style={styles.itemTitle}>{item.itemName}</Text>
@@ -445,19 +419,6 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 10, fontWeight: '900' },
   categoryBadge: { backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 },
   categoryText: { fontSize: 10, fontWeight: '900', color: '#64748B' },
-  matchBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  matchBadgeText: { fontSize: 10, fontWeight: '800', color: '#1E40AF' },
-
   itemTitle: { fontSize: 22, fontWeight: '900', color: '#1E293B', marginBottom: 10 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   infoText: { fontSize: 13, color: '#64748B', fontWeight: '600' },

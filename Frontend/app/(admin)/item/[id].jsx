@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Image, ScrollView,
-  TouchableOpacity, Dimensions, Linking, Alert, Platform, StatusBar, Modal, TextInput, ActivityIndicator
+  TouchableOpacity, Dimensions, Linking, Platform, StatusBar, ActivityIndicator
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { markItemAsReturned, getMatchesForItem } from '../../../src/services/supabase';
-import { getConfidenceLabel } from '../../../src/utils/matchItems';
+import { markItemAsReturned } from '../../../src/services/supabase';
+import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import { readItemTimeField } from '../../../src/utils/itemTimeUtils';
 import SuccessToast from '../../../src/components/SuccessToast';
+import { AppButton, AppInput, AppModalSheet } from '../../../src/components/AppForm';
+import { safeGoBack } from '../../../src/utils/navigation';
+import { showAppError, showAppWarning } from '../../../src/utils/appAlert';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const { width } = Dimensions.get('window');
@@ -35,9 +38,6 @@ export default function AdminItemDetailScreen() {
   const [recipientName, setRecipientName] = useState('');
   const [recipientId, setRecipientId] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [matches, setMatches] = useState([]);
-  const [matchesLoading, setMatchesLoading] = useState(false);
-
   useEffect(() => {
     if (data) {
       try {
@@ -47,26 +47,6 @@ export default function AdminItemDetailScreen() {
       }
     }
   }, [data]);
-
-  useEffect(() => {
-    if (!item?.id || item.isArchive) return;
-    const isLostItem = item.type === 'LOST' || item.hasOwnProperty('ownerName') || item.hasOwnProperty('dateLost');
-    const type = isLostItem ? 'lost' : 'found';
-    if (item.is_approved === false) return;
-
-    const load = async () => {
-      setMatchesLoading(true);
-      try {
-        const results = await getMatchesForItem(item.id, type);
-        setMatches(results || []);
-      } catch (e) {
-        console.warn('Admin match load failed:', e);
-      } finally {
-        setMatchesLoading(false);
-      }
-    };
-    load();
-  }, [item]);
 
   if (!item) {
     return (
@@ -98,7 +78,7 @@ export default function AdminItemDetailScreen() {
 
   const handleConfirmReturn = async () => {
     if (!recipientName.trim()) {
-      Alert.alert('Required Info', 'Please enter the name of the person receiving the item.');
+      showAppWarning('Required info', 'Please enter the name of the person receiving the item.');
       return;
     }
 
@@ -117,12 +97,12 @@ export default function AdminItemDetailScreen() {
 
       // Navigate back after toast
       setTimeout(() => {
-        router.back();
+        safeGoBack(router, '/(admin)/DashBoard');
       }, 1500);
 
     } catch (err) {
       console.error('Failed to mark item as returned:', err);
-      Alert.alert('Error', 'Failed to archive returned item. Please try again.');
+      showAppError('Return failed', 'Failed to archive returned item. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -148,7 +128,7 @@ export default function AdminItemDetailScreen() {
       
       {/* ── HEADER ── */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerIconBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.headerIconBtn} onPress={() => safeGoBack(router, '/(admin)/DashBoard')}>
           <Ionicons name="arrow-back" size={24} color={SLATE_900} />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
@@ -177,8 +157,11 @@ export default function AdminItemDetailScreen() {
         <View style={styles.contentPadding}>
           {/* ── CATEGORY & TITLE ── */}
           <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.titleSection}>
-            <View style={styles.categoryPill}>
-              <Text style={styles.categoryPillText}>{item.category || 'GENERAL'}</Text>
+            <View style={styles.titleBadgeRow}>
+              <View style={styles.categoryPill}>
+                <Text style={styles.categoryPillText}>{item.category || 'GENERAL'}</Text>
+              </View>
+              {!item.isArchive && <ItemStatusBadge item={item} compact />}
             </View>
             <Text style={styles.titleText}>{item.itemName || item.item_name}</Text>
           </Animated.View>
@@ -244,35 +227,6 @@ export default function AdminItemDetailScreen() {
             )}
           </Animated.View>
 
-          {!item.isArchive && (matchesLoading || matches.length > 0) && (
-            <Animated.View entering={FadeInDown.delay(500).springify()} style={styles.matchesSection}>
-              <View style={styles.matchesHeader}>
-                <MaterialCommunityIcons name="auto-fix" size={20} color="#1E40AF" />
-                <Text style={styles.matchesTitle}>Smart Match Suggestions</Text>
-              </View>
-              {matchesLoading ? (
-                <ActivityIndicator color="#1E40AF" style={{ marginVertical: 12 }} />
-              ) : (
-                matches.slice(0, 5).map((m) => (
-                  <TouchableOpacity
-                    key={String(m.id)}
-                    style={styles.matchCard}
-                    onPress={() => router.push({
-                      pathname: '/(admin)/matches/compare',
-                      params: { matchData: JSON.stringify(m) },
-                    })}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.matchScore}>{m.score}% · {getConfidenceLabel(m.score)}</Text>
-                      <Text style={styles.matchName}>{m.oppositeItem?.itemName}</Text>
-                      <Text style={styles.matchMeta}>{m.oppositeItem?.location}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={SLATE_400} />
-                  </TouchableOpacity>
-                ))
-              )}
-            </Animated.View>
-          )}
         </View>
       </ScrollView>
 
@@ -315,65 +269,48 @@ export default function AdminItemDetailScreen() {
       )}
 
       {/* ── RETURN TRANSACTION MODAL ── */}
-      <Modal
+      <AppModalSheet
         visible={showReturnModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowReturnModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalIconCircle}>
-                <Ionicons name="gift-outline" size={28} color={RETURN_COLOR} />
-              </View>
-              <Text style={styles.modalTitle}>Property Handover Ledger</Text>
-              <Text style={styles.modalSubtitle}>Please register the recipient's details to archive this return transaction.</Text>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>RECIPIENT NAME *</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Full name of person receiving the item"
-                placeholderTextColor={SLATE_400}
-                value={recipientName}
-                onChangeText={setRecipientName}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>STUDENT ID (OPTIONAL)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. JU-10294"
-                placeholderTextColor={SLATE_400}
-                value={recipientId}
-                onChangeText={setRecipientId}
-                autoCapitalize="characters"
-              />
-            </View>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.modalBtnCancel]} 
-                onPress={() => setShowReturnModal(false)}
-                disabled={submitting}
-              >
-                <Text style={styles.modalBtnCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.modalBtn, { backgroundColor: RETURN_COLOR }]} 
-                onPress={handleConfirmReturn}
-                disabled={submitting}
-              >
-                <Text style={styles.modalBtnText}>Confirm Handover</Text>
-              </TouchableOpacity>
-            </View>
+        title="Property Handover Ledger"
+        subtitle="Register the recipient details before moving this item to the returned archive."
+        icon="gift-outline"
+        onClose={() => !submitting && setShowReturnModal(false)}
+        maxHeight="64%"
+        footer={
+          <View style={styles.modalActions}>
+            <AppButton
+              title="Cancel"
+              variant="secondary"
+              onPress={() => setShowReturnModal(false)}
+              disabled={submitting}
+              style={{ flex: 1 }}
+            />
+            <AppButton
+              title="Confirm Handover"
+              icon="checkmark-circle"
+              onPress={handleConfirmReturn}
+              loading={submitting}
+              style={{ flex: 1.35, backgroundColor: RETURN_COLOR }}
+            />
           </View>
-        </View>
-      </Modal>
+        }
+      >
+        <AppInput
+          label="Recipient name *"
+          value={recipientName}
+          onChangeText={setRecipientName}
+          placeholder="Full name of person receiving the item"
+          icon="person-outline"
+        />
+        <AppInput
+          label="Student ID (optional)"
+          value={recipientId}
+          onChangeText={setRecipientId}
+          placeholder="e.g. JU-10294"
+          icon="card-outline"
+          autoCapitalize="characters"
+        />
+      </AppModalSheet>
 
       <SuccessToast ref={toastRef} />
     </View>
@@ -418,7 +355,8 @@ const styles = StyleSheet.create({
   floatingBadgeText: { fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   contentPadding: { paddingHorizontal: 20 },
   titleSection: { alignItems: 'center', marginBottom: 25, marginTop: 10 },
-  categoryPill: { backgroundColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, marginBottom: 12 },
+  titleBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap', justifyContent: 'center' },
+  categoryPill: { backgroundColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
   categoryPillText: { fontSize: 12, fontWeight: '900', color: SLATE_600, letterSpacing: 1, textTransform: 'uppercase' },
   titleText: { fontSize: 32, fontWeight: '900', color: SLATE_900, lineHeight: 38, textAlign: 'center' },
   listCard: {
@@ -436,29 +374,6 @@ const styles = StyleSheet.create({
   rowRight: { flex: 1, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', paddingBottom: 10 },
   rowLabel: { fontSize: 11, fontWeight: '800', color: SLATE_400, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
   rowValue: { fontSize: 15, fontWeight: '600', color: SLATE_800, lineHeight: 22 },
-  matchesSection: {
-    backgroundColor: '#FFF',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  matchesHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  matchesTitle: { fontSize: 15, fontWeight: '900', color: SLATE_900 },
-  matchCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  matchScore: { fontSize: 11, fontWeight: '800', color: '#1E40AF' },
-  matchName: { fontSize: 14, fontWeight: '800', color: SLATE_800, marginTop: 2 },
-  matchMeta: { fontSize: 11, color: SLATE_500, marginTop: 2 },
   bottomBarWrapper: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: '#FFF', borderTopLeftRadius: 35, borderTopRightRadius: 35,

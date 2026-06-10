@@ -1,13 +1,13 @@
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert } from 'react-native';
+import { showAppWarning } from './appAlert';
 
 export { getDefaultTimeLabel, formatItemTime } from './itemTimeUtils';
 
 async function launchCamera() {
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
   if (status !== 'granted') {
-    Alert.alert('Permission Denied', 'Camera permission is required to take photos.');
+    showAppWarning('Permission denied', 'Camera permission is required to take photos.');
     return null;
   }
 
@@ -24,7 +24,7 @@ async function launchCamera() {
 async function launchGallery() {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (status !== 'granted') {
-    Alert.alert('Permission Denied', 'Gallery permission is required to choose a photo.');
+    showAppWarning('Permission denied', 'Gallery permission is required to choose a photo.');
     return null;
   }
 

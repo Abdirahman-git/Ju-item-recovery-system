@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   TextInput,
-  Alert,
   Dimensions,
   Platform,
 } from 'react-native';
@@ -19,11 +18,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../../src/constants/colors';
 import SuccessToast from '../../../src/components/SuccessToast';
 import {
-  getAllLostItems,
-  getAllFoundItems,
+  adminGetAllLostItems,
+  adminGetAllFoundItems,
   deleteLostItem,
   deleteFoundItem,
 } from '../../../src/services/supabase';
+import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
+import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 
@@ -50,14 +51,14 @@ export default function AllItemsScreen() {
     try {
       setLoading(true);
       const [allLost, allFound] = await Promise.all([
-        getAllLostItems(),
-        getAllFoundItems(),
+        adminGetAllLostItems(),
+        adminGetAllFoundItems(),
       ]);
       setLostItems(allLost || []);
       setFoundItems(allFound || []);
     } catch (error) {
       console.error('Error fetching property list:', error);
-      toastRef.current?.show('Load Failed', 'Failed to retrieve property logs.', 'error');
+      showAppFailure('Failed to retrieve property logs.', 'Load failed');
     } finally {
       setLoading(false);
     }
@@ -71,52 +72,42 @@ export default function AllItemsScreen() {
 
   // Remove Lost Property Report
   const handleDeleteLost = async (item) => {
-    Alert.alert(
-      'Remove Lost Item',
-      `Are you sure you want to permanently delete report for "${item.itemName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteLostItem(item.id);
-              setLostItems(prev => prev.filter(i => i.id !== item.id));
-              toastRef.current?.show('Item Removed', 'Lost property report deleted.', 'success');
-            } catch (err) {
-              console.error('Delete lost failed:', err);
-              toastRef.current?.show('Delete Failed', 'Failed to remove lost item.', 'error');
-            }
-          },
-        },
-      ]
-    );
+    showAppConfirm({
+      title: 'Remove lost item',
+      message: `Are you sure you want to permanently delete report for "${item.itemName}"?`,
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deleteLostItem(item.id);
+          setLostItems(prev => prev.filter(i => i.id !== item.id));
+          toastRef.current?.show('Item Removed', 'Lost property report deleted.', 'success');
+        } catch (err) {
+          console.error('Delete lost failed:', err);
+              showAppFailure('Failed to remove lost item.', 'Delete failed');
+        }
+      },
+    });
   };
 
   // Remove Found Property Report
   const handleDeleteFound = async (item) => {
-    Alert.alert(
-      'Remove Found Item',
-      `Are you sure you want to permanently delete report for "${item.itemName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteFoundItem(item.id);
-              setFoundItems(prev => prev.filter(i => i.id !== item.id));
-              toastRef.current?.show('Item Removed', 'Found property report deleted.', 'success');
-            } catch (err) {
-              console.error('Delete found failed:', err);
-              toastRef.current?.show('Delete Failed', 'Failed to remove found item.', 'error');
-            }
-          },
-        },
-      ]
-    );
+    showAppConfirm({
+      title: 'Remove found item',
+      message: `Are you sure you want to permanently delete report for "${item.itemName}"?`,
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deleteFoundItem(item.id);
+          setFoundItems(prev => prev.filter(i => i.id !== item.id));
+          toastRef.current?.show('Item Removed', 'Found property report deleted.', 'success');
+        } catch (err) {
+          console.error('Delete found failed:', err);
+              showAppFailure('Failed to remove found item.', 'Delete failed');
+        }
+      },
+    });
   };
 
   // Filters based on search
@@ -234,7 +225,10 @@ export default function AllItemsScreen() {
                   <View style={styles.itemCardInfo}>
                     <View style={styles.itemCardHeaderRow}>
                       <Text style={styles.itemCardCategory}>{item.category}</Text>
-                      <Text style={[styles.itemCardBadge, styles.lostBadgeText]}>LOST</Text>
+                      <View style={styles.itemCardBadgeRow}>
+                        <ItemStatusBadge item={item} compact />
+                        <Text style={[styles.itemCardBadge, styles.lostBadgeText]}>LOST</Text>
+                      </View>
                     </View>
                     <Text style={styles.itemCardTitle} numberOfLines={1}>
                       {item.itemName}
@@ -286,7 +280,10 @@ export default function AllItemsScreen() {
                 <View style={styles.itemCardInfo}>
                   <View style={styles.itemCardHeaderRow}>
                     <Text style={styles.itemCardCategory}>{item.category}</Text>
-                    <Text style={[styles.itemCardBadge, styles.foundBadgeText]}>FOUND</Text>
+                    <View style={styles.itemCardBadgeRow}>
+                      <ItemStatusBadge item={item} compact />
+                      <Text style={[styles.itemCardBadge, styles.foundBadgeText]}>FOUND</Text>
+                    </View>
                   </View>
                   <Text style={styles.itemCardTitle} numberOfLines={1}>
                     {item.itemName}
@@ -462,6 +459,11 @@ const styles = StyleSheet.create({
   itemCardInfo: {
     flex: 1,
     justifyContent: 'center',
+  },
+  itemCardBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   itemCardHeaderRow: {
     flexDirection: 'row',

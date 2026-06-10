@@ -158,9 +158,7 @@ export default function DashboardScreen() {
   const fetchItems = async () => {
     try {
       setLoading(true);
-      // Temporary Cleanup for test data
-      await supabase.from('lost_items').delete().eq('itemName', 'Test Item from Node');
-      await supabase.from('found_items').delete().eq('itemName', 'Test Item from Node');
+      // Temporary Cleanup for test data (skipped to avoid unnecessary DB load)
 
       const [lost, found] = await Promise.all([
         getAllLostItems(),

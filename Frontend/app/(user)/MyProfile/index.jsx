@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Alert, Platform, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Platform, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../../src/constants/colors';
@@ -7,6 +7,7 @@ import CustomBottomTab from '../../../src/components/CustomBottomTab';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../src/services/supabase';
+import { showAppConfirm } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -48,21 +49,16 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
-          style: 'destructive',
-          onPress: async () => {
-            await AsyncStorage.removeItem('userSession');
-            router.replace('/(auth)/login');
-          }
-        }
-      ]
-    );
+    showAppConfirm({
+      title: 'Logout',
+      message: 'Are you sure you want to sign out?',
+      confirmText: 'Logout',
+      destructive: true,
+      onConfirm: async () => {
+        await AsyncStorage.removeItem('userSession');
+        router.replace('/(auth)/login');
+      },
+    });
   };
 
   const InfoRow = ({ icon, label, value, color }) => (

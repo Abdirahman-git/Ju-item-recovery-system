@@ -1,14 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Image, ScrollView,
-  TouchableOpacity, Dimensions, Linking, Alert, Platform, StatusBar, ActivityIndicator
+  TouchableOpacity, Dimensions, Linking, Platform, StatusBar
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { getMatchesForItem } from '../../../src/services/supabase';
-import { getConfidenceLabel } from '../../../src/utils/matchItems';
 import { readItemTimeField } from '../../../src/utils/itemTimeUtils';
+import {
+  submitItemClaim,
+  getUserPendingClaimForItem,
+  CLAIM_ALREADY_PENDING_MSG,
+} from '../../../src/services/supabase';
+import SuccessToast from '../../../src/components/SuccessToast';
+import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
+import ItemClaimFormModal from '../../../src/components/ItemClaimFormModal';
+import { showAppError } from '../../../src/utils/appAlert';
+import {
+  isLostItemRecord,
+  isOwnReportedItem,
+  canShowThisIsMine,
+  canShowNotMine,
+  shouldShowClaimSection,
+  dismissStorageKey,
+  pendingClaimStorageKey,
+} from '../../../src/utils/itemClaimUi';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const { width } = Dimensions.get('window');
@@ -21,19 +38,40 @@ const SLATE_600 = '#475569';
 const SLATE_500 = '#64748B';
 const SLATE_400 = '#94A3B8';
 const BG_MAIN = '#F4F7FA';
-const PRIMARY_MATCH = '#1E40AF';
+const PRIMARY_ACTION = '#1E40AF';
 
 export default function ItemDetailScreen() {
   const router = useRouter();
+  const toastRef = useRef(null);
   const { data } = useLocalSearchParams();
   const [item, setItem] = useState(null);
-  const [matches, setMatches] = useState([]);
-  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [studentId, setStudentId] = useState('');
+  const [claimDismissed, setClaimDismissed] = useState(false);
+  const [claimPending, setClaimPending] = useState(false);
+  const [claimModalVisible, setClaimModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('userSession').then((raw) => {
+      if (!raw) return;
+      const session = JSON.parse(raw);
+      setUserName(session.userName || '');
+      setUserEmail(session.email || '');
+      setStudentId(session.student_id || session.studentId || '');
+    });
+  }, []);
 
   useEffect(() => {
     if (data) {
       try {
-        setItem(JSON.parse(data));
+        const parsed = JSON.parse(data);
+        setItem(parsed);
+        setClaimPending(false);
+        AsyncStorage.getItem(dismissStorageKey(parsed)).then((v) => {
+          setClaimDismissed(v === '1');
+        });
       } catch (e) {
         console.error("Failed to parse item data:", e);
       }
@@ -41,24 +79,35 @@ export default function ItemDetailScreen() {
   }, [data]);
 
   useEffect(() => {
-    if (!item?.id) return;
-    const isLost = item.type === 'LOST' || item.hasOwnProperty('ownerName') || item.hasOwnProperty('dateLost');
-    const type = isLost ? 'lost' : 'found';
-    if (item.is_approved === false) return;
+    if (!item?.id || !userEmail) return;
 
-    const loadMatches = async () => {
-      setMatchesLoading(true);
+    let cancelled = false;
+    const pendingKey = pendingClaimStorageKey(item);
+    const type = isLostItemRecord(item) ? 'lost' : 'found';
+
+    (async () => {
+      const local = await AsyncStorage.getItem(pendingKey);
+      if (!cancelled && local === '1') setClaimPending(true);
+
       try {
-        const results = await getMatchesForItem(item.id, type);
-        setMatches(results || []);
+        const row = await getUserPendingClaimForItem(item.id, type, userEmail);
+        if (cancelled) return;
+        if (row) {
+          setClaimPending(true);
+          await AsyncStorage.setItem(pendingKey, '1');
+        } else {
+          setClaimPending(false);
+          await AsyncStorage.removeItem(pendingKey);
+        }
       } catch (e) {
-        console.warn('Failed to load matches:', e);
-      } finally {
-        setMatchesLoading(false);
+        console.warn('Could not check pending claim:', e?.message);
       }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    loadMatches();
-  }, [item]);
+  }, [item?.id, userEmail]);
 
   if (!item) {
     return (
@@ -68,7 +117,7 @@ export default function ItemDetailScreen() {
     );
   }
 
-  const isLost = item.type === 'LOST' || item.hasOwnProperty('ownerName') || item.hasOwnProperty('dateLost');
+  const isLost = isLostItemRecord(item);
   const themeColor = isLost ? LOST_COLOR : FOUND_COLOR;
   const lightThemeColor = isLost ? '#EFF6FF' : '#D1FAE5';
 
@@ -86,6 +135,56 @@ export default function ItemDetailScreen() {
 
   const handleCall = () => Linking.openURL(`tel:${getPhoneNumber()}`);
   const handleSMS = () => Linking.openURL(`sms:${getPhoneNumber()}`);
+
+  const isOwnItem = isOwnReportedItem(item, userEmail, userName);
+  const itemType = isLost ? 'lost' : 'found';
+  const showThisIsMine = canShowThisIsMine(item, userEmail, userName);
+  const showNotMine = canShowNotMine(item, userEmail, userName);
+  const showClaimSection = shouldShowClaimSection(item, userEmail, userName, claimDismissed);
+
+  const markClaimPending = async () => {
+    setClaimPending(true);
+    await AsyncStorage.setItem(pendingClaimStorageKey(item), '1');
+  };
+
+  const submitClaim = async (form) => {
+    try {
+      setSubmitting(true);
+      if (!userEmail) {
+        showAppError('Sign in required', 'Please log in again.');
+        return;
+      }
+      if (claimPending) {
+        setClaimModalVisible(false);
+        toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
+        return;
+      }
+      await submitItemClaim(item, itemType, {
+        description: form.description,
+        claimerEmail: userEmail,
+      });
+      setClaimModalVisible(false);
+      await markClaimPending();
+      toastRef.current?.show('Sent to admin', 'Admin will review your request.', 'success');
+    } catch (e) {
+      const msg = e?.message || '';
+      if (msg === CLAIM_ALREADY_PENDING_MSG || msg.includes('already sent')) {
+        setClaimModalVisible(false);
+        await markClaimPending();
+        toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
+        return;
+      }
+      showAppError('Could not submit', msg || 'Could not submit request.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleNotMine = async () => {
+    await AsyncStorage.setItem(dismissStorageKey(item), '1');
+    setClaimDismissed(true);
+    toastRef.current?.show('Dismissed', 'You can still contact the reporter below.', 'success');
+  };
 
   const DetailRow = ({ icon, label, value }) => (
     <View style={styles.rowContainer}>
@@ -138,8 +237,11 @@ export default function ItemDetailScreen() {
         <View style={styles.contentPadding}>
           {/* ── CATEGORY & TITLE ── */}
           <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.titleSection}>
-            <View style={styles.categoryPill}>
-              <Text style={styles.categoryPillText}>{item.category || 'GENERAL'}</Text>
+            <View style={styles.titleBadgeRow}>
+              <View style={styles.categoryPill}>
+                <Text style={styles.categoryPillText}>{item.category || 'GENERAL'}</Text>
+              </View>
+              <ItemStatusBadge item={item} compact />
             </View>
             <Text style={styles.titleText}>{item.itemName}</Text>
           </Animated.View>
@@ -164,63 +266,79 @@ export default function ItemDetailScreen() {
             </View>
           </Animated.View>
 
-          {/* ── POSSIBLE MATCHES ── */}
-          {(matchesLoading || matches.length > 0) && (
-            <Animated.View entering={FadeInDown.delay(500).springify()} style={styles.matchesSection}>
-              <View style={styles.matchesHeader}>
-                <MaterialCommunityIcons name="auto-fix" size={20} color={PRIMARY_MATCH} />
-                <Text style={styles.matchesTitle}>Possible Matches</Text>
-              </View>
-              {matchesLoading ? (
-                <ActivityIndicator color={PRIMARY_MATCH} style={{ marginVertical: 16 }} />
+          {showClaimSection && (
+            <Animated.View entering={FadeInDown.delay(500).springify()} style={styles.claimSection}>
+              <Text style={styles.claimTitle}>Ownership request</Text>
+              {claimPending ? (
+                <View style={styles.pendingBanner}>
+                  <Ionicons name="time-outline" size={22} color="#B45309" />
+                  <View style={styles.pendingBannerText}>
+                    <Text style={styles.pendingTitle}>Request sent</Text>
+                    <Text style={styles.pendingHint}>
+                      Admin is reviewing your ownership request. You cannot send another one for this item.
+                    </Text>
+                  </View>
+                </View>
               ) : (
-                matches.slice(0, 3).map((m) => (
-                  <TouchableOpacity
-                    key={String(m.id)}
-                    style={styles.matchCard}
-                    activeOpacity={0.9}
-                    onPress={() => router.push({
-                      pathname: '/(user)/matches/compare',
-                      params: { matchData: JSON.stringify(m) },
-                    })}
-                  >
-                    <View style={styles.matchCardLeft}>
-                      {m.oppositeItem?.imageURI ? (
-                        <Image source={{ uri: m.oppositeItem.imageURI }} style={styles.matchThumb} />
-                      ) : (
-                        <View style={styles.matchThumbPlaceholder}>
-                          <Ionicons name="cube-outline" size={20} color={SLATE_400} />
-                        </View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.matchScore}>{m.score}% · {getConfidenceLabel(m.score)}</Text>
-                        <Text style={styles.matchName} numberOfLines={1}>{m.oppositeItem?.itemName}</Text>
-                        <Text style={styles.matchMeta} numberOfLines={1}>{m.oppositeItem?.location}</Text>
-                      </View>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={SLATE_400} />
-                  </TouchableOpacity>
-                ))
+                <>
+                  <Text style={styles.claimHint}>
+                    If this item is yours, tell admin why. Use Not mine if it is not your item.
+                  </Text>
+                  <View style={styles.matchActions}>
+                    {showThisIsMine ? (
+                      <TouchableOpacity
+                        style={[styles.matchClaimBtn, showNotMine && { flex: 1 }]}
+                        onPress={() => setClaimModalVisible(true)}
+                        disabled={submitting}
+                      >
+                        <Ionicons name="checkmark-circle" size={16} color="#FFF" />
+                        <Text style={styles.matchClaimBtnText}>This is mine</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {showNotMine ? (
+                      <TouchableOpacity
+                        style={[styles.matchDismissBtn, showThisIsMine && { flex: 1 }]}
+                        onPress={handleNotMine}
+                        disabled={submitting}
+                      >
+                        <Ionicons name="close-circle-outline" size={16} color="#64748B" />
+                        <Text style={styles.matchDismissBtnText}>Not mine</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </>
               )}
             </Animated.View>
           )}
         </View>
       </ScrollView>
 
-      {/* ── BOTTOM ACTION BAR ── */}
-      <Animated.View entering={FadeInUp.delay(600).duration(500)} style={styles.bottomBarWrapper}>
-        <Text style={styles.contactHint}>CONTACT {isLost ? 'OWNER' : 'FINDER'} TO RETURN ITEM</Text>
-        <View style={styles.actionButtonsRow}>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: themeColor }]} onPress={handleCall}>
-            <Feather name="phone-call" size={20} color="#FFF" style={{ marginRight: 10 }} />
-            <Text style={styles.actionBtnText}>Call</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.secondaryActionBtn, { borderColor: themeColor }]} onPress={handleSMS}>
-            <Feather name="message-square" size={20} color={themeColor} style={{ marginRight: 10 }} />
-            <Text style={[styles.actionBtnText, { color: themeColor }]}>SMS</Text>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
+      {/* ── BOTTOM ACTION BAR (hidden on your own report) ── */}
+      {!isOwnItem && (
+        <Animated.View entering={FadeInUp.delay(600).duration(500)} style={styles.bottomBarWrapper}>
+          <Text style={styles.contactHint}>CONTACT {isLost ? 'OWNER' : 'FINDER'} TO RETURN ITEM</Text>
+          <View style={styles.actionButtonsRow}>
+            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: themeColor }]} onPress={handleCall}>
+              <Feather name="phone-call" size={20} color="#FFF" style={{ marginRight: 10 }} />
+              <Text style={styles.actionBtnText}>Call</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionBtn, styles.secondaryActionBtn, { borderColor: themeColor }]} onPress={handleSMS}>
+              <Feather name="message-square" size={20} color={themeColor} style={{ marginRight: 10 }} />
+              <Text style={[styles.actionBtnText, { color: themeColor }]}>SMS</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
+
+      <ItemClaimFormModal
+        visible={claimModalVisible}
+        onClose={() => !submitting && setClaimModalVisible(false)}
+        onSubmit={submitClaim}
+        submitting={submitting}
+        initialName={userName}
+        initialStudentId={studentId}
+      />
+      <SuccessToast ref={toastRef} />
     </View>
   );
 }
@@ -263,7 +381,8 @@ const styles = StyleSheet.create({
   floatingBadgeText: { fontSize: 13, fontWeight: '900', letterSpacing: 1 },
   contentPadding: { paddingHorizontal: 20 },
   titleSection: { alignItems: 'center', marginBottom: 25, marginTop: 10 },
-  categoryPill: { backgroundColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, marginBottom: 12 },
+  titleBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap', justifyContent: 'center' },
+  categoryPill: { backgroundColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
   categoryPillText: { fontSize: 12, fontWeight: '900', color: SLATE_600, letterSpacing: 1, textTransform: 'uppercase' },
   titleText: { fontSize: 32, fontWeight: '900', color: SLATE_900, lineHeight: 38, textAlign: 'center' },
   listCard: {
@@ -283,7 +402,7 @@ const styles = StyleSheet.create({
   rowRight: { flex: 1, paddingVertical: 20, paddingRight: 10, borderBottomWidth: 1.5, borderBottomColor: '#F4F7FA' },
   rowLabel: { fontSize: 11, fontWeight: '800', color: SLATE_400, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 },
   rowValue: { fontSize: 16, fontWeight: '600', color: SLATE_800, lineHeight: 24 },
-  matchesSection: {
+  claimSection: {
     marginTop: 20,
     backgroundColor: '#FFF',
     borderRadius: 24,
@@ -291,31 +410,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  matchesHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  matchesTitle: { fontSize: 16, fontWeight: '900', color: SLATE_900 },
-  matchCard: {
+  claimTitle: { fontSize: 16, fontWeight: '900', color: SLATE_900, marginBottom: 6 },
+  claimHint: { fontSize: 12, color: SLATE_500, lineHeight: 18, marginBottom: 14 },
+  pendingBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  pendingBannerText: { flex: 1 },
+  pendingTitle: { fontSize: 14, fontWeight: '900', color: '#92400E', marginBottom: 4 },
+  pendingHint: { fontSize: 12, color: '#B45309', lineHeight: 18 },
+  matchActions: { flexDirection: 'row', gap: 8 },
+  matchClaimBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  matchCardLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  matchThumb: { width: 48, height: 48, borderRadius: 12 },
-  matchThumbPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#E2E8F0',
     justifyContent: 'center',
-    alignItems: 'center',
+    gap: 6,
+    backgroundColor: PRIMARY_ACTION,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-  matchScore: { fontSize: 11, fontWeight: '800', color: PRIMARY_MATCH, marginBottom: 2 },
-  matchName: { fontSize: 14, fontWeight: '800', color: SLATE_800 },
-  matchMeta: { fontSize: 11, color: SLATE_500, marginTop: 2 },
+  matchClaimBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  matchDismissBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  matchDismissBtnText: { color: '#64748B', fontSize: 13, fontWeight: '700' },
   bottomBarWrapper: {
     position: 'absolute', bottom: 0, width: '100%',
     backgroundColor: '#FFF', paddingHorizontal: 25, paddingTop: 20, paddingBottom: 35,

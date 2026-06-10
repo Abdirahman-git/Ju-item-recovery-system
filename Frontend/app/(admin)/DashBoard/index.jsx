@@ -22,8 +22,8 @@ import {
   getAllFoundItems,
   getPendingLostItems,
   getPendingFoundItems,
-  getConfirmedMatchCount,
 } from '../../../src/services/supabase';
+import { showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -38,7 +38,6 @@ export default function AdminDashboardOverview() {
   const [lostItems, setLostItems] = useState([]);
   const [foundItems, setFoundItems] = useState([]);
   const [pendingReportsCount, setPendingReportsCount] = useState(0);
-  const [confirmedMatchCount, setConfirmedMatchCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [adminName, setAdminName] = useState('Admin');
 
@@ -52,13 +51,12 @@ export default function AdminDashboardOverview() {
         setAdminName(session.userName || 'Admin');
       }
       
-      const [allUsers, allLost, allFound, pendingLost, pendingFound, confirmedCount] = await Promise.all([
+      const [allUsers, allLost, allFound, pendingLost, pendingFound] = await Promise.all([
         getAllUsers(),
         getAllLostItems(),
         getAllFoundItems(),
         getPendingLostItems(),
         getPendingFoundItems(),
-        getConfirmedMatchCount(),
       ]);
       
       setUsers(allUsers || []);
@@ -67,10 +65,9 @@ export default function AdminDashboardOverview() {
       
       const totalPending = (pendingLost?.length || 0) + (pendingFound?.length || 0);
       setPendingReportsCount(totalPending);
-      setConfirmedMatchCount(confirmedCount);
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
-      toastRef.current?.show('Load Failed', 'Failed to retrieve ledger data.', 'error');
+      showAppFailure('Failed to retrieve dashboard data.', 'Load failed');
     } finally {
       setLoading(false);
     }
@@ -212,24 +209,6 @@ export default function AdminDashboardOverview() {
               <Text style={styles.actionBtnText}>Returned Items</Text>
             </TouchableOpacity>
           </View>
-
-          {confirmedMatchCount > 0 && (
-            <TouchableOpacity
-              style={styles.confirmedBanner}
-              onPress={() => router.push('/(admin)/ConfirmedMatches')}
-            >
-              <View style={styles.confirmedBannerLeft}>
-                <MaterialCommunityIcons name="link-variant" size={22} color="#1E40AF" />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={styles.confirmedBannerTitle}>Confirmed Matches</Text>
-                  <Text style={styles.confirmedBannerSub}>
-                    {confirmedMatchCount} pair{confirmedMatchCount > 1 ? 's' : ''} awaiting admin review
-                  </Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#1E40AF" />
-            </TouchableOpacity>
-          )}
 
           {/* System Integrity & Diagnostics */}
           <View style={styles.systemStatusCard}>

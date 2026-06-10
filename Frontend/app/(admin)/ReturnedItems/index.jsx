@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   TextInput,
-  Alert,
   Dimensions,
   Platform,
   StatusBar
@@ -20,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { Colors } from '../../../src/constants/colors';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { getAllReturnedItems } from '../../../src/services/supabase';
+import { showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -50,7 +50,7 @@ export default function ReturnedItemsScreen() {
       setReturnedItems(data || []);
     } catch (error) {
       console.error('Error fetching returned items:', error);
-      toastRef.current?.show('Load Failed', 'Failed to retrieve returned archives.', 'error');
+      showAppFailure('Failed to retrieve returned archives.', 'Load failed');
     } finally {
       setLoading(false);
     }

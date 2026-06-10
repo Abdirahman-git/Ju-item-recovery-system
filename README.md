@@ -13,7 +13,9 @@ The project is split into a **React Native (Expo) frontend** and a **Node.js bac
 | **Student** | Activate account, log in, report lost/found items, browse approved listings, view own reports, contact reporters |
 | **Admin** | View dashboard stats, approve/reject item reports, manage student accounts, change admin password |
 
-New item reports are saved with `is_approved: false` and only appear to other students after an admin approves them.
+New item reports start as **`pending_review`** (legacy: `is_approved: false`) and only appear on the public feed after admin approval (**`live`**). Students contact each other via **Call/SMS** on item details. Admins can mark items as returned from the item detail screen.
+
+**Database:** run `supabase/item_status.sql` in the Supabase SQL Editor (optional; legacy `matched` / `claim_pending` rows are shown as **Live** in the app).
 
 ---
 
@@ -319,9 +321,7 @@ Then press `a` (Android), `i` (iOS), or scan the QR code with Expo Go.
 
 Create these tables in your Supabase project and seed `student_directory` with student records (including `email` for OTP).
 
-**Item matching:** Run [`supabase/item_matches.sql`](./supabase/item_matches.sql) in the Supabase SQL Editor. This creates the `item_matches` table and disables RLS so the mobile app can save matches.
-
-If you prefer backend-only writes for matches, set `SUPABASE_KEY` in `Backend/.env` to your **service_role** key (not the anon key). The app will fall back to `/api/matches/*` when direct client writes are blocked.
+Automatic item matching and ownership claims are **not used** in the current app build. Old `item_matches` / `item_claims` tables in Supabase can remain unused.
 
 Optionally create storage buckets for item images if you enable `uploadImage()` in `supabase.js`.
 

@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../../../src/constants/colors';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { supabase } from '../../../src/services/supabase';
+import { showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 
@@ -54,15 +55,35 @@ export default function MyProfileScreen() {
           .from('users')
           .select('*', { count: 'exact', head: true });
 
-        const { count: pendingLost } = await supabase
-          .from('lost_items')
-          .select('*', { count: 'exact', head: true })
-          .eq('is_approved', false);
-
-        const { count: pendingFound } = await supabase
-          .from('found_items')
-          .select('*', { count: 'exact', head: true })
-          .eq('is_approved', false);
+        let pendingLost = 0;
+        let pendingFound = 0;
+        try {
+          const [lostRes, foundRes] = await Promise.all([
+            supabase
+              .from('lost_items')
+              .select('*', { count: 'exact', head: true })
+              .eq('status', 'pending_review'),
+            supabase
+              .from('found_items')
+              .select('*', { count: 'exact', head: true })
+              .eq('status', 'pending_review'),
+          ]);
+          pendingLost = lostRes.count || 0;
+          pendingFound = foundRes.count || 0;
+        } catch (statusErr) {
+          const [lostRes, foundRes] = await Promise.all([
+            supabase
+              .from('lost_items')
+              .select('*', { count: 'exact', head: true })
+              .eq('is_approved', false),
+            supabase
+              .from('found_items')
+              .select('*', { count: 'exact', head: true })
+              .eq('is_approved', false),
+          ]);
+          pendingLost = lostRes.count || 0;
+          pendingFound = foundRes.count || 0;
+        }
 
         const { count: totalLost } = await supabase
           .from('lost_items')
@@ -80,7 +101,7 @@ export default function MyProfileScreen() {
       }
     } catch (error) {
       console.error('Error fetching admin profile/stats:', error);
-      toastRef.current?.show('Failed to retrieve profile data.', '', 'error');
+      showAppFailure('Failed to retrieve profile data.', 'Load failed');
     } finally {
       setLoading(false);
     }

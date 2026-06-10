@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../src/services/supabase';
 import { View, ActivityIndicator } from 'react-native';
 import { Colors } from '../src/constants/colors';
+import AppAlertProvider from '../src/components/AppAlertProvider';
 
 // Loading fonts
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
@@ -21,20 +22,20 @@ export default function RootLayout() {
     setInitialized(true);
   }, []);
 
-  if (!fontsLoaded || !initialized) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.white }}>
-        <ActivityIndicator size="large" color="#94A3B8" />
-      </View>
-    );
-  }
-
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(user)" />
-      <Stack.Screen name="(admin)" />
-    </Stack>
+    <AppAlertProvider>
+      {!fontsLoaded || !initialized ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.white }}>
+          <ActivityIndicator size="large" color="#94A3B8" />
+        </View>
+      ) : (
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(user)" />
+          <Stack.Screen name="(admin)" />
+        </Stack>
+      )}
+    </AppAlertProvider>
   );
 }

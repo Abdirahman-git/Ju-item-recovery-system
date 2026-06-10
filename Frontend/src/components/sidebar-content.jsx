@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../constants/colors';
+import { showAppConfirm } from '../utils/appAlert';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 
@@ -32,14 +33,22 @@ export default function SidebarContent(props) {
     loadUserData();
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      await AsyncStorage.multiRemove(['isLoggedIn', 'userSession']);
-      await AsyncStorage.setItem('showLogoutToast', 'true');
-      router.replace('/(auth)/login');
-    } catch (e) {
-      console.error('Logout error', e);
-    }
+  const handleLogout = () => {
+    showAppConfirm({
+      title: 'Sign out',
+      message: 'Are you sure you want to sign out?',
+      confirmText: 'Sign out',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await AsyncStorage.multiRemove(['isLoggedIn', 'userSession']);
+          await AsyncStorage.setItem('showLogoutToast', 'true');
+          router.replace('/(auth)/login');
+        } catch (e) {
+          console.error('Logout error', e);
+        }
+      },
+    });
   };
 
   const NavItem = ({ icon, label, onPress, active = false, color = '#64748B' }) => (

@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../../../src/constants/colors';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { supabase } from '../../../src/services/supabase';
+import { showAppError, showAppValidation } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 
@@ -49,7 +50,7 @@ export default function ChangePasswordScreen() {
       }
     } catch (error) {
       console.error('Error fetching admin for password change:', error);
-      toastRef.current?.show('Error Loading Profile', '', 'error');
+      showAppError('Could not load profile', 'Failed to load your account. Try again.');
     } finally {
       setLoading(false);
     }
@@ -63,22 +64,22 @@ export default function ChangePasswordScreen() {
 
   const handleUpdatePassword = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
-      toastRef.current?.show('Please fill in all fields.', '', 'error');
+      showAppValidation('Please fill in all password fields.');
       return;
     }
 
     if (admin.password !== oldPassword) {
-      toastRef.current?.show('Current password is incorrect.', '', 'error');
+      showAppValidation('Current password is incorrect.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      toastRef.current?.show('New passwords do not match.', '', 'error');
+      showAppValidation('New passwords do not match.');
       return;
     }
 
     if (newPassword.length < 6) {
-      toastRef.current?.show('Password must be 6+ characters.', '', 'error');
+      showAppValidation('Password must be at least 6 characters.');
       return;
     }
 
@@ -100,7 +101,7 @@ export default function ChangePasswordScreen() {
       setAdmin(prev => ({ ...prev, password: newPassword }));
     } catch (err) {
       console.error('Update password failed:', err);
-      toastRef.current?.show('Failed to change password.', '', 'error');
+      showAppError('Update failed', 'Failed to change password. Please try again.');
     } finally {
       setPasswordLoading(false);
     }
@@ -337,11 +338,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.slate50,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.slate100,
-    paddingHorizontal: 12,
+    height: 54,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
     marginBottom: 16,
   },
   inputIcon: {
@@ -349,26 +350,21 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
     color: Colors.slate900,
   },
   submitBtn: {
-    backgroundColor: Colors.primary,
-    height: 48,
-    borderRadius: 12,
+    backgroundColor: Colors.primaryDark,
+    height: 54,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 8,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
   },
   submitBtnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
     color: Colors.white,
   },
 });

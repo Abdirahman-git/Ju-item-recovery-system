@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  TextInput, Alert, ActivityIndicator, Image, Modal,
+  TextInput, ActivityIndicator, Image, Modal,
   Dimensions, Platform, StatusBar, Animated as RNAnimated
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, Layout, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
@@ -23,6 +23,8 @@ import {
   isFutureDateTime,
   shouldCommitPickerValue,
 } from '../../../src/utils/itemTimeUtils';
+import { showAppWarning } from '../../../src/utils/appAlert';
+import { guardCampusForReport } from '../../../src/utils/campusGeofence';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const { width } = Dimensions.get('window');
@@ -60,6 +62,7 @@ export default function LostPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [checkingLocation, setCheckingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -104,7 +107,7 @@ export default function LostPage() {
     }
 
     if (isFutureDateTime(newItem.dateLost, selectedTime)) {
-      Alert.alert('Invalid Time', 'You cannot select a future time for today.');
+      showAppWarning('Invalid time', 'You cannot select a future time for today.');
       if (Platform.OS === 'ios') setShowTimePicker(false);
       return;
     }
@@ -113,6 +116,17 @@ export default function LostPage() {
     setTempTime(selectedTime);
     setNewItem((prev) => ({ ...prev, timeLost: timeString }));
     if (Platform.OS === 'ios') setShowTimePicker(false);
+  };
+
+  const openReportModal = async () => {
+    if (checkingLocation) return;
+    setCheckingLocation(true);
+    try {
+      const allowed = await guardCampusForReport();
+      if (allowed) setModalVisible(true);
+    } finally {
+      setCheckingLocation(false);
+    }
   };
 
   const fetchLostItems = async () => {
@@ -149,7 +163,7 @@ export default function LostPage() {
   const handleCreateItem = async () => {
     const { valid, missing } = validateLostItemForm(newItem);
     if (!valid) {
-      Alert.alert('Required Fields', getValidationAlertMessage(missing));
+      showAppWarning('Required fields', getValidationAlertMessage(missing));
       return;
     }
 
@@ -263,8 +277,12 @@ export default function LostPage() {
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <Text style={styles.headerTitle}>Lost Items</Text>
-          <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
-            <Ionicons name="add" size={24} color="#FFF" />
+          <TouchableOpacity style={styles.addBtn} onPress={openReportModal} disabled={checkingLocation}>
+            {checkingLocation ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Ionicons name="add" size={24} color="#FFF" />
+            )}
           </TouchableOpacity>
         </View>
         <View style={styles.searchContainer}>
@@ -560,7 +578,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   portalTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900',
     color: SLATE_900,
     marginBottom: 10,
@@ -571,17 +589,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   fieldLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
-    color: SLATE_900,
-    letterSpacing: 1,
-    marginBottom: 12,
+    color: SLATE_400,
+    letterSpacing: 0.8,
+    marginBottom: 8,
     paddingHorizontal: 25,
+    textTransform: 'uppercase',
   },
   uploadBox: {
     marginHorizontal: 25,
     height: 180,
-    borderRadius: 25,
+    borderRadius: 20,
     borderWidth: 2,
     borderStyle: 'dashed',
     marginBottom: 30,
@@ -623,23 +642,18 @@ const styles = StyleSheet.create({
     color: SLATE_400,
   },
   inputGroup: {
-    marginBottom: 25,
+    marginBottom: 18,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
-    borderColor: PRIMARY_BLUE + '25',
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    height: 70,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    height: 56,
     marginHorizontal: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
   },
   inputIcon: {
     marginRight: 12,
@@ -658,18 +672,13 @@ const styles = StyleSheet.create({
   categoryPillNew: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
-    borderColor: PRIMARY_BLUE + '25',
+    borderColor: '#E2E8F0',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 18,
+    borderRadius: 16,
     marginRight: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
   },
   categoryPillTextNew: {
     fontSize: 14,
@@ -705,16 +714,11 @@ const styles = StyleSheet.create({
   submitBtnNew: {
     backgroundColor: PRIMARY_BLUE,
     marginHorizontal: 25,
-    height: 75,
-    borderRadius: 25,
+    height: 56,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 15,
-    elevation: 6,
   },
   submitBtnTextNew: {
     color: '#FFF',

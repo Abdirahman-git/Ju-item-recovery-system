@@ -86,10 +86,10 @@ export default function AdminLayout() {
         }}
       />
       <Drawer.Screen
-        name="ConfirmedMatches/index"
+        name="MatchClaims/index"
         options={{
-          drawerLabel: 'Confirmed Matches',
-          title: 'Confirmed Matches',
+          drawerLabel: 'Ownership Requests',
+          title: 'Ownership Requests',
         }}
       />
       <Drawer.Screen
@@ -97,14 +97,6 @@ export default function AdminLayout() {
         options={{
           drawerLabel: () => null,
           title: 'Item Details',
-          drawerItemStyle: { display: 'none' },
-        }}
-      />
-      <Drawer.Screen
-        name="matches/compare"
-        options={{
-          drawerLabel: () => null,
-          title: 'Match Compare',
           drawerItemStyle: { display: 'none' },
         }}
       />

@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../constants/colors';
-import { getPendingLostItems, getPendingFoundItems, getConfirmedMatchCount } from '../services/supabase';
+import {
+  getPendingLostItems,
+  getPendingFoundItems,
+  getPendingItemClaimCount,
+} from '../services/supabase';
+import { showAppConfirm } from '../utils/appAlert';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 
@@ -12,7 +17,7 @@ export default function AdminSidebarContent(props) {
   const router = useRouter();
   const [adminName, setAdminName] = useState('Sarah Admin');
   const [pendingCount, setPendingCount] = useState(0);
-  const [confirmedCount, setConfirmedCount] = useState(0);
+  const [claimsCount, setClaimsCount] = useState(0);
 
   // Get active route name to highlight menu item
   const { state } = props;
@@ -33,15 +38,15 @@ export default function AdminSidebarContent(props) {
 
     const fetchPendingCount = async () => {
       try {
-        const [pendingLost, pendingFound, confirmed] = await Promise.all([
+        const [pendingLost, pendingFound, claims] = await Promise.all([
           getPendingLostItems(),
           getPendingFoundItems(),
-          getConfirmedMatchCount(),
+          getPendingItemClaimCount(),
         ]);
-        
+
         const totalPending = (pendingLost?.length || 0) + (pendingFound?.length || 0);
         setPendingCount(totalPending);
-        setConfirmedCount(confirmed);
+        setClaimsCount(claims);
       } catch (e) {
         console.error('Error fetching sidebar counts', e);
       }
@@ -56,26 +61,21 @@ export default function AdminSidebarContent(props) {
   }, []);
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out from the Admin Control Panel?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.multiRemove(['isLoggedIn', 'userSession']);
-              await AsyncStorage.setItem('showLogoutToast', 'true');
-              router.replace('/(auth)/login');
-            } catch (e) {
-              console.error('Logout error', e);
-            }
-          },
-        },
-      ]
-    );
+    showAppConfirm({
+      title: 'Sign out',
+      message: 'Are you sure you want to sign out from the Admin Control Panel?',
+      confirmText: 'Sign out',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await AsyncStorage.multiRemove(['isLoggedIn', 'userSession']);
+          await AsyncStorage.setItem('showLogoutToast', 'true');
+          router.replace('/(auth)/login');
+        } catch (e) {
+          console.error('Logout error', e);
+        }
+      },
+    });
   };
 
   const NavItem = ({ icon, label, routeName, onPress, badge = 0, isRed = false }) => {
@@ -194,12 +194,12 @@ export default function AdminSidebarContent(props) {
             routeName="ReturnedItems/index"
             onPress={() => router.push('/(admin)/ReturnedItems')} 
           />
-          <NavItem 
-            icon="link-outline" 
-            label="Confirmed Matches" 
-            routeName="ConfirmedMatches/index"
-            badge={confirmedCount}
-            onPress={() => router.push('/(admin)/ConfirmedMatches')} 
+          <NavItem
+            icon="clipboard-outline"
+            label="Ownership Requests"
+            routeName="MatchClaims/index"
+            badge={claimsCount}
+            onPress={() => router.push('/(admin)/MatchClaims')}
           />
           <NavItem 
             icon="person-outline" 

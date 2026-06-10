@@ -50,14 +50,6 @@ export default function UserLayout() {
           title: 'My Profile',
         }}
       />
-      <Drawer.Screen
-        name="matches/compare"
-        options={{
-          drawerLabel: () => null,
-          title: 'Possible Matches',
-          drawerItemStyle: { display: 'none' },
-        }}
-      />
     </Drawer>
   );
 }

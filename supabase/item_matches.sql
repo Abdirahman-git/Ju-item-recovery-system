@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.item_matches (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (lost_item_id, found_item_id)
 );
-
+n
 -- Optional FK constraints (skip if your item ids use a different type)
 DO $$
 BEGIN

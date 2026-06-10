@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect, DrawerActions, useNavigation } from '@react-navigation/native';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, Platform, Dimensions, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Platform, Dimensions, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../../src/services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import SuccessToast from '../../../src/components/SuccessToast';
+import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -55,7 +56,7 @@ export default function AdminMyItemsPage() {
 
     } catch (error) {
       console.error('Error fetching items:', error.message);
-      Alert.alert('Error', 'Failed to load your items.');
+      showAppError('Load failed', 'Failed to load your items.');
     } finally {
       setLoading(false);
     }
@@ -68,68 +69,58 @@ export default function AdminMyItemsPage() {
   );
 
   const handleDelete = async (itemId, type) => {
-    Alert.alert(
-      'Delete Item',
-      'Are you sure you want to delete this report?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const table = type === 'lost' ? 'lost_items' : 'found_items';
-              const { error } = await supabase.from(table).delete().eq('id', itemId);
-              if (error) throw error;
+    showAppConfirm({
+      title: 'Delete item',
+      message: 'Are you sure you want to delete this report?',
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const table = type === 'lost' ? 'lost_items' : 'found_items';
+          const { error } = await supabase.from(table).delete().eq('id', itemId);
+          if (error) throw error;
 
-              toastRef.current?.show('Deleted!', 'Item has been removed successfully.');
+          toastRef.current?.show('Deleted!', 'Item has been removed successfully.');
 
-              if (type === 'lost') {
-                setLostItems(lostItems.filter(i => i.id !== itemId));
-              } else {
-                setFoundItems(foundItems.filter(i => i.id !== itemId));
-              }
-            } catch (error) {
-              toastRef.current?.show('Error', 'Could not delete item. Please try again.', 'error');
-            }
+          if (type === 'lost') {
+            setLostItems(lostItems.filter(i => i.id !== itemId));
+          } else {
+            setFoundItems(foundItems.filter(i => i.id !== itemId));
           }
+        } catch (error) {
+          showAppFailure('Could not delete item. Please try again.', 'Delete failed');
         }
-      ]
-    );
+      },
+    });
   };
 
   const handleClearAll = async () => {
     const itemCount = activeTab === 'lost' ? lostItems.length : foundItems.length;
     if (itemCount === 0) return;
 
-    Alert.alert(
-      'Clear All Items',
-      `Are you sure you want to delete all ${activeTab} items? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete All',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const table = activeTab === 'lost' ? 'lost_items' : 'found_items';
-              const { error } = await supabase.from(table).delete().eq('email', user.email);
-              if (error) throw error;
+    showAppConfirm({
+      title: 'Clear all items',
+      message: `Are you sure you want to delete all ${activeTab} items? This cannot be undone.`,
+      confirmText: 'Delete all',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const table = activeTab === 'lost' ? 'lost_items' : 'found_items';
+          const { error } = await supabase.from(table).delete().eq('email', user.email);
+          if (error) throw error;
 
-              toastRef.current?.show('Cleared All!', `All ${activeTab} items have been removed.`);
+          toastRef.current?.show('Cleared All!', `All ${activeTab} items have been removed.`);
 
-              if (activeTab === 'lost') {
-                setLostItems([]);
-              } else {
-                setFoundItems([]);
-              }
-            } catch (error) {
-              Alert.alert('Error', 'Could not clear items.');
-            }
+          if (activeTab === 'lost') {
+            setLostItems([]);
+          } else {
+            setFoundItems([]);
           }
+        } catch (error) {
+          showAppError('Clear failed', 'Could not clear items.');
         }
-      ]
-    );
+      },
+    });
   };
 
   const ItemCard = ({ item, type, index }) => (

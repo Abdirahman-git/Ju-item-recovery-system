@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
   progressContainer: {
     width: 160,
     height: 3,
-    backgroundColor: Colors.slate200,
+    backgroundColor: Colors.slate300,
     borderRadius: 2,
     overflow: 'hidden',
     marginBottom: 16,

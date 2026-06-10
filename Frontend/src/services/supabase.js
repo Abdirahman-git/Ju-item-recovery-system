@@ -1,9 +1,14 @@
-import 'react-native-url-polyfill/auto';
+﻿import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import { computeMatchScore, MATCH_THRESHOLD } from '../utils/matchItems';
-import { BACKEND_URL } from '../config/api';
 import { readItemTimeField } from '../utils/itemTimeUtils';
+import { BACKEND_URL } from '../config/api';
+import {
+  ITEM_STATUS,
+  FEED_STATUSES,
+  normalizeItemStatus,
+  isFeedVisible,
+} from '../utils/itemStatus';
 
 const supabaseUrl = 'https://rzlmlegawumzijcrdijq.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6bG1sZWdhd3VtemlqY3JkaWpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4MTE2NzMsImV4cCI6MjA5MDM4NzY3M30.lmtQiH-kojObUrqNTu7WhUAy7FbowI4gO29Od29GXvk';
@@ -38,9 +43,33 @@ export const normalizeItemRow = (item) => {
   return {
     ...item,
     imageURI,
+    status: normalizeItemStatus(item),
     timeLost: normalizeTime(readItemTimeField(item, 'lost')),
     timeFound: normalizeTime(readItemTimeField(item, 'found')),
   };
+};
+
+const isApprovedForStatus = (status) => status === ITEM_STATUS.LIVE;
+
+export const setItemStatus = async (table, id, status) => {
+  const patch = {
+    status,
+    is_approved: isApprovedForStatus(status),
+  };
+
+  const { error } = await supabase.from(table).update(patch).eq('id', id);
+  if (error) {
+    const missingCol = parseMissingColumn(error);
+    if (missingCol === 'status') {
+      const { error: fbError } = await supabase
+        .from(table)
+        .update({ is_approved: patch.is_approved })
+        .eq('id', id);
+      if (fbError) throw fbError;
+      return;
+    }
+    throw error;
+  }
 };
 
 const normalizeItems = (items) => (items || []).map(normalizeItemRow);
@@ -139,7 +168,7 @@ const ensurePublicImageUri = async (imageUri) => {
     const fileName = `items/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.jpg`;
     return await uploadImage(ITEM_IMAGES_BUCKET, fileName, imageUri);
   } catch (e) {
-    console.warn('Image upload skipped — item will save without photo:', e?.message);
+    console.warn('Image upload skipped â€” item will save without photo:', e?.message);
     return null;
   }
 };
@@ -278,13 +307,12 @@ const enrichItemsWithPhone = async (items) => {
 // LOST ITEMS
 export const createLostItem = async (itemData, isAdmin = false) => {
   const prepared = await prepareItemForInsert(itemData);
-  const dataToInsert = { ...prepared, is_approved: isAdmin ? true : false };
+  const dataToInsert = {
+    ...prepared,
+    is_approved: isAdmin ? true : false,
+    status: isAdmin ? ITEM_STATUS.LIVE : ITEM_STATUS.PENDING_REVIEW,
+  };
   const row = await insertItemWithColumnFallback('lost_items', dataToInsert);
-
-  if (row && isAdmin) {
-    await runMatchingForItem(row.id, 'lost').catch(() => {});
-  }
-
   return normalizeItemRow(row);
 };
 
@@ -293,29 +321,34 @@ export const getAllLostItems = async () => {
     const { data, error } = await supabase
       .from('lost_items')
       .select('*')
-      .eq('is_approved', true)
+      .in('status', FEED_STATUSES)
       .order('id', { ascending: false });
-    
-    if (error) {
-      if (error.code === '42703') {
-        const { data: fbData, error: fbError } = await supabase
-          .from('lost_items')
-          .select('*')
-          .order('id', { ascending: false });
-        if (fbError) throw fbError;
-        return await enrichItemsWithPhone(fbData || []);
-      }
-      throw error;
-    }
+
+    if (error) throw error;
     return await enrichItemsWithPhone(data || []);
   } catch (err) {
     try {
       const { data, error } = await supabase
         .from('lost_items')
         .select('*')
+        .eq('is_approved', true)
         .order('id', { ascending: false });
-      if (error) throw error;
-      return await enrichItemsWithPhone(data || []);
+      if (error) {
+        if (error.code === '42703') {
+          const { data: fbData, error: fbError } = await supabase
+            .from('lost_items')
+            .select('*')
+            .order('id', { ascending: false });
+          if (fbError) throw fbError;
+          return await enrichItemsWithPhone(
+            (fbData || []).filter((row) => isFeedVisible(row))
+          );
+        }
+        throw error;
+      }
+      return await enrichItemsWithPhone(
+        (data || []).filter((row) => isFeedVisible(row))
+      );
     } catch (e) {
       return [];
     }
@@ -336,28 +369,33 @@ export const getPendingLostItems = async () => {
     const { data, error } = await supabase
       .from('lost_items')
       .select('*')
-      .eq('is_approved', false)
+      .eq('status', ITEM_STATUS.PENDING_REVIEW)
       .order('id', { ascending: false });
-    if (error) {
-      if (error.code === '42703') return [];
-      throw error;
-    }
+    if (error) throw error;
     return await enrichItemsWithPhone(data || []);
   } catch (err) {
-    return [];
+    try {
+      const { data, error } = await supabase
+        .from('lost_items')
+        .select('*')
+        .eq('is_approved', false)
+        .order('id', { ascending: false });
+      if (error) {
+        if (error.code === '42703') return [];
+        throw error;
+      }
+      return await enrichItemsWithPhone(data || []);
+    } catch (e) {
+      return [];
+    }
   }
 };
 
 export const approveLostItem = async (id) => {
   try {
-    const { error } = await supabase
-      .from('lost_items')
-      .update({ is_approved: true })
-      .eq('id', id);
-    if (error) throw error;
-    await runMatchingForItem(id, 'lost');
+    await setItemStatus('lost_items', id, ITEM_STATUS.LIVE);
   } catch (err) {
-    console.warn("Approve lost item failed, likely column doesn't exist yet:", err.message);
+    console.warn("Approve lost item failed:", err.message);
   }
 };
 
@@ -382,13 +420,12 @@ export const deleteLostItem = async (id) => {
 // FOUND ITEMS
 export const createFoundItem = async (itemData, isAdmin = false) => {
   const prepared = await prepareItemForInsert(itemData);
-  const dataToInsert = { ...prepared, is_approved: isAdmin ? true : false };
+  const dataToInsert = {
+    ...prepared,
+    is_approved: isAdmin ? true : false,
+    status: isAdmin ? ITEM_STATUS.LIVE : ITEM_STATUS.PENDING_REVIEW,
+  };
   const row = await insertItemWithColumnFallback('found_items', dataToInsert);
-
-  if (row && isAdmin) {
-    await runMatchingForItem(row.id, 'found').catch(() => {});
-  }
-
   return normalizeItemRow(row);
 };
 
@@ -397,29 +434,34 @@ export const getAllFoundItems = async () => {
     const { data, error } = await supabase
       .from('found_items')
       .select('*')
-      .eq('is_approved', true)
+      .in('status', FEED_STATUSES)
       .order('id', { ascending: false });
-    
-    if (error) {
-      if (error.code === '42703') {
-        const { data: fbData, error: fbError } = await supabase
-          .from('found_items')
-          .select('*')
-          .order('id', { ascending: false });
-        if (fbError) throw fbError;
-        return await enrichItemsWithPhone(fbData || []);
-      }
-      throw error;
-    }
+
+    if (error) throw error;
     return await enrichItemsWithPhone(data || []);
   } catch (err) {
     try {
       const { data, error } = await supabase
         .from('found_items')
         .select('*')
+        .eq('is_approved', true)
         .order('id', { ascending: false });
-      if (error) throw error;
-      return await enrichItemsWithPhone(data || []);
+      if (error) {
+        if (error.code === '42703') {
+          const { data: fbData, error: fbError } = await supabase
+            .from('found_items')
+            .select('*')
+            .order('id', { ascending: false });
+          if (fbError) throw fbError;
+          return await enrichItemsWithPhone(
+            (fbData || []).filter((row) => isFeedVisible(row))
+          );
+        }
+        throw error;
+      }
+      return await enrichItemsWithPhone(
+        (data || []).filter((row) => isFeedVisible(row))
+      );
     } catch (e) {
       return [];
     }
@@ -440,28 +482,33 @@ export const getPendingFoundItems = async () => {
     const { data, error } = await supabase
       .from('found_items')
       .select('*')
-      .eq('is_approved', false)
+      .eq('status', ITEM_STATUS.PENDING_REVIEW)
       .order('id', { ascending: false });
-    if (error) {
-      if (error.code === '42703') return [];
-      throw error;
-    }
+    if (error) throw error;
     return await enrichItemsWithPhone(data || []);
   } catch (err) {
-    return [];
+    try {
+      const { data, error } = await supabase
+        .from('found_items')
+        .select('*')
+        .eq('is_approved', false)
+        .order('id', { ascending: false });
+      if (error) {
+        if (error.code === '42703') return [];
+        throw error;
+      }
+      return await enrichItemsWithPhone(data || []);
+    } catch (e) {
+      return [];
+    }
   }
 };
 
 export const approveFoundItem = async (id) => {
   try {
-    const { error } = await supabase
-      .from('found_items')
-      .update({ is_approved: true })
-      .eq('id', id);
-    if (error) throw error;
-    await runMatchingForItem(id, 'found');
+    await setItemStatus('found_items', id, ITEM_STATUS.LIVE);
   } catch (err) {
-    console.warn("Approve found item failed, likely column doesn't exist yet:", err.message);
+    console.warn("Approve found item failed:", err.message);
   }
 };
 
@@ -483,435 +530,257 @@ export const deleteFoundItem = async (id) => {
   if (error) throw error;
 };
 
-// ITEM MATCHING (Smart Suggestions)
-const enrichMatchRows = async (rows, sourceItemId, sourceType) => {
-  if (!rows?.length) return [];
-
-  const lostIds = [...new Set(rows.map((r) => r.lost_item_id))];
-  const foundIds = [...new Set(rows.map((r) => r.found_item_id))];
-
-  const [{ data: lostItems }, { data: foundItems }] = await Promise.all([
-    supabase.from('lost_items').select('*').in('id', lostIds),
-    supabase.from('found_items').select('*').in('id', foundIds),
-  ]);
-
-  const [enrichedLost, enrichedFound] = await Promise.all([
-    enrichItemsWithPhone(lostItems || []),
-    enrichItemsWithPhone(foundItems || []),
-  ]);
-
-  const lostMap = Object.fromEntries(enrichedLost.map((i) => [i.id, i]));
-  const foundMap = Object.fromEntries(enrichedFound.map((i) => [i.id, i]));
-
-  return rows
-    .map((row) => {
-      const lostItem = lostMap[row.lost_item_id];
-      const foundItem = foundMap[row.found_item_id];
-      if (!lostItem || !foundItem) return null;
-
-      const isSourceLost = sourceType === 'lost';
-      const sourceItem = isSourceLost ? lostItem : foundItem;
-      const oppositeItem = isSourceLost ? foundItem : lostItem;
-
-      return {
-        ...row,
-        breakdown: row.breakdown || computeMatchScore(lostItem, foundItem).breakdown,
-        sourceItem: { ...sourceItem, type: isSourceLost ? 'LOST' : 'FOUND' },
-        oppositeItem: { ...oppositeItem, type: isSourceLost ? 'FOUND' : 'LOST' },
-        lostItem,
-        foundItem,
-      };
-    })
-    .filter(Boolean)
-    .filter((m) => m.sourceItem.id === sourceItemId);
-};
-
-const MATCH_PERSIST_HELP =
-  'Run supabase/fix_item_matches_rls.sql (or item_matches.sql) in Supabase SQL Editor, then try again.';
-
+// OWNERSHIP CLAIMS (This is mine → admin, no auto-matching)
 const isRlsError = (error) =>
-  error?.message?.includes('row-level security') ||
-  error?.code === '42501';
+  error?.message?.includes('row-level security') || error?.code === '42501';
 
-const isMatchTableMissing = (error) =>
-  error?.code === '42P01' ||
-  error?.code === 'PGRST205' ||
-  error?.message?.toLowerCase().includes('item_matches');
-
-const formatMatchPersistError = (error) => {
+const formatClaimPersistError = (error) => {
   if (isRlsError(error)) {
-    return `Match could not be saved: database security (RLS) is blocking writes. ${MATCH_PERSIST_HELP}`;
+    return 'Could not send to admin: database permissions. Run supabase/item_claims.sql in Supabase.';
   }
-  if (isMatchTableMissing(error)) {
-    return `Match could not be saved: item_matches table is missing. ${MATCH_PERSIST_HELP}`;
-  }
-  return error?.message || 'Match could not be saved to database.';
+  return error?.message || 'Could not send request to admin.';
 };
 
-const throwMatchPersistError = (error) => {
-  throw new Error(formatMatchPersistError(error));
-};
-
-const persistMatchRowsViaBackend = async (rows) => {
-  const response = await fetch(`${BACKEND_URL}/api/matches/upsert`, {
+const persistClaimViaBackend = async (payload) => {
+  const response = await fetch(`${BACKEND_URL}/api/claims/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ claim: payload }),
   });
-
   const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || 'Backend match persist failed');
-  }
-
-  return data.rows || [];
+  if (!response.ok) throw new Error(data.error || 'Backend claim save failed');
+  return data.row;
 };
 
-const updateMatchStatusViaBackend = async (payload) => {
-  const response = await fetch(`${BACKEND_URL}/api/matches/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+const resolveClaimantIdentity = async (email) => {
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('You must be logged in to submit a request.');
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || 'Backend match status update failed');
-  }
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('name, student_id, email')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
 
-  return data;
+  if (error) throw error;
+  if (!user?.name?.trim()) throw new Error('Your account profile is missing a name. Contact admin.');
+  if (!user?.student_id?.trim()) throw new Error('Your account is missing a Student ID. Contact admin.');
+
+  return {
+    claimer_name: user.name.trim(),
+    claimer_email: normalizedEmail,
+    claimer_student_id: user.student_id.trim(),
+  };
 };
 
-const upsertMatchRow = async (row) => {
+const enrichClaimRows = async (rows) => {
+  if (!rows?.length) return [];
+
+  return (
+    await Promise.all(
+      rows.map(async (row) => {
+        const itemType = row.item_type || (row.lost_item_id === row.found_item_id ? 'lost' : 'found');
+        const itemId = row.item_id || row.lost_item_id || row.found_item_id;
+        const table = itemType === 'found' ? 'found_items' : 'lost_items';
+        const { data: itemRow } = await supabase.from(table).select('*').eq('id', itemId).maybeSingle();
+        if (!itemRow) return null;
+
+        const [enriched] = await enrichItemsWithPhone([itemRow]);
+        const item = { ...enriched, type: itemType === 'found' ? 'FOUND' : 'LOST' };
+        return {
+          ...row,
+          itemType,
+          itemId,
+          targetItem: item,
+          lostItem: itemType === 'lost' ? item : null,
+          foundItem: itemType === 'found' ? item : null,
+        };
+      })
+    )
+  ).filter(Boolean);
+};
+
+export const getUserPendingClaimForItem = async (itemId, itemType, claimerEmail) => {
+  const email = claimerEmail?.trim().toLowerCase();
+  if (!email || itemId == null) return null;
+
+  const id = Number(itemId);
+  if (!Number.isFinite(id)) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('item_claims')
+      .select('id, status, created_at')
+      .eq('claimer_email', email)
+      .eq('item_id', id)
+      .eq('status', 'pending')
+      .maybeSingle();
+    if (!error && data) return data;
+  } catch (e) {
+    /* item_id column may be missing */
+  }
+
+  const { data: legacy, error: legacyError } = await supabase
+    .from('item_claims')
+    .select('id, status, created_at')
+    .eq('claimer_email', email)
+    .eq('lost_item_id', id)
+    .eq('found_item_id', id)
+    .eq('status', 'pending')
+    .maybeSingle();
+
+  if (legacyError) return null;
+  return legacy;
+};
+
+export const CLAIM_ALREADY_PENDING_MSG =
+  'You already sent a request for this item. Wait for admin review.';
+
+export const submitItemClaim = async (item, itemType, claimForm) => {
+  if (!item?.id) throw new Error('Item data is missing.');
+  if (!claimForm?.description?.trim()) throw new Error('Please describe why this item is yours.');
+
+  const identity = await resolveClaimantIdentity(claimForm.claimerEmail);
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const itemId = Number(item.id);
+
   const payload = {
-    lost_item_id: Number(row.lost_item_id),
-    found_item_id: Number(row.found_item_id),
-    score: Math.round(Number(row.score) || 0),
-    breakdown: row.breakdown ?? null,
-    status: row.status ?? 'suggested',
+    lost_item_id: itemId,
+    found_item_id: itemId,
+    item_type: type,
+    item_id: itemId,
+    claimer_name: identity.claimer_name,
+    claimer_email: identity.claimer_email,
+    claimer_student_id: identity.claimer_student_id,
+    description: claimForm.description.trim(),
+    match_score: 0,
+    match_breakdown: { source: 'direct', item_type: type },
+    status: 'pending',
   };
 
-  if (!payload.lost_item_id || !payload.found_item_id) {
-    throw new Error('Match could not be saved: missing lost/found item ids.');
+  let existing = null;
+  try {
+    const { data } = await supabase
+      .from('item_claims')
+      .select('id')
+      .eq('claimer_email', identity.claimer_email)
+      .eq('item_id', itemId)
+      .eq('status', 'pending')
+      .maybeSingle();
+    existing = data;
+  } catch (e) {
+    /* item_id column may be missing */
   }
 
-  const { data, error } = await supabase
-    .from('item_matches')
-    .upsert(payload, { onConflict: 'lost_item_id,found_item_id' })
-    .select();
+  if (!existing) {
+    const { data: legacy } = await supabase
+      .from('item_claims')
+      .select('id')
+      .eq('claimer_email', identity.claimer_email)
+      .eq('lost_item_id', itemId)
+      .eq('found_item_id', itemId)
+      .eq('status', 'pending')
+      .maybeSingle();
+    existing = legacy;
+  }
 
-  if (!error && data?.length) return data[0];
+  if (existing) {
+    throw new Error(CLAIM_ALREADY_PENDING_MSG);
+  }
 
-  if (error && isRlsError(error)) {
-    try {
-      const rows = await persistMatchRowsViaBackend([payload]);
-      if (rows?.length) return rows[0];
-    } catch (backendError) {
-      console.warn('Backend match persist failed:', backendError?.message);
+  let current = { ...payload };
+  let inserted;
+  let error;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const result = await supabase.from('item_claims').insert(current).select().single();
+    inserted = result.data;
+    error = result.error;
+    if (!error) break;
+    const missingCol = parseMissingColumn(error);
+    if (missingCol && Object.prototype.hasOwnProperty.call(current, missingCol)) {
+      const next = { ...current };
+      delete next[missingCol];
+      current = next;
+      continue;
     }
-    throwMatchPersistError(error);
+    break;
   }
-
-  if (error) throwMatchPersistError(error);
-  throw new Error('Match could not be saved: no row returned from database.');
-};
-
-const computeLiveMatches = async (itemId, type) => {
-  const isLost = type === 'lost';
-  const table = isLost ? 'lost_items' : 'found_items';
-  const oppositeTable = isLost ? 'found_items' : 'lost_items';
-
-  const { data: sourceItem } = await supabase.from(table).select('*').eq('id', itemId).single();
-  if (!sourceItem?.is_approved) return [];
-
-  const { data: candidates } = await supabase
-    .from(oppositeTable)
-    .select('*')
-    .eq('is_approved', true);
-
-  const results = [];
-  for (const candidate of candidates || []) {
-    const lostItem = isLost ? sourceItem : candidate;
-    const foundItem = isLost ? candidate : sourceItem;
-    const { score, breakdown } = computeMatchScore(lostItem, foundItem);
-    if (score < MATCH_THRESHOLD) continue;
-
-    results.push({
-      id: `live-${lostItem.id}-${foundItem.id}`,
-      lost_item_id: lostItem.id,
-      found_item_id: foundItem.id,
-      score,
-      breakdown,
-      status: 'suggested',
-      sourceItem: { ...sourceItem, type: isLost ? 'LOST' : 'FOUND' },
-      oppositeItem: { ...(isLost ? foundItem : lostItem), type: isLost ? 'FOUND' : 'LOST' },
-      lostItem,
-      foundItem,
-    });
-  }
-
-  return results.sort((a, b) => b.score - a.score);
-};
-
-export const runMatchingForItem = async (itemId, type) => {
-  const live = await computeLiveMatches(itemId, type);
-  if (live.length === 0) return [];
-
-  const rows = live.map((m) => ({
-    lost_item_id: m.lost_item_id,
-    found_item_id: m.found_item_id,
-    score: m.score,
-    breakdown: m.breakdown,
-    status: 'suggested',
-  }));
-
-  const { error } = await supabase.from('item_matches').upsert(rows, {
-    onConflict: 'lost_item_id,found_item_id',
-  });
 
   if (error) {
     if (isRlsError(error)) {
-      try {
-        await persistMatchRowsViaBackend(rows);
-        return live;
-      } catch (backendError) {
-        console.warn(
-          'item_matches persist skipped:',
-          backendError.message,
-          '— Run supabase/item_matches.sql in Supabase SQL Editor, or set Backend SUPABASE_KEY to service_role.'
-        );
-        return live;
-      }
+      const row = await persistClaimViaBackend(current);
+      if (row) return row;
     }
-    console.warn(
-      'item_matches persist skipped:',
-      error.message,
-      '— Run supabase/item_matches.sql in Supabase SQL Editor.'
-    );
-    return live;
+    throw new Error(formatClaimPersistError(error));
   }
 
-  return live;
+  return inserted;
 };
 
-export const getMatchesForItem = async (itemId, type, { includeDismissed = false } = {}) => {
-  const isLost = type === 'lost';
-  const col = isLost ? 'lost_item_id' : 'found_item_id';
+export const getPendingItemClaims = async () => {
+  const { data, error } = await supabase
+    .from('item_claims')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
 
-  try {
-    let query = supabase
-      .from('item_matches')
-      .select('*')
-      .eq(col, itemId)
-      .order('score', { ascending: false });
-
-    if (!includeDismissed) {
-      query = query.eq('status', 'suggested');
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    if (data?.length) {
-      return enrichMatchRows(data, itemId, type);
-    }
-  } catch (e) {
-    console.warn('getMatchesForItem DB fallback:', e?.message);
-  }
-
-  const live = await computeLiveMatches(itemId, type);
-  if (live.length > 0) {
-    await runMatchingForItem(itemId, type);
-  }
-  return live;
+  if (error) throw new Error(error.message || 'Failed to load requests.');
+  return enrichClaimRows(data || []);
 };
 
-export const getMatchCountsForItems = async (items, type) => {
-  const counts = {};
-  if (!items?.length) return counts;
-
-  const approved = items.filter((i) => i.is_approved);
-  if (!approved.length) return counts;
-
-  const ids = approved.map((i) => i.id);
-  const col = type === 'lost' ? 'lost_item_id' : 'found_item_id';
-
-  try {
-    const { data, error } = await supabase
-      .from('item_matches')
-      .select(`${col}`)
-      .in(col, ids)
-      .eq('status', 'suggested');
-
-    if (!error && data) {
-      data.forEach((row) => {
-        const id = row[col];
-        counts[id] = (counts[id] || 0) + 1;
-      });
-      return counts;
-    }
-  } catch (e) {
-    console.warn('getMatchCountsForItems fallback:', e?.message);
-  }
-
-  for (const item of approved) {
-    const matches = await computeLiveMatches(item.id, type);
-    if (matches.length > 0) counts[item.id] = matches.length;
-  }
-  return counts;
-};
-
-export const dismissMatch = async (matchId, matchPayload) => {
-  if (String(matchId).startsWith('live-')) {
-    if (!matchPayload?.lost_item_id || !matchPayload?.found_item_id) {
-      throw new Error('Match data missing for dismiss');
-    }
-    await upsertMatchRow({
-      lost_item_id: matchPayload.lost_item_id,
-      found_item_id: matchPayload.found_item_id,
-      score: matchPayload.score ?? 0,
-      breakdown: matchPayload.breakdown,
-      status: 'dismissed',
-    });
-    return { success: true };
-  }
-
-  const { error } = await supabase
-    .from('item_matches')
-    .update({ status: 'dismissed' })
-    .eq('id', matchId);
-
-  if (error) {
-    if (isRlsError(error) && matchPayload) {
-      try {
-        await updateMatchStatusViaBackend({
-          id: matchId,
-          status: 'dismissed',
-          lost_item_id: matchPayload.lost_item_id,
-          found_item_id: matchPayload.found_item_id,
-          score: matchPayload.score,
-          breakdown: matchPayload.breakdown,
-        });
-        return { success: true };
-      } catch (backendError) {
-        console.warn('dismiss match backend sync failed:', backendError?.message);
-        throwMatchPersistError(error);
-      }
-    }
-    throw error;
-  }
-  return { success: true };
-};
-
-export const linkMatch = async (matchId, matchPayload) => {
-  if (String(matchId).startsWith('live-')) {
-    if (!matchPayload?.lost_item_id || !matchPayload?.found_item_id) {
-      throw new Error('Match data missing for link');
-    }
-    await upsertMatchRow({
-      lost_item_id: matchPayload.lost_item_id,
-      found_item_id: matchPayload.found_item_id,
-      score: matchPayload.score ?? 0,
-      breakdown: matchPayload.breakdown,
-      status: 'linked',
-    });
-    return { success: true };
-  }
-
-  const { error } = await supabase
-    .from('item_matches')
-    .update({ status: 'linked' })
-    .eq('id', matchId);
-
-  if (error) {
-    if (isRlsError(error) && matchPayload) {
-      try {
-        await updateMatchStatusViaBackend({
-          id: matchId,
-          status: 'linked',
-          lost_item_id: matchPayload.lost_item_id,
-          found_item_id: matchPayload.found_item_id,
-          score: matchPayload.score,
-          breakdown: matchPayload.breakdown,
-        });
-        return { success: true };
-      } catch (backendError) {
-        console.warn('link match backend sync failed:', backendError?.message);
-        throwMatchPersistError(error);
-      }
-    }
-    throw error;
-  }
-  return { success: true };
-};
-
-const enrichAllMatchRows = async (rows) => {
-  if (!rows?.length) return [];
-
-  const lostIds = [...new Set(rows.map((r) => r.lost_item_id))];
-  const foundIds = [...new Set(rows.map((r) => r.found_item_id))];
-
-  const [{ data: lostItems }, { data: foundItems }] = await Promise.all([
-    supabase.from('lost_items').select('*').in('id', lostIds),
-    supabase.from('found_items').select('*').in('id', foundIds),
-  ]);
-
-  const [enrichedLost, enrichedFound] = await Promise.all([
-    enrichItemsWithPhone(lostItems || []),
-    enrichItemsWithPhone(foundItems || []),
-  ]);
-
-  const lostMap = Object.fromEntries(enrichedLost.map((i) => [i.id, i]));
-  const foundMap = Object.fromEntries(enrichedFound.map((i) => [i.id, i]));
-
-  return rows
-    .map((row) => {
-      const lostItem = lostMap[row.lost_item_id];
-      const foundItem = foundMap[row.found_item_id];
-      if (!lostItem || !foundItem) return null;
-
-      const { breakdown } = computeMatchScore(lostItem, foundItem);
-
-      return {
-        ...row,
-        breakdown: row.breakdown || breakdown,
-        lostItem: { ...lostItem, type: 'LOST' },
-        foundItem: { ...foundItem, type: 'FOUND' },
-        sourceItem: { ...lostItem, type: 'LOST' },
-        oppositeItem: { ...foundItem, type: 'FOUND' },
-      };
-    })
-    .filter(Boolean);
-};
-
-export const getConfirmedMatches = async () => {
-  try {
-    const { data, error } = await supabase
-      .from('item_matches')
-      .select('*')
-      .eq('status', 'linked')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return enrichAllMatchRows(data || []);
-  } catch (e) {
-    console.warn('getConfirmedMatches failed:', e?.message);
-    return [];
-  }
-};
-
-export const getConfirmedMatchCount = async () => {
+export const getPendingItemClaimCount = async () => {
   try {
     const { count, error } = await supabase
-      .from('item_matches')
+      .from('item_claims')
       .select('*', { count: 'exact', head: true })
-      .eq('status', 'linked');
-
+      .eq('status', 'pending');
     if (error) throw error;
     return count || 0;
   } catch (e) {
     return 0;
   }
+};
+
+export const approveItemClaim = async (claim) => {
+  const itemType = claim.itemType || claim.item_type || 'found';
+  const itemId = claim.itemId || claim.item_id || claim.lost_item_id;
+  const table = itemType === 'found' ? 'found_items' : 'lost_items';
+
+  const { error: updateError } = await supabase
+    .from('item_claims')
+    .update({ status: 'approved', reviewed_at: new Date().toISOString() })
+    .eq('id', claim.id);
+
+  if (updateError) throw new Error(updateError.message);
+
+  const itemRow =
+    claim.targetItem ||
+    (await supabase.from(table).select('*').eq('id', itemId).maybeSingle()).data;
+
+  if (itemRow) {
+    await markItemAsReturned(
+      itemRow,
+      itemType.toUpperCase(),
+      claim.claimer_name,
+      claim.claimer_student_id
+    ).catch((e) => console.warn('Archive skipped:', e?.message));
+  }
+
+  return { success: true };
+};
+
+export const rejectItemClaim = async (claimId, adminNote = '') => {
+  const { error } = await supabase
+    .from('item_claims')
+    .update({
+      status: 'rejected',
+      admin_note: adminNote?.trim() || null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', claimId);
+
+  if (error) throw new Error(error.message || 'Failed to reject request.');
+  return { success: true };
 };
 
 // RETURNED ITEMS LOGS
