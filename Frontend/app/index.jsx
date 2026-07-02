@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Animated, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors } from '../src/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { verifySessionUserAccess, clearUserSession } from '../src/utils/userAccess';
 
 const JU_LOGO = require('../assets/images/jazeera_logo.png');
 
@@ -26,10 +27,16 @@ export default function SplashScreen() {
           if (session.isLoggedIn) {
             if (session.role === 'admin') {
               router.replace('/(admin)/DashBoard');
-            } else {
-              router.replace('/(user)/DashBoard');
+              return;
             }
-            return;
+
+            const access = await verifySessionUserAccess();
+            if (access.allowed) {
+              router.replace('/(user)/DashBoard');
+              return;
+            }
+
+            await clearUserSession(access.reason === 'not_approved');
           }
         }
         router.replace('/(auth)/login');

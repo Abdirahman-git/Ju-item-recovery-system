@@ -10,6 +10,7 @@ const INITIAL = {
   cancelText: 'Cancel',
   showCancel: false,
   destructive: false,
+  solidBackdrop: false,
 };
 
 const CONFIRM_INITIAL = {
@@ -47,6 +48,7 @@ export function useAppAlert() {
       cancelText = 'Cancel',
       showCancel = false,
       destructive = false,
+      solidBackdrop = false,
       onConfirm,
       onCancel,
     } = typeof options === 'string' ? { message: options } : options;
@@ -62,6 +64,7 @@ export function useAppAlert() {
       cancelText,
       showCancel,
       destructive,
+      solidBackdrop,
     });
   }, []);
 
@@ -120,6 +123,7 @@ export function useAppAlert() {
       cancelText={state.cancelText}
       showCancel={state.showCancel}
       destructive={state.destructive}
+      solidBackdrop={state.solidBackdrop}
       onConfirm={() => runPending(pendingConfirm)}
       onCancel={() => runPending(pendingCancel)}
     />

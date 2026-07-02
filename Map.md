@@ -1,5 +1,8 @@
 # Qorshaha Hirgelinta Xaddididda Goobta (Geofencing Plan)
 
+> **Production / campus demo:** `GPS_TEST_MODE = false` in `Frontend/src/utils/campusGeofence.js`  
+> **Testing away from campus:** see **`Maptest.md`** — set `GPS_TEST_MODE = true`
+
 Dukumentigan wuxuu sharraxayaa sida app-ka looga dhigayo mid u gaar ah aagga jaamacadda oo kaliya, iyadoo la isticmaalayo GPS-ka moobaylka.
 
 ## 1. Bartilmaameedka (Target Location)
@@ -38,8 +41,8 @@ Waxaan isticmaalaynaa formula xisaabeed si aan u ogaanno inta mitir oo u dhexays
 *   **U-gaarnaan:** App-ku wuxuu si dhab ah u noqonayaa mid ay leeyihiin dadka jooga jaamacadda dhexdeeda.
 
 ## 5. Xaaladda Hirgelinta (Implementation Status)
-*   **Hirgelin:** User **iyo** Admin **Lost** iyo **Found** report (+ button) — `campusGeofence.js`
-*   **GPS server:** Ma la dirayo — hubin maxalliga ah oo kaliya
+*   **Geofencing:** App-ka laga saaray — ma jiro GPS / campus check marka Lost ama Found la soo gudbinayo (user iyo admin)
+*   **Hore:** `Frontend/src/utils/campusGeofence.js` (waa la tirtiray)
 
 ---
-*Dukumentigan waa qorshaha iyo xogta campus-ka ee geofencing.*
+*Dukumentigan waa qorshaha hore ee geofencing — hadda app-ka looma isticmaalo.*

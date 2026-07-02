@@ -22,7 +22,6 @@ import {
   shouldCommitPickerValue,
 } from '../../../src/utils/itemTimeUtils';
 import { showAppWarning } from '../../../src/utils/appAlert';
-import { guardCampusForReport } from '../../../src/utils/campusGeofence';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const { width } = Dimensions.get('window');
@@ -61,7 +60,6 @@ export default function AdminFoundPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
-  const [checkingLocation, setCheckingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -117,16 +115,7 @@ export default function AdminFoundPage() {
     if (Platform.OS === 'ios') setShowTimePicker(false);
   };
 
-  const openReportModal = async () => {
-    if (checkingLocation) return;
-    setCheckingLocation(true);
-    try {
-      const allowed = await guardCampusForReport();
-      if (allowed) setModalVisible(true);
-    } finally {
-      setCheckingLocation(false);
-    }
-  };
+  const openReportModal = () => setModalVisible(true);
 
   const fetchFoundItems = async () => {
     try {
@@ -187,10 +176,10 @@ export default function AdminFoundPage() {
         setTimeout(() => {
           const successMsg = user.role === 'admin' 
             ? 'Found Item Published Directly! 📢' 
-            : 'Found Item Added Successfully!';
+            : 'Item added successfully. Wait for admin approval.';
           const successSub = user.role === 'admin' 
             ? 'The listing is live on the student feed immediately.' 
-            : 'Thank you for helping the university community.';
+            : '';
           toastRef.current?.show(successMsg, successSub);
         }, 300);
         const resetDate = new Date().toISOString().split('T')[0];
@@ -286,12 +275,8 @@ export default function AdminFoundPage() {
             <Ionicons name="menu-outline" size={28} color="#1E3A8A" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Found Items</Text>
-          <TouchableOpacity style={styles.addBtn} onPress={openReportModal} disabled={checkingLocation}>
-            {checkingLocation ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Ionicons name="add" size={24} color="#FFF" />
-            )}
+          <TouchableOpacity style={styles.addBtn} onPress={openReportModal}>
+            <Ionicons name="add" size={24} color="#FFF" />
           </TouchableOpacity>
         </View>
         <View style={styles.searchContainer}>

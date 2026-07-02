@@ -15,6 +15,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../../src/constants/colors';
+import AdminHeader from '../../../src/components/AdminHeader';
+import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import {
   getPendingLostItems,
@@ -27,7 +29,6 @@ import {
 import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const { width } = Dimensions.get('window');
-const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 
 export default function PendingReportsScreen() {
   const navigation = useNavigation();
@@ -137,32 +138,18 @@ export default function PendingReportsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Top Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-        >
-          <Ionicons name="menu-outline" size={28} color="#1E3A8A" />
-        </TouchableOpacity>
-
-        <View style={styles.headerCenter}>
-          <Image source={JU_LOGO} style={styles.headerLogo} resizeMode="contain" />
-          <Text style={styles.headerTitle}>LOFO</Text>
-        </View>
-
-        <View style={{ width: 44 }} />
-      </View>
+      <AdminHeader
+        title="Pending Reports"
+        subtitle="Report moderation"
+        onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+      />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Title Block exactly like the screenshot */}
-        <View style={styles.titleSection}>
-          <Text style={styles.sectionCategory}>REPORT MANAGEMENT</Text>
-          <Text style={styles.mainTitle}>Pending Approvals</Text>
-          <Text style={styles.subtitle}>
-            Verify lost and found property reports before publishing them. Ensure all uploads match physical guidelines before granting public visibility.
-          </Text>
-        </View>
+        <AdminPageHero
+          eyebrow="Report management"
+          title="Awaiting approval"
+          subtitle="Review lost and found submissions before they appear on the public student feed."
+        />
 
         {/* Tab Filters */}
         <View style={styles.tabBar}>

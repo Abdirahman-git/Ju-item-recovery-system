@@ -97,7 +97,7 @@ export default function AdminItemDetailScreen() {
 
       // Navigate back after toast
       setTimeout(() => {
-        safeGoBack(router, '/(admin)/DashBoard');
+        safeGoBack(router);
       }, 1500);
 
     } catch (err) {
@@ -128,7 +128,7 @@ export default function AdminItemDetailScreen() {
       
       {/* ── HEADER ── */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerIconBtn} onPress={() => safeGoBack(router, '/(admin)/DashBoard')}>
+        <TouchableOpacity style={styles.headerIconBtn} onPress={() => safeGoBack(router)}>
           <Ionicons name="arrow-back" size={24} color={SLATE_900} />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>

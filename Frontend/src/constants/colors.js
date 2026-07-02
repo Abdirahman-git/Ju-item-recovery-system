@@ -24,4 +24,15 @@ export const Colors = {
   
   white: '#FFFFFF',
   black: '#000000',
+
+  admin: {
+    sidebar: '#0B1220',
+    sidebarBorder: '#1E293B',
+    navActive: '#1E3A8A',
+    navActiveBg: 'rgba(59, 130, 246, 0.15)',
+    heroStart: '#1E3A8A',
+    heroEnd: '#0F172A',
+    card: '#FFFFFF',
+    muted: '#94A3B8',
+  },
 };

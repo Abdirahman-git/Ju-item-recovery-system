@@ -1,17 +1,20 @@
 import { Drawer } from 'expo-router/drawer';
 import SidebarContent from '../../src/components/sidebar-content';
 import { Colors } from '../../src/constants/colors';
+import useStudentAccessGuard from '../../src/hooks/useStudentAccessGuard';
 
 export default function UserLayout() {
+  useStudentAccessGuard();
+
   return (
     <Drawer
       screenOptions={{
         headerShown: false,
         drawerStyle: {
-          width: '75%',
-          backgroundColor: '#FFFFFF',
+          width: '82%',
+          backgroundColor: Colors.admin.sidebar,
         },
-        swipeEdgeWidth: 100, 
+        swipeEdgeWidth: 100,
       }}
       drawerContent={(props) => <SidebarContent {...props} />}
     >

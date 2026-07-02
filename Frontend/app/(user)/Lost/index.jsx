@@ -24,7 +24,6 @@ import {
   shouldCommitPickerValue,
 } from '../../../src/utils/itemTimeUtils';
 import { showAppWarning } from '../../../src/utils/appAlert';
-import { guardCampusForReport } from '../../../src/utils/campusGeofence';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const { width } = Dimensions.get('window');
@@ -62,7 +61,6 @@ export default function LostPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
-  const [checkingLocation, setCheckingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -118,16 +116,7 @@ export default function LostPage() {
     if (Platform.OS === 'ios') setShowTimePicker(false);
   };
 
-  const openReportModal = async () => {
-    if (checkingLocation) return;
-    setCheckingLocation(true);
-    try {
-      const allowed = await guardCampusForReport();
-      if (allowed) setModalVisible(true);
-    } finally {
-      setCheckingLocation(false);
-    }
-  };
+  const openReportModal = () => setModalVisible(true);
 
   const fetchLostItems = async () => {
     try {
@@ -189,10 +178,10 @@ export default function LostPage() {
         setTimeout(() => {
           const successMsg = user.role === 'admin' 
             ? 'Lost Item Published Directly! 📢' 
-            : 'Lost Item Added Successfully!';
+            : 'Item added successfully. Wait for admin approval.';
           const successSub = user.role === 'admin' 
             ? 'The listing is live on the student feed immediately.' 
-            : 'Please wait for admin approval before it appears in public feed.';
+            : '';
           toastRef.current?.show(successMsg, successSub);
         }, 300);
         const resetDate = new Date().toISOString().split('T')[0];
@@ -277,12 +266,8 @@ export default function LostPage() {
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <Text style={styles.headerTitle}>Lost Items</Text>
-          <TouchableOpacity style={styles.addBtn} onPress={openReportModal} disabled={checkingLocation}>
-            {checkingLocation ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Ionicons name="add" size={24} color="#FFF" />
-            )}
+          <TouchableOpacity style={styles.addBtn} onPress={openReportModal}>
+            <Ionicons name="add" size={24} color="#FFF" />
           </TouchableOpacity>
         </View>
         <View style={styles.searchContainer}>

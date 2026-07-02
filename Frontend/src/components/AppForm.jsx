@@ -176,6 +176,7 @@ export function AppAlertDialog({
   destructive = false,
   variant = 'info',
   loading = false,
+  solidBackdrop = false,
   onCancel,
   onConfirm,
 }) {
@@ -185,14 +186,14 @@ export function AppAlertDialog({
   return (
     <Modal
       visible={visible}
-      transparent
+      transparent={!solidBackdrop}
       animationType="fade"
       statusBarTranslucent
       presentationStyle="overFullScreen"
       onRequestClose={onConfirm || onCancel}
     >
-      <View style={styles.alertOverlay}>
-        <View style={styles.alertCard}>
+      <View style={solidBackdrop ? styles.alertOverlaySolid : styles.alertOverlay}>
+        <View style={solidBackdrop ? styles.alertCardSolid : styles.alertCard}>
           <View style={[styles.alertIconWrap, { backgroundColor: theme.bg }]}>
             <Ionicons name={theme.icon} size={28} color={theme.color} />
           </View>
@@ -421,6 +422,15 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     elevation: 24,
   },
+  alertOverlaySolid: {
+    flex: 1,
+    backgroundColor: WHITE,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 28,
+    zIndex: 9999,
+    elevation: 24,
+  },
   alertCard: {
     width: '100%',
     maxWidth: 340,
@@ -433,6 +443,21 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 24,
     elevation: 8,
+  },
+  alertCardSolid: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: WHITE,
+    borderRadius: 24,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: SLATE_100,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    elevation: 4,
   },
   alertIconWrap: {
     width: 56,

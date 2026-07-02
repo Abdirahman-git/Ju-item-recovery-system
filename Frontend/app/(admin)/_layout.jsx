@@ -8,10 +8,10 @@ export default function AdminLayout() {
       screenOptions={{
         headerShown: false,
         drawerStyle: {
-          width: '75%',
-          backgroundColor: '#FFFFFF',
+          width: '82%',
+          backgroundColor: Colors.admin.sidebar,
         },
-        swipeEdgeWidth: 100, 
+        swipeEdgeWidth: 100,
       }}
       drawerContent={(props) => <AdminSidebarContent {...props} />}
     >
@@ -90,6 +90,14 @@ export default function AdminLayout() {
         options={{
           drawerLabel: 'Ownership Requests',
           title: 'Ownership Requests',
+        }}
+      />
+      <Drawer.Screen
+        name="MatchClaims/detail/[id]"
+        options={{
+          drawerLabel: () => null,
+          title: 'Claim Details',
+          drawerItemStyle: { display: 'none' },
         }}
       />
       <Drawer.Screen

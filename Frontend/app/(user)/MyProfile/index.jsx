@@ -117,14 +117,7 @@ export default function ProfilePage() {
           {/* Quick Actions */}
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>App Preferences</Text>
-            <TouchableOpacity style={styles.actionItem}>
-              <View style={styles.actionLeft}>
-                <Ionicons name="notifications-outline" size={20} color="#64748B" />
-                <Text style={styles.actionText}>Notifications</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
-            </TouchableOpacity>
-            
+
             <TouchableOpacity style={styles.actionItem}>
               <View style={styles.actionLeft}>
                 <Ionicons name="shield-checkmark-outline" size={20} color="#64748B" />

@@ -223,10 +223,6 @@ export default function ForgotPasswordScreen() {
 
         {step === 2 && (
           <View>
-            {email ? (
-              <Text style={styles.emailHint}>Code sent to: {email}</Text>
-            ) : null}
-
             <Text style={styles.label}>6-DIGIT CODE</Text>
             <View style={styles.inputContainer}>
               <Ionicons name="keypad-outline" size={20} color={Colors.slate400} style={styles.icon} />

@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase, resolveReporterPhone } from '../../src/services/supabase';
+import { canUseApp, ACCOUNT_SUSPENDED_MESSAGE, clearUserSession } from '../../src/utils/userAccess';
 import { Colors } from '../../src/constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 import SuccessToast from '../../src/components/SuccessToast';
-import { showAppError, showAppValidation } from '../../src/utils/appAlert';
+import { showAppValidation } from '../../src/utils/appAlert';
 import { useRef, useEffect } from 'react';
 
 export default function LoginScreen() {
@@ -17,13 +18,26 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [inlineNotice, setInlineNotice] = useState(null);
   const toastRef = useRef(null);
+
+  const clearNotice = () => setInlineNotice(null);
 
   useEffect(() => {
     AsyncStorage.getItem('showLogoutToast').then(val => {
       if (val === 'true') {
         toastRef.current?.show('Logged Out', 'Successfully signed out of your account.');
         AsyncStorage.removeItem('showLogoutToast');
+      }
+    });
+    AsyncStorage.getItem('showSuspendedToast').then(val => {
+      if (val === 'true') {
+        setInlineNotice({
+          type: 'suspended',
+          title: 'Account not active',
+          message: ACCOUNT_SUSPENDED_MESSAGE,
+        });
+        AsyncStorage.removeItem('showSuspendedToast');
       }
     });
   }, []);
@@ -35,6 +49,7 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
+    clearNotice();
     try {
       const studentId = identifier.trim();
 
@@ -58,7 +73,12 @@ export default function LoginScreen() {
         throw new Error('Incorrect Password.');
       }
 
-      // 3. Save session (phone from users table, or student_directory fallback)
+      // 3. Block suspended / pending student accounts
+      if (!canUseApp(userRecord)) {
+        throw new Error(ACCOUNT_SUSPENDED_MESSAGE);
+      }
+
+      // 4. Save session (phone from users table, or student_directory fallback)
       const sessionPhone = await resolveReporterPhone({
         email: userRecord.email,
         name: userRecord.name,
@@ -84,7 +104,19 @@ export default function LoginScreen() {
       }
 
     } catch (err) {
-      showAppError('Login failed', err.message);
+      if (err.message === ACCOUNT_SUSPENDED_MESSAGE) {
+        setInlineNotice({
+          type: 'suspended',
+          title: 'Account not active',
+          message: err.message,
+        });
+      } else {
+        setInlineNotice({
+          type: 'error',
+          title: 'Login failed',
+          message: err.message,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -103,6 +135,26 @@ export default function LoginScreen() {
       </View>
 
       <View style={styles.card}>
+        {inlineNotice ? (
+          <View
+            style={[
+              styles.noticeBox,
+              inlineNotice.type === 'suspended' ? styles.noticeSuspended : styles.noticeError,
+            ]}
+          >
+            <Ionicons
+              name={inlineNotice.type === 'suspended' ? 'lock-closed-outline' : 'alert-circle-outline'}
+              size={22}
+              color={inlineNotice.type === 'suspended' ? '#B45309' : Colors.error}
+              style={styles.noticeIcon}
+            />
+            <View style={styles.noticeTextWrap}>
+              <Text style={styles.noticeTitle}>{inlineNotice.title}</Text>
+              <Text style={styles.noticeMessage}>{inlineNotice.message}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <Text style={styles.label}>ID NUMBER</Text>
         <View style={styles.inputContainer}>
           <TextInput
@@ -110,7 +162,10 @@ export default function LoginScreen() {
             placeholder="Enter your Student ID (e.g. CS-123)"
             placeholderTextColor={Colors.slate400}
             value={identifier}
-            onChangeText={setIdentifier}
+            onChangeText={(text) => {
+              setIdentifier(text);
+              clearNotice();
+            }}
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -124,7 +179,10 @@ export default function LoginScreen() {
             placeholder="••••••••"
             placeholderTextColor={Colors.slate400}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              clearNotice();
+            }}
             secureTextEntry={!showPassword}
           />
           <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
@@ -220,6 +278,41 @@ const styles = StyleSheet.create({
     elevation: 10,
     borderWidth: 1,
     borderColor: '#F1F5F9',
+  },
+  noticeBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 18,
+    borderWidth: 1,
+  },
+  noticeSuspended: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  noticeError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  noticeIcon: {
+    marginRight: 10,
+    marginTop: 2,
+  },
+  noticeTextWrap: {
+    flex: 1,
+  },
+  noticeTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    color: Colors.slate900,
+    marginBottom: 4,
+  },
+  noticeMessage: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.slate600,
+    lineHeight: 20,
   },
   label: {
     fontFamily: 'Inter_600SemiBold',

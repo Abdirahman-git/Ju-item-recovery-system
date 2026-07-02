@@ -7,31 +7,75 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
-  Dimensions,
-  Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../../../src/constants/colors';
+import AdminHeader from '../../../src/components/AdminHeader';
+import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { supabase } from '../../../src/services/supabase';
 import { showAppError, showAppValidation } from '../../../src/utils/appAlert';
 
-const { width } = Dimensions.get('window');
+function getInitials(name) {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+function PasswordField({ label, hint, icon, value, onChangeText, visible, onToggleVisible, placeholder }) {
+  return (
+    <View style={styles.fieldWrap}>
+      <Text style={styles.inputLabel}>{label}</Text>
+      {hint ? <Text style={styles.inputHint}>{hint}</Text> : null}
+      <View style={styles.inputContainer}>
+        <Ionicons name={icon} size={18} color={Colors.slate400} style={styles.inputIcon} />
+        <TextInput
+          style={styles.textInput}
+          placeholder={placeholder}
+          placeholderTextColor={Colors.slate400}
+          value={value}
+          onChangeText={onChangeText}
+          secureTextEntry={!visible}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          style={styles.eyeBtn}
+          onPress={onToggleVisible}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name={visible ? 'eye-off-outline' : 'eye-outline'}
+            size={20}
+            color={Colors.slate400}
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
 
 export default function ChangePasswordScreen() {
   const navigation = useNavigation();
   const toastRef = useRef(null);
 
-  // States
   const [admin, setAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [showOld, setShowOld] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const fetchProfile = async () => {
     try {
@@ -92,13 +136,14 @@ export default function ChangePasswordScreen() {
 
       if (error) throw error;
 
-      toastRef.current?.show('Password Updated! 🔐🎉', '', 'success');
+      toastRef.current?.show('Password updated', 'Your credentials have been saved.', 'success');
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      
-      // Update local state
-      setAdmin(prev => ({ ...prev, password: newPassword }));
+      setShowOld(false);
+      setShowNew(false);
+      setShowConfirm(false);
+      setAdmin((prev) => ({ ...prev, password: newPassword }));
     } catch (err) {
       console.error('Update password failed:', err);
       showAppError('Update failed', 'Failed to change password. Please try again.');
@@ -107,95 +152,153 @@ export default function ChangePasswordScreen() {
     }
   };
 
+  const openDrawer = () => navigation.dispatch(DrawerActions.openDrawer());
+
+  const passwordStrength =
+    newPassword.length === 0
+      ? null
+      : newPassword.length < 6
+        ? { label: 'Too short', color: Colors.error, width: '25%' }
+        : newPassword.length < 10
+          ? { label: 'Fair', color: Colors.warning, width: '55%' }
+          : { label: 'Strong', color: Colors.success, width: '100%' };
+
+  const passwordsMatch =
+    confirmPassword.length > 0 && newPassword === confirmPassword;
+
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-        >
-          <Ionicons name="menu-outline" size={28} color="#1E3A8A" />
-        </TouchableOpacity>
-
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>SECURE KEYSHEET</Text>
-        </View>
-
-        <View style={{ width: 44 }} />
-      </View>
+      <AdminHeader
+        title="Change Password"
+        subtitle="Account security"
+        onMenuPress={openDrawer}
+      />
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Fetching credential token...</Text>
+          <Text style={styles.loadingText}>Loading your profile…</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Header Card */}
-          <View style={styles.profileCard}>
-            <View style={styles.avatarWrapper}>
-              <View style={styles.avatar}>
-                <Ionicons name="key" size={40} color={Colors.white} />
-              </View>
-              <View style={styles.onlineBadge} />
-            </View>
+          <AdminPageHero
+            eyebrow="Security"
+            title="Update your password"
+            subtitle="Choose a strong password to keep your admin account protected."
+          />
 
-            <Text style={styles.adminNameText}>Change Access Key</Text>
-            <Text style={styles.adminRoleText}>UPDATE PASSWORD FOR {admin?.name.toUpperCase()}</Text>
+          <View style={styles.accountCard}>
+            <View style={styles.accountAvatar}>
+              <Text style={styles.accountInitials}>{getInitials(admin?.name)}</Text>
+            </View>
+            <View style={styles.accountInfo}>
+              <Text style={styles.accountName}>{admin?.name || 'Admin'}</Text>
+              <Text style={styles.accountRole}>Administrator account</Text>
+            </View>
+            <View style={styles.shieldBadge}>
+              <Ionicons name="shield-checkmark" size={18} color={Colors.primary} />
+            </View>
           </View>
 
-          {/* Form: Update Password */}
-          <Text style={styles.sectionHeader}>Security Credentials</Text>
-          <View style={styles.securityCard}>
-            <Text style={styles.inputLabel}>CURRENT PASSWORD</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={18} color={Colors.slate400} style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="Enter current password"
-                placeholderTextColor={Colors.slate400}
-                value={oldPassword}
-                onChangeText={setOldPassword}
-                secureTextEntry={true}
-              />
+          <View style={styles.tipsRow}>
+            <View style={styles.tipChip}>
+              <Ionicons name="key-outline" size={14} color={Colors.primary} />
+              <Text style={styles.tipText}>Min. 6 characters</Text>
+            </View>
+            <View style={styles.tipChip}>
+              <Ionicons name="lock-closed-outline" size={14} color={Colors.primary} />
+              <Text style={styles.tipText}>Keep it private</Text>
+            </View>
+            <View style={styles.tipChip}>
+              <Ionicons name="refresh-outline" size={14} color={Colors.primary} />
+              <Text style={styles.tipText}>Change regularly</Text>
+            </View>
+          </View>
+
+          <View style={styles.formCard}>
+            <View style={styles.formHeader}>
+              <View style={styles.formIconWrap}>
+                <Ionicons name="lock-closed" size={20} color={Colors.primary} />
+              </View>
+              <View>
+                <Text style={styles.formTitle}>Password credentials</Text>
+                <Text style={styles.formSubtitle}>Enter your current and new password below</Text>
+              </View>
             </View>
 
-            <Text style={styles.inputLabel}>NEW PASSWORD</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="key-outline" size={18} color={Colors.slate400} style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="Enter new password"
-                placeholderTextColor={Colors.slate400}
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry={true}
-              />
-            </View>
+            <PasswordField
+              label="Current password"
+              icon="lock-closed-outline"
+              placeholder="Enter current password"
+              value={oldPassword}
+              onChangeText={setOldPassword}
+              visible={showOld}
+              onToggleVisible={() => setShowOld((v) => !v)}
+            />
 
-            <Text style={styles.inputLabel}>CONFIRM NEW PASSWORD</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="key-outline" size={18} color={Colors.slate400} style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="Confirm new password"
-                placeholderTextColor={Colors.slate400}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={true}
-              />
-            </View>
+            <PasswordField
+              label="New password"
+              hint="At least 6 characters"
+              icon="key-outline"
+              placeholder="Enter new password"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              visible={showNew}
+              onToggleVisible={() => setShowNew((v) => !v)}
+            />
+
+            {passwordStrength ? (
+              <View style={styles.strengthWrap}>
+                <View style={styles.strengthTrack}>
+                  <View
+                    style={[
+                      styles.strengthFill,
+                      { width: passwordStrength.width, backgroundColor: passwordStrength.color },
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.strengthLabel, { color: passwordStrength.color }]}>
+                  {passwordStrength.label}
+                </Text>
+              </View>
+            ) : null}
+
+            <PasswordField
+              label="Confirm new password"
+              icon="checkmark-circle-outline"
+              placeholder="Re-enter new password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              visible={showConfirm}
+              onToggleVisible={() => setShowConfirm((v) => !v)}
+            />
+
+            {confirmPassword.length > 0 ? (
+              <View style={styles.matchRow}>
+                <Ionicons
+                  name={passwordsMatch ? 'checkmark-circle' : 'close-circle'}
+                  size={16}
+                  color={passwordsMatch ? Colors.success : Colors.error}
+                />
+                <Text style={[styles.matchText, { color: passwordsMatch ? Colors.success : Colors.error }]}>
+                  {passwordsMatch ? 'Passwords match' : 'Passwords do not match'}
+                </Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity
-              style={styles.submitBtn}
+              style={[styles.submitBtn, passwordLoading && styles.submitBtnDisabled]}
               onPress={handleUpdatePassword}
               disabled={passwordLoading}
+              activeOpacity={0.85}
             >
               {passwordLoading ? (
                 <ActivityIndicator color={Colors.white} />
               ) : (
-                <Text style={styles.submitBtnText}>Update Password Credentials</Text>
+                <>
+                  <Ionicons name="shield-checkmark-outline" size={20} color={Colors.white} />
+                  <Text style={styles.submitBtnText}>Update password</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -212,35 +315,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.slate50,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 50,
-    paddingBottom: 15,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-  menuButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 14,
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontFamily: 'Poppins_700Bold',
-    fontSize: 14,
-    color: '#0F172A',
-    letterSpacing: 0.5,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -256,94 +330,131 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
-  profileCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 24,
-    padding: 24,
+  accountCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.02,
-    shadowRadius: 10,
-    elevation: 2,
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: Colors.slate100,
   },
-  avatarWrapper: {
-    position: 'relative',
-    marginBottom: 16,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#1E293B',
+  accountAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: Colors.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: Colors.slate100,
+    marginRight: 12,
   },
-  onlineBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: Colors.success,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-  },
-  adminNameText: {
+  accountInitials: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 20,
-    color: Colors.slate900,
-    marginBottom: 4,
+    fontSize: 16,
+    color: Colors.primary,
   },
-  adminRoleText: {
+  accountInfo: {
+    flex: 1,
+  },
+  accountName: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 10,
-    color: Colors.slate400,
-    letterSpacing: 1.5,
-  },
-  sectionHeader: {
-    fontFamily: 'Inter_800ExtraBold',
     fontSize: 15,
     color: Colors.slate900,
-    marginBottom: 14,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginBottom: 2,
   },
-  securityCard: {
+  accountRole: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: Colors.slate500,
+  },
+  shieldBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: Colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+  tipChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+  },
+  tipText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: Colors.slate600,
+  },
+  formCard: {
     backgroundColor: Colors.white,
     borderRadius: 24,
     padding: 20,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.02,
-    shadowRadius: 10,
-    elevation: 2,
     borderWidth: 1,
     borderColor: Colors.slate100,
   },
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 12,
+  },
+  formIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: Colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  formTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    color: Colors.slate900,
+    marginBottom: 2,
+  },
+  formSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: Colors.slate500,
+  },
+  fieldWrap: {
+    marginBottom: 4,
+  },
   inputLabel: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 10,
+    fontSize: 12,
+    color: Colors.slate700,
+    marginBottom: 4,
+  },
+  inputHint: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
     color: Colors.slate400,
     marginBottom: 6,
-    letterSpacing: 1,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.slate50,
-    height: 54,
-    borderRadius: 16,
+    height: 52,
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: Colors.slate100,
     paddingHorizontal: 14,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   inputIcon: {
     marginRight: 10,
@@ -354,13 +465,58 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.slate900,
   },
-  submitBtn: {
-    backgroundColor: Colors.primaryDark,
-    height: 54,
-    borderRadius: 16,
+  eyeBtn: {
+    paddingLeft: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
+  },
+  strengthWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+    marginTop: -4,
+  },
+  strengthTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.slate100,
+    overflow: 'hidden',
+  },
+  strengthFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  strengthLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    minWidth: 52,
+    textAlign: 'right',
+  },
+  matchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+    marginTop: -6,
+  },
+  matchText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+  },
+  submitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primaryDark,
+    height: 52,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  submitBtnDisabled: {
+    opacity: 0.7,
   },
   submitBtnText: {
     fontFamily: 'Inter_700Bold',

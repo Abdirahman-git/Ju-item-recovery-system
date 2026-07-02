@@ -728,6 +728,24 @@ export const getPendingItemClaims = async () => {
   return enrichClaimRows(data || []);
 };
 
+export const getPendingItemClaimById = async (claimId) => {
+  const id = Number(claimId);
+  if (!Number.isFinite(id)) throw new Error('Invalid claim id.');
+
+  const { data, error } = await supabase
+    .from('item_claims')
+    .select('*')
+    .eq('id', id)
+    .eq('status', 'pending')
+    .maybeSingle();
+
+  if (error) throw new Error(error.message || 'Failed to load claim details.');
+  if (!data) return null;
+
+  const rows = await enrichClaimRows([data]);
+  return rows[0] || null;
+};
+
 export const getPendingItemClaimCount = async () => {
   try {
     const { count, error } = await supabase

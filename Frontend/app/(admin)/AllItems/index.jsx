@@ -8,14 +8,14 @@ import {
   Image,
   ActivityIndicator,
   TextInput,
-  Dimensions,
-  Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../../src/constants/colors';
+import AdminHeader from '../../../src/components/AdminHeader';
+import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import {
   adminGetAllLostItems,
@@ -26,19 +26,18 @@ import {
 import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
-const { width } = Dimensions.get('window');
-
 export default function AllItemsScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const toastRef = useRef(null);
   const { initialTab } = useLocalSearchParams();
 
-  // States
   const [lostItems, setLostItems] = useState([]);
   const [foundItems, setFoundItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [itemTypeFilter, setItemTypeFilter] = useState(initialTab === 'found' ? 'found' : 'lost'); // 'lost' or 'found'
+  const [itemTypeFilter, setItemTypeFilter] = useState(
+    initialTab === 'found' ? 'found' : 'lost'
+  );
   const [searchQuery, setSearchQuery] = useState('');
 
   React.useEffect(() => {
@@ -70,7 +69,6 @@ export default function AllItemsScreen() {
     }, [])
   );
 
-  // Remove Lost Property Report
   const handleDeleteLost = async (item) => {
     showAppConfirm({
       title: 'Remove lost item',
@@ -80,17 +78,16 @@ export default function AllItemsScreen() {
       onConfirm: async () => {
         try {
           await deleteLostItem(item.id);
-          setLostItems(prev => prev.filter(i => i.id !== item.id));
+          setLostItems((prev) => prev.filter((i) => i.id !== item.id));
           toastRef.current?.show('Item Removed', 'Lost property report deleted.', 'success');
         } catch (err) {
           console.error('Delete lost failed:', err);
-              showAppFailure('Failed to remove lost item.', 'Delete failed');
+          showAppFailure('Failed to remove lost item.', 'Delete failed');
         }
       },
     });
   };
 
-  // Remove Found Property Report
   const handleDeleteFound = async (item) => {
     showAppConfirm({
       title: 'Remove found item',
@@ -100,221 +97,188 @@ export default function AllItemsScreen() {
       onConfirm: async () => {
         try {
           await deleteFoundItem(item.id);
-          setFoundItems(prev => prev.filter(i => i.id !== item.id));
+          setFoundItems((prev) => prev.filter((i) => i.id !== item.id));
           toastRef.current?.show('Item Removed', 'Found property report deleted.', 'success');
         } catch (err) {
           console.error('Delete found failed:', err);
-              showAppFailure('Failed to remove found item.', 'Delete failed');
+          showAppFailure('Failed to remove found item.', 'Delete failed');
         }
       },
     });
   };
 
-  // Filters based on search
-  const filteredLostItems = lostItems.filter(item => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (item.itemName && item.itemName.toLowerCase().includes(q)) ||
-      (item.category && item.category.toLowerCase().includes(q)) ||
-      (item.location && item.location.toLowerCase().includes(q))
-    );
-  });
+  const query = searchQuery.trim().toLowerCase();
+  const filterByQuery = (item) =>
+    !query ||
+    item.itemName?.toLowerCase().includes(query) ||
+    item.category?.toLowerCase().includes(query) ||
+    item.location?.toLowerCase().includes(query) ||
+    item.ownerName?.toLowerCase().includes(query) ||
+    item.finderName?.toLowerCase().includes(query);
 
-  const filteredFoundItems = foundItems.filter(item => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (item.itemName && item.itemName.toLowerCase().includes(q)) ||
-      (item.category && item.category.toLowerCase().includes(q)) ||
-      (item.location && item.location.toLowerCase().includes(q))
-    );
-  });
+  const filteredLostItems = lostItems.filter(filterByQuery);
+  const filteredFoundItems = foundItems.filter(filterByQuery);
+
+  const activeItems = itemTypeFilter === 'lost' ? filteredLostItems : filteredFoundItems;
+  const totalItems = lostItems.length + foundItems.length;
+  const fixedTab = initialTab === 'lost' || initialTab === 'found';
+
+  const openItem = (item, type) => {
+    router.push({
+      pathname: `/(admin)/item/${item.id}`,
+      params: { data: JSON.stringify({ ...item, type }) },
+    });
+  };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-        >
-          <Ionicons name="menu-outline" size={28} color="#1E3A8A" />
-        </TouchableOpacity>
+      <AdminHeader
+        title="All Items"
+        subtitle="University property logs"
+        onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+        rightElement={
+          <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
+            <Ionicons name="refresh-outline" size={22} color={Colors.primary} />
+          </TouchableOpacity>
+        }
+      />
 
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>
-            {initialTab === 'lost' 
-              ? 'LOST PROPERTY LOGS' 
-              : initialTab === 'found' 
-              ? 'FOUND PROPERTY LOGS' 
-              : 'UNIVERSITY PROPERTY LOGS'}
-          </Text>
-        </View>
-
-        <View style={{ width: 44 }} />
-      </View>
-
-      {/* Search Bar */}
-      <View style={styles.searchBarContainer}>
-        <Ionicons name="search" size={20} color={Colors.slate400} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder={`Search in ${itemTypeFilter === 'lost' ? 'Lost' : 'Found'} Items...`}
-          placeholderTextColor={Colors.slate400}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          clearButtonMode="while-editing"
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <AdminPageHero
+          eyebrow="Item Management"
+          title={fixedTab ? `${itemTypeFilter === 'lost' ? 'Lost' : 'Found'} items` : 'All property logs'}
+          subtitle="Browse reports, inspect status, and remove invalid or duplicate items."
         />
-      </View>
 
-      {/* Sub tabs: Lost / Found Toggle (Only shown if initialTab is not passed) */}
-      {!initialTab && (
-        <View style={styles.subTabBar}>
-          <TouchableOpacity
-            style={[styles.subTabButton, itemTypeFilter === 'lost' && styles.subTabButtonActive]}
-            onPress={() => {
-              setItemTypeFilter('lost');
-              setSearchQuery('');
-            }}
-          >
-            <Text style={[styles.subTabButtonText, itemTypeFilter === 'lost' && styles.subTabButtonTextActive]}>
-              Lost Items ({lostItems.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.subTabButton, itemTypeFilter === 'found' && styles.subTabButtonActive]}
-            onPress={() => {
-              setItemTypeFilter('found');
-              setSearchQuery('');
-            }}
-          >
-            <Text style={[styles.subTabButtonText, itemTypeFilter === 'found' && styles.subTabButtonTextActive]}>
-              Found Items ({foundItems.length})
-            </Text>
-          </TouchableOpacity>
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, styles.statCardPrimary]}>
+            <Text style={styles.statNum}>{totalItems}</Text>
+            <Text style={styles.statLabel}>Total items</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardLost]}>
+            <Text style={[styles.statNum, styles.statNumLost]}>{lostItems.length}</Text>
+            <Text style={styles.statLabel}>Lost</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardFound]}>
+            <Text style={[styles.statNum, styles.statNumFound]}>{foundItems.length}</Text>
+            <Text style={styles.statLabel}>Found</Text>
+          </View>
         </View>
-      )}
 
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Fetching database ledger...</Text>
+        <View style={styles.searchBarContainer}>
+          <Ionicons name="search-outline" size={20} color={Colors.slate400} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder={`Search ${itemTypeFilter === 'lost' ? 'lost' : 'found'} items...`}
+            placeholderTextColor={Colors.slate400}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+          />
         </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
-          {itemTypeFilter === 'lost' ? (
-            filteredLostItems.length > 0 ? (
-              filteredLostItems.map((item) => (
-                <TouchableOpacity 
-                  key={`lost-${item.id}`} 
-                  style={styles.itemCard}
-                  activeOpacity={0.9}
-                  onPress={() => router.push({
-                    pathname: `/(admin)/item/${item.id}`,
-                    params: { data: JSON.stringify({ ...item, type: 'LOST' }) }
-                  })}
-                >
-                  {item.imageURI ? (
-                    <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
-                  ) : (
-                    <View style={[styles.itemCardImgPlaceholder, { backgroundColor: Colors.lostBadge }]}>
-                      <Ionicons name="search" size={28} color={Colors.lostBadgeText} />
-                    </View>
-                  )}
 
-                  <View style={styles.itemCardInfo}>
-                    <View style={styles.itemCardHeaderRow}>
-                      <Text style={styles.itemCardCategory}>{item.category}</Text>
-                      <View style={styles.itemCardBadgeRow}>
-                        <ItemStatusBadge item={item} compact />
-                        <Text style={[styles.itemCardBadge, styles.lostBadgeText]}>LOST</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.itemCardTitle} numberOfLines={1}>
-                      {item.itemName}
-                    </Text>
-                    <Text style={styles.itemCardDetail} numberOfLines={1}>
-                      <Ionicons name="location-outline" size={12} /> {item.location}
-                    </Text>
-                    <Text style={styles.itemCardDetail}>
-                      <Ionicons name="person-outline" size={12} /> Owner: {item.ownerName || 'Unknown'}
-                    </Text>
-                    <Text style={styles.itemCardDetail}>
-                      <Ionicons name="call-outline" size={12} /> Contact: {item.phnum || 'N/A'}
-                    </Text>
-                  </View>
+        {!fixedTab ? (
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tabBtn, itemTypeFilter === 'lost' && styles.tabBtnActive]}
+              onPress={() => setItemTypeFilter('lost')}
+            >
+              <Text style={[styles.tabText, itemTypeFilter === 'lost' && styles.tabTextActive]}>
+                Lost ({lostItems.length})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabBtn, itemTypeFilter === 'found' && styles.tabBtnActive]}
+              onPress={() => setItemTypeFilter('found')}
+            >
+              <Text style={[styles.tabText, itemTypeFilter === 'found' && styles.tabTextActive]}>
+                Found ({foundItems.length})
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
-                  <TouchableOpacity
-                    style={styles.itemDeleteBtn}
-                    onPress={() => handleDeleteLost(item)}
-                  >
-                    <Ionicons name="trash-outline" size={20} color={Colors.error} />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ))
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="cube-outline" size={56} color={Colors.slate300} />
-                <Text style={styles.emptyText}>No matching lost items found.</Text>
-              </View>
-            )
-          ) : filteredFoundItems.length > 0 ? (
-            filteredFoundItems.map((item) => (
-              <TouchableOpacity 
-                key={`found-${item.id}`} 
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>Loading property logs...</Text>
+          </View>
+        ) : activeItems.length > 0 ? (
+          activeItems.map((item) => {
+            const isLost = itemTypeFilter === 'lost';
+            return (
+              <TouchableOpacity
+                key={`${itemTypeFilter}-${item.id}`}
                 style={styles.itemCard}
                 activeOpacity={0.9}
-                onPress={() => router.push({
-                  pathname: `/(admin)/item/${item.id}`,
-                  params: { data: JSON.stringify({ ...item, type: 'FOUND' }) }
-                })}
+                onPress={() => openItem(item, isLost ? 'LOST' : 'FOUND')}
               >
                 {item.imageURI ? (
                   <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
                 ) : (
-                  <View style={[styles.itemCardImgPlaceholder, { backgroundColor: Colors.foundBadge }]}>
-                    <Ionicons name="checkmark-circle" size={28} color={Colors.foundBadgeText} />
+                  <View
+                    style={[
+                      styles.itemCardImgPlaceholder,
+                      { backgroundColor: isLost ? Colors.lostBadge : Colors.foundBadge },
+                    ]}
+                  >
+                    <Ionicons
+                      name={isLost ? 'help-buoy-outline' : 'checkmark-circle-outline'}
+                      size={28}
+                      color={isLost ? Colors.lostBadgeText : Colors.foundBadgeText}
+                    />
                   </View>
                 )}
 
                 <View style={styles.itemCardInfo}>
-                  <View style={styles.itemCardHeaderRow}>
-                    <Text style={styles.itemCardCategory}>{item.category}</Text>
-                    <View style={styles.itemCardBadgeRow}>
+                  <View style={styles.itemHeader}>
+                    <Text style={styles.itemCategory}>{item.category || 'Uncategorized'}</Text>
+                    <View style={styles.badges}>
                       <ItemStatusBadge item={item} compact />
-                      <Text style={[styles.itemCardBadge, styles.foundBadgeText]}>FOUND</Text>
+                      <View style={[styles.typePill, isLost ? styles.typePillLost : styles.typePillFound]}>
+                        <Text style={[styles.typePillText, isLost ? styles.typeTextLost : styles.typeTextFound]}>
+                          {isLost ? 'LOST' : 'FOUND'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
-                  <Text style={styles.itemCardTitle} numberOfLines={1}>
+
+                  <Text style={styles.itemName} numberOfLines={1}>
                     {item.itemName}
                   </Text>
-                  <Text style={styles.itemCardDetail} numberOfLines={1}>
-                    <Ionicons name="location-outline" size={12} /> {item.location}
+                  <Text style={styles.itemLine} numberOfLines={1}>
+                    <Ionicons name="location-outline" size={13} color={Colors.slate500} /> {item.location || 'Unknown'}
                   </Text>
-                  <Text style={styles.itemCardDetail}>
-                    <Ionicons name="person-outline" size={12} /> Finder: {item.finderName || 'Unknown'}
+                  <Text style={styles.itemLine} numberOfLines={1}>
+                    <Ionicons name="person-outline" size={13} color={Colors.slate500} />{' '}
+                    {isLost ? `Owner: ${item.ownerName || 'Unknown'}` : `Finder: ${item.finderName || 'Unknown'}`}
                   </Text>
-                  <Text style={styles.itemCardDetail}>
-                    <Ionicons name="call-outline" size={12} /> Contact: {item.phnum || 'N/A'}
+                  <Text style={styles.itemLine} numberOfLines={1}>
+                    <Ionicons name="call-outline" size={13} color={Colors.slate500} /> Contact: {item.phnum || 'N/A'}
                   </Text>
                 </View>
 
                 <TouchableOpacity
                   style={styles.itemDeleteBtn}
-                  onPress={() => handleDeleteFound(item)}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    if (isLost) handleDeleteLost(item);
+                    else handleDeleteFound(item);
+                  }}
                 >
-                  <Ionicons name="trash-outline" size={20} color={Colors.error} />
+                  <Ionicons name="trash-outline" size={19} color={Colors.error} />
                 </TouchableOpacity>
               </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="cube-outline" size={56} color={Colors.slate300} />
-              <Text style={styles.emptyText}>No matching found items found.</Text>
-            </View>
-          )}
-        </ScrollView>
-      )}
+            );
+          })
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="albums-outline" size={56} color={Colors.slate300} />
+            <Text style={styles.emptyTitle}>No matching items</Text>
+            <Text style={styles.emptyText}>Try another search keyword or switch tabs.</Text>
+          </View>
+        )}
+      </ScrollView>
 
       <SuccessToast ref={toastRef} />
     </View>
@@ -326,131 +290,147 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.slate50,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 50,
-    paddingBottom: 15,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-  menuButton: {
+  refreshBtn: {
     width: 44,
     height: 44,
+    borderRadius: 14,
+    backgroundColor: Colors.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 14,
   },
-  headerCenter: {
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  statCard: {
     flex: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
     alignItems: 'center',
+    borderWidth: 1,
   },
-  headerTitle: {
+  statCardPrimary: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: '#BFDBFE',
+  },
+  statCardLost: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  statCardFound: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  statNum: {
     fontFamily: 'Poppins_700Bold',
-    fontSize: 14,
-    color: '#0F172A',
-    letterSpacing: 0.5,
+    fontSize: 18,
+    color: Colors.primaryDark,
+  },
+  statNumLost: {
+    color: Colors.error,
+  },
+  statNumFound: {
+    color: Colors.success,
+  },
+  statLabel: {
+    marginTop: 2,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: Colors.slate600,
   },
   searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.white,
-    marginHorizontal: 20,
-    marginTop: 16,
-    paddingHorizontal: 16,
-    height: 48,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    height: 50,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.slate100,
     shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
   searchIcon: {
-    marginRight: 10,
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
     fontFamily: 'Inter_400Regular',
-    fontSize: 13,
+    fontSize: 14,
+    color: Colors.slate900,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: Colors.slate100,
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 14,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    backgroundColor: Colors.white,
+    shadowColor: Colors.slate900,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  tabText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate500,
+  },
+  tabTextActive: {
     color: Colors.slate900,
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    paddingTop: 60,
     alignItems: 'center',
   },
   loadingText: {
+    marginTop: 12,
     fontFamily: 'Inter_500Medium',
     fontSize: 14,
     color: Colors.slate500,
-    marginTop: 12,
-  },
-  subTabBar: {
-    flexDirection: 'row',
-    marginHorizontal: 20,
-    marginTop: 14,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 10,
-    padding: 3,
-  },
-  subTabButton: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-  },
-  subTabButtonActive: {
-    backgroundColor: Colors.white,
-    shadowColor: Colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  subTabButtonText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 10,
-    color: Colors.slate500,
-  },
-  subTabButtonTextActive: {
-    color: Colors.slate900,
-  },
-  listContent: {
-    padding: 20,
-    paddingBottom: 40,
-    gap: 12,
   },
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.white,
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
     shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.03,
-    shadowRadius: 12,
+    shadowRadius: 10,
     elevation: 2,
-    borderWidth: 1.5,
-    borderColor: Colors.white,
   },
   itemCardImg: {
-    width: 64,
-    height: 64,
+    width: 68,
+    height: 68,
     borderRadius: 14,
     marginRight: 12,
   },
   itemCardImgPlaceholder: {
-    width: 64,
-    height: 64,
+    width: 68,
+    height: 68,
     borderRadius: 14,
     marginRight: 12,
     justifyContent: 'center',
@@ -458,66 +438,84 @@ const styles = StyleSheet.create({
   },
   itemCardInfo: {
     flex: 1,
-    justifyContent: 'center',
   },
-  itemCardBadgeRow: {
+  itemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  itemCategory: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: Colors.slate400,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  badges: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  itemCardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: 10,
+  typePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  itemCardCategory: {
+  typePillLost: {
+    backgroundColor: '#FEF2F2',
+  },
+  typePillFound: {
+    backgroundColor: '#ECFDF5',
+  },
+  typePillText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 9,
-    color: Colors.slate400,
-    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  itemCardBadge: {
-    fontFamily: 'Inter_800ExtraBold',
-    fontSize: 8,
-    letterSpacing: 0.5,
-  },
-  lostBadgeText: {
+  typeTextLost: {
     color: Colors.error,
   },
-  foundBadgeText: {
+  typeTextFound: {
     color: Colors.success,
   },
-  itemCardTitle: {
-    fontFamily: 'Inter_800ExtraBold',
-    fontSize: 15,
-    color: Colors.slate800,
-    marginTop: 2,
-    marginBottom: 4,
+  itemName: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 18,
+    color: Colors.slate900,
+    marginBottom: 3,
   },
-  itemCardDetail: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 10,
-    color: Colors.slate500,
-    marginTop: 1,
+  itemLine: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: Colors.slate600,
+    marginTop: 2,
   },
   itemDeleteBtn: {
-    padding: 10,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     backgroundColor: '#FEF2F2',
-    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
-    gap: 12,
+    paddingVertical: 70,
+  },
+  emptyTitle: {
+    marginTop: 14,
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 18,
+    color: Colors.slate800,
   },
   emptyText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 14,
-    color: Colors.slate400,
+    marginTop: 6,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: Colors.slate500,
     textAlign: 'center',
   },
 });

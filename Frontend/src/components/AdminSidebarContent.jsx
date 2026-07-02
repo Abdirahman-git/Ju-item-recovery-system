@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,13 +14,58 @@ import { showAppConfirm } from '../utils/appAlert';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 
+const NAV_SECTIONS = [
+  {
+    title: 'Command Center',
+    items: [
+      { icon: 'grid', label: 'Overview', routeName: 'DashBoard/index', path: '/(admin)/DashBoard' },
+      {
+        icon: 'hourglass',
+        label: 'Pending Reports',
+        routeName: 'PendingReports/index',
+        path: '/(admin)/PendingReports',
+        badgeKey: 'pending',
+      },
+      {
+        icon: 'clipboard',
+        label: 'Ownership Requests',
+        routeName: 'MatchClaims/index',
+        path: '/(admin)/MatchClaims',
+        badgeKey: 'claims',
+      },
+    ],
+  },
+  {
+    title: 'Directory & Logs',
+    items: [
+      { icon: 'people', label: 'All Users', routeName: 'AllUsers/index', path: '/(admin)/AllUsers' },
+      { icon: 'cube', label: 'All Items', routeName: 'AllItems/index', path: '/(admin)/AllItems' },
+      { icon: 'gift', label: 'Returned Items', routeName: 'ReturnedItems/index', path: '/(admin)/ReturnedItems' },
+    ],
+  },
+  {
+    title: 'Field Reports',
+    items: [
+      { icon: 'search', label: 'Report Lost', routeName: 'Lost/index', path: '/(admin)/Lost' },
+      { icon: 'checkmark-circle', label: 'Report Found', routeName: 'Found/index', path: '/(admin)/Found' },
+      { icon: 'folder-open', label: 'My Items', routeName: 'MyItems/index', path: '/(admin)/MyItems' },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { icon: 'person', label: 'My Profile', routeName: 'MyProfile/index', path: '/(admin)/MyProfile' },
+      { icon: 'lock-closed', label: 'Change Password', routeName: 'ChangePassword/index', path: '/(admin)/ChangePassword' },
+    ],
+  },
+];
+
 export default function AdminSidebarContent(props) {
   const router = useRouter();
-  const [adminName, setAdminName] = useState('Sarah Admin');
+  const [adminName, setAdminName] = useState('Administrator');
   const [pendingCount, setPendingCount] = useState(0);
   const [claimsCount, setClaimsCount] = useState(0);
 
-  // Get active route name to highlight menu item
   const { state } = props;
   const activeRouteName = state?.routeNames[state.index];
 
@@ -43,9 +89,7 @@ export default function AdminSidebarContent(props) {
           getPendingFoundItems(),
           getPendingItemClaimCount(),
         ]);
-
-        const totalPending = (pendingLost?.length || 0) + (pendingFound?.length || 0);
-        setPendingCount(totalPending);
+        setPendingCount((pendingLost?.length || 0) + (pendingFound?.length || 0));
         setClaimsCount(claims);
       } catch (e) {
         console.error('Error fetching sidebar counts', e);
@@ -54,8 +98,6 @@ export default function AdminSidebarContent(props) {
 
     loadAdminData();
     fetchPendingCount();
-
-    // Set up interval to refresh pending reports count every 10 seconds
     const interval = setInterval(fetchPendingCount, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -78,38 +120,31 @@ export default function AdminSidebarContent(props) {
     });
   };
 
-  const NavItem = ({ icon, label, routeName, onPress, badge = 0, isRed = false }) => {
+  const badgeFor = (key) => {
+    if (key === 'pending') return pendingCount;
+    if (key === 'claims') return claimsCount;
+    return 0;
+  };
+
+  const NavItem = ({ icon, label, routeName, onPress, badge = 0 }) => {
     const active = activeRouteName === routeName;
 
     return (
-      <TouchableOpacity 
-        style={[
-          styles.navItem, 
-          active && styles.navItemActive,
-        ]} 
+      <TouchableOpacity
+        style={[styles.navItem, active && styles.navItemActive]}
         onPress={onPress}
+        activeOpacity={0.75}
       >
-        <View style={styles.navItemLeft}>
-          <Ionicons 
-            name={icon} 
-            size={22} 
-            color={active ? Colors.primary : isRed ? Colors.error : '#64748B'} 
-            style={styles.navIcon} 
-          />
-          <Text 
-            style={[
-              styles.navLabel, 
-              active && styles.navLabelActive, 
-              { color: active ? Colors.primary : isRed ? Colors.error : '#64748B' }
-            ]}
-          >
-            {label}
-          </Text>
+        {active && <View style={styles.activeBar} />}
+        <View style={[styles.navIconWrap, active && styles.navIconWrapActive]}>
+          <Ionicons name={icon} size={18} color={active ? '#FFFFFF' : Colors.admin.muted} />
         </View>
-
+        <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>
+          {label}
+        </Text>
         {badge > 0 && (
-          <View style={[styles.badgeContainer, { backgroundColor: active ? Colors.primary : Colors.error }]}>
-            <Text style={styles.badgeText}>{badge}</Text>
+          <View style={styles.badgeContainer}>
+            <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -118,122 +153,51 @@ export default function AdminSidebarContent(props) {
 
   return (
     <View style={styles.container}>
-      {/* Header with App Title & Avatar */}
-      <View style={styles.header}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.appTitleContainer}>
-            <Ionicons name="grid-outline" size={20} color={Colors.primary} style={{ marginRight: 8 }} />
-            <Text style={styles.headerTitle}>Admin Curator</Text>
+      <LinearGradient colors={[Colors.admin.heroStart, Colors.admin.heroEnd]} style={styles.hero}>
+        <View style={styles.heroTop}>
+          <Image source={JU_LOGO} style={styles.heroLogo} resizeMode="contain" />
+          <View style={styles.adminPill}>
+            <View style={styles.onlineDot} />
+            <Text style={styles.adminPillText}>ADMIN</Text>
           </View>
-          <Image source={JU_LOGO} style={styles.headerMiniLogo} resizeMode="contain" />
         </View>
-      </View>
-
-      {/* Administrator Profile Card */}
-      <View style={styles.adminProfileCard}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={32} color={Colors.white} />
+        <Text style={styles.heroTitle}>JU LOFO Console</Text>
+        <Text style={styles.heroName}>{adminName}</Text>
+        <View style={styles.heroStats}>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatNum}>{pendingCount}</Text>
+            <Text style={styles.heroStatLabel}>Pending</Text>
           </View>
-          <View style={styles.onlineBadge} />
+          <View style={styles.heroStatDivider} />
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatNum}>{claimsCount}</Text>
+            <Text style={styles.heroStatLabel}>Claims</Text>
+          </View>
         </View>
-        
-        <Text style={styles.adminName}>{adminName}</Text>
-        <Text style={styles.adminRole}>SYSTEM ADMINISTRATOR</Text>
-      </View>
+      </LinearGradient>
 
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {/* Main Navigation */}
-        <View style={styles.section}>
-          <NavItem 
-            icon="grid-outline" 
-            label="Overview" 
-            routeName="DashBoard/index"
-            onPress={() => router.push('/(admin)/DashBoard')} 
-          />
-          <NavItem 
-            icon="hourglass-outline" 
-            label="Pending Reports" 
-            routeName="PendingReports/index"
-            badge={pendingCount}
-            onPress={() => router.push('/(admin)/PendingReports')} 
-          />
-          <NavItem 
-            icon="people-outline" 
-            label="All Users" 
-            routeName="AllUsers/index"
-            onPress={() => router.push('/(admin)/AllUsers')} 
-          />
-          <NavItem 
-            icon="cube-outline" 
-            label="All Items" 
-            routeName="AllItems/index"
-            onPress={() => router.push('/(admin)/AllItems')} 
-          />
-          <NavItem 
-            icon="warning-outline" 
-            label="Report Lost" 
-            routeName="Lost/index"
-            onPress={() => router.push('/(admin)/Lost')} 
-          />
-          <NavItem 
-            icon="checkmark-circle-outline" 
-            label="Report Found" 
-            routeName="Found/index"
-            onPress={() => router.push('/(admin)/Found')} 
-          />
-          <NavItem 
-            icon="archive-outline" 
-            label="My Items" 
-            routeName="MyItems/index"
-            onPress={() => router.push('/(admin)/MyItems')} 
-          />
-          <NavItem 
-            icon="gift-outline" 
-            label="Returned Items" 
-            routeName="ReturnedItems/index"
-            onPress={() => router.push('/(admin)/ReturnedItems')} 
-          />
-          <NavItem
-            icon="clipboard-outline"
-            label="Ownership Requests"
-            routeName="MatchClaims/index"
-            badge={claimsCount}
-            onPress={() => router.push('/(admin)/MatchClaims')}
-          />
-          <NavItem 
-            icon="person-outline" 
-            label="My Profile" 
-            routeName="MyProfile/index"
-            onPress={() => router.push('/(admin)/MyProfile')} 
-          />
-          <NavItem 
-            icon="lock-closed-outline" 
-            label="Change Password" 
-            routeName="ChangePassword/index"
-            onPress={() => router.push('/(admin)/ChangePassword')} 
-          />
-        </View>
+        {NAV_SECTIONS.map((section) => (
+          <View key={section.title} style={styles.section}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            {section.items.map((item) => (
+              <NavItem
+                key={item.routeName}
+                icon={item.icon}
+                label={item.label}
+                routeName={item.routeName}
+                badge={badgeFor(item.badgeKey)}
+                onPress={() => router.push(item.path)}
+              />
+            ))}
+          </View>
+        ))}
 
-        <View style={styles.divider} />
-
-        {/* Action Panel */}
-        <View style={styles.section}>
-          <NavItem 
-            icon="log-out-outline" 
-            label="Logout Console" 
-            routeName="Logout"
-            isRed={true}
-            onPress={handleLogout} 
-          />
-        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
+          <Ionicons name="log-out-outline" size={20} color="#FCA5A5" />
+          <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
       </ScrollView>
-
-      {/* App Branding at Bottom */}
-      <View style={styles.footer}>
-         <Image source={JU_LOGO} style={styles.footerLogo} resizeMode="contain" />
-         <Text style={styles.footerName}>JU LOFO ADMIN HUB</Text>
-      </View>
     </View>
   );
 }
@@ -241,149 +205,177 @@ export default function AdminSidebarContent(props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: 50,
+    backgroundColor: Colors.admin.sidebar,
   },
-  header: {
-    paddingHorizontal: 24,
-    paddingBottom: 20,
+  hero: {
+    paddingTop: 54,
+    paddingHorizontal: 22,
+    paddingBottom: 22,
   },
-  headerTopRow: {
+  heroTop: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  appTitleContainer: {
+  heroLogo: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+  },
+  adminPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 6,
   },
-  headerTitle: {
-    fontFamily: 'Poppins_700Bold',
-    fontSize: 18,
-    color: '#1E3A8A',
-  },
-  headerMiniLogo: {
-    width: 32,
-    height: 32,
-  },
-  adminProfileCard: {
-    paddingHorizontal: 24,
-    paddingBottom: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  avatarWrapper: {
-    position: 'relative',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: '#1E293B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colors.slate100,
-  },
-  onlineBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+  onlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: Colors.success,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
   },
-  adminName: {
+  adminPillText: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 16,
-    color: Colors.slate900,
-    marginBottom: 4,
-    textAlign: 'center',
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.9)',
+    letterSpacing: 1,
   },
-  adminRole: {
-    fontFamily: 'Inter_600SemiBold',
+  heroTitle: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 20,
+    color: Colors.white,
+  },
+  heroName: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 4,
+  },
+  heroStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  heroStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroStatNum: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 22,
+    color: Colors.white,
+  },
+  heroStatLabel: {
+    fontFamily: 'Inter_500Medium',
     fontSize: 10,
-    color: Colors.slate400,
-    letterSpacing: 1.5,
-    textAlign: 'center',
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 2,
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
   scrollArea: {
     flex: 1,
+    paddingHorizontal: 14,
+    paddingTop: 8,
   },
   section: {
-    paddingHorizontal: 16,
-    marginBottom: 10,
+    marginBottom: 18,
+  },
+  sectionTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: Colors.slate500,
+    letterSpacing: 1.1,
+    marginBottom: 8,
+    marginLeft: 8,
+    textTransform: 'uppercase',
   },
   navItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    marginBottom: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    marginBottom: 4,
+    position: 'relative',
+    overflow: 'hidden',
   },
   navItemActive: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: Colors.admin.navActiveBg,
   },
-  navItemLeft: {
-    flexDirection: 'row',
+  activeBar: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: Colors.primary,
+  },
+  navIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
-  navIcon: {
-    marginRight: 14,
-    width: 24,
-    textAlign: 'center',
+  navIconWrapActive: {
+    backgroundColor: Colors.primary,
   },
   navLabel: {
+    flex: 1,
     fontFamily: 'Inter_600SemiBold',
     fontSize: 14,
+    color: Colors.admin.muted,
   },
   navLabelActive: {
+    color: Colors.white,
     fontFamily: 'Inter_700Bold',
   },
   badgeContainer: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: Colors.error,
     justifyContent: 'center',
     alignItems: 'center',
   },
   badgeText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 10,
-    color: '#FFFFFF',
+    color: Colors.white,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginHorizontal: 24,
-    marginVertical: 15,
-  },
-  footer: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+  logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 28,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.35)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
   },
-  footerLogo: {
-    width: 20,
-    height: 20,
-    marginRight: 8,
-    opacity: 0.6,
+  logoutText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    color: '#FCA5A5',
   },
-  footerName: {
-    fontFamily: 'Poppins_700Bold',
-    fontSize: 9,
-    color: '#94A3B8',
-    letterSpacing: 0.5,
-  }
 });

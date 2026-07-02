@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,11 +9,40 @@ import { showAppConfirm } from '../utils/appAlert';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 
+const NAV_SECTIONS = [
+  {
+    title: 'Main Menu',
+    items: [
+      { icon: 'home', label: 'Home', routeName: 'DashBoard/index', path: '/(user)/DashBoard' },
+      { icon: 'search', label: 'Report Lost', routeName: 'Lost/index', path: '/(user)/Lost' },
+      { icon: 'checkmark-circle', label: 'Report Found', routeName: 'Found/index', path: '/(user)/Found' },
+      { icon: 'folder-open', label: 'My Items', routeName: 'MyItems/index', path: '/(user)/MyItems' },
+      { icon: 'person', label: 'My Profile', routeName: 'MyProfile/index', path: '/(user)/MyProfile' },
+    ],
+  },
+  {
+    title: 'Support & Info',
+    items: [
+      { icon: 'help-circle', label: 'Help / FAQ', routeName: 'Help/index', path: '/(user)/Help' },
+      { icon: 'information-circle', label: 'About Us', routeName: 'AboutUs/index', path: '/(user)/AboutUs' },
+      { icon: 'shield-checkmark', label: 'Privacy Policy', routeName: 'PrivacyPolicy/index', path: '/(user)/PrivacyPolicy' },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { icon: 'lock-closed', label: 'Change Password', routeName: 'ChangePassword/index', path: '/(user)/ChangePassword' },
+    ],
+  },
+];
+
 export default function SidebarContent(props) {
   const router = useRouter();
-  const [userName, setUserName] = useState('Alex Curator');
-  const [studentId, setStudentId] = useState('CS1300000');
-  const [userRole, setUserRole] = useState('University Member');
+  const [userName, setUserName] = useState('Student');
+  const [studentId, setStudentId] = useState('—');
+
+  const { state } = props;
+  const activeRouteName = state?.routeNames[state.index];
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -22,9 +52,6 @@ export default function SidebarContent(props) {
           const session = JSON.parse(sessionData);
           if (session.userName) setUserName(session.userName);
           if (session.studentId) setStudentId(session.studentId);
-          if (session.role) {
-            setUserRole(session.role === 'admin' ? 'Administrator' : 'University Member');
-          }
         }
       } catch (e) {
         console.error('Error loading user data for sidebar', e);
@@ -51,66 +78,62 @@ export default function SidebarContent(props) {
     });
   };
 
-  const NavItem = ({ icon, label, onPress, active = false, color = '#64748B' }) => (
-    <TouchableOpacity 
-      style={[styles.navItem, active && styles.navItemActive]} 
-      onPress={onPress}
-    >
-      <Ionicons name={icon} size={22} color={active ? '#FFFFFF' : color} style={styles.navIcon} />
-      <Text style={[styles.navLabel, active && styles.navLabelActive, { color: active ? '#FFFFFF' : color }]}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
+  const NavItem = ({ icon, label, routeName, onPress }) => {
+    const active = activeRouteName === routeName;
+
+    return (
+      <TouchableOpacity
+        style={[styles.navItem, active && styles.navItemActive]}
+        onPress={onPress}
+        activeOpacity={0.75}
+      >
+        {active && <View style={styles.activeBar} />}
+        <View style={[styles.navIconWrap, active && styles.navIconWrapActive]}>
+          <Ionicons name={icon} size={18} color={active ? '#FFFFFF' : Colors.admin.muted} />
+        </View>
+        <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
-      {/* Profile Header */}
-      <View style={styles.header}>
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-             <Ionicons name="person" size={40} color={Colors.white} />
+      <LinearGradient colors={[Colors.admin.heroStart, Colors.admin.heroEnd]} style={styles.hero}>
+        <View style={styles.heroTop}>
+          <Image source={JU_LOGO} style={styles.heroLogo} resizeMode="contain" />
+          <View style={styles.studentPill}>
+            <View style={styles.onlineDot} />
+            <Text style={styles.studentPillText}>STUDENT</Text>
           </View>
-          <View style={styles.statusBadge} />
         </View>
-        
-        <Text style={styles.userName}>{userName}</Text>
-        <Text style={styles.userRole}>{userRole}</Text>
-        <Text style={styles.memberSince}>ID: {studentId}</Text>
-      </View>
+        <Text style={styles.heroTitle}>JU Item Recovery</Text>
+        <Text style={styles.heroName}>{userName}</Text>
+        <Text style={styles.heroId}>ID: {studentId}</Text>
+      </LinearGradient>
 
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {/* Main Navigation */}
-        <View style={styles.section}>
-          <NavItem icon="home" label="Home" active={true} onPress={() => router.push('/(user)/DashBoard')} />
-          <NavItem icon="warning" label="Report Lost" onPress={() => router.push('/(user)/Lost')} />
-          <NavItem icon="checkmark-circle" label="Report Found" onPress={() => router.push('/(user)/Found')} />
-          <NavItem icon="archive" label="My Items" onPress={() => router.push('/(user)/MyItems')} />
-          <NavItem icon="person" label="Profile" onPress={() => router.push('/(user)/MyProfile')} />
-        </View>
+        {NAV_SECTIONS.map((section) => (
+          <View key={section.title} style={styles.section}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            {section.items.map((item) => (
+              <NavItem
+                key={item.routeName}
+                icon={item.icon}
+                label={item.label}
+                routeName={item.routeName}
+                onPress={() => router.push(item.path)}
+              />
+            ))}
+          </View>
+        ))}
 
-        <View style={styles.divider} />
-
-        {/* Support & Info Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>SUPPORT & INFO</Text>
-          <NavItem icon="help-circle" label="Help/FAQ" onPress={() => router.push('/(user)/Help')} />
-          <NavItem icon="information-circle" label="About Us" onPress={() => router.push('/(user)/AboutUs')} />
-          <NavItem icon="shield-checkmark" label="Privacy Policy" onPress={() => router.push('/(user)/PrivacyPolicy')} />
-        </View>
-
-        {/* Actions */}
-        <View style={styles.section}>
-          <NavItem icon="lock-closed" label="Change Password" onPress={() => router.push('/(user)/ChangePassword')} />
-          <NavItem icon="log-out" label="Logout" color="#EF4444" onPress={handleLogout} />
-        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
+          <Ionicons name="log-out-outline" size={20} color="#FCA5A5" />
+          <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
       </ScrollView>
-
-      {/* App Branding at Bottom */}
-      <View style={styles.footer}>
-         <Image source={JU_LOGO} style={styles.footerLogo} resizeMode="contain" />
-         <Text style={styles.footerName}>JU ITEM RECOVERY SYSTEM</Text>
-      </View>
     </View>
   );
 }
@@ -118,127 +141,141 @@ export default function SidebarContent(props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: 60,
+    backgroundColor: Colors.admin.sidebar,
   },
-  header: {
-    paddingHorizontal: 24,
-    paddingBottom: 30,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+  hero: {
+    paddingTop: 54,
+    paddingHorizontal: 22,
+    paddingBottom: 22,
   },
-  avatarContainer: {
-    marginBottom: 16,
-    position: 'relative',
-    width: 70,
-  },
-  avatar: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#0F172A',
-    justifyContent: 'center',
+  heroTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#F1F5F9',
+    marginBottom: 16,
   },
-  statusBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#22C55E',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+  heroLogo: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.95)',
   },
-  userName: {
+  studentPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 6,
+  },
+  onlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.success,
+  },
+  studentPillText: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 22,
-    color: '#0F172A',
-    marginBottom: 4,
-  },
-  userRole: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-    color: '#3B82F6',
-    marginBottom: 2,
-  },
-  memberSince: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: '#94A3B8',
-    textTransform: 'uppercase',
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.9)',
     letterSpacing: 1,
+  },
+  heroTitle: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 20,
+    color: Colors.white,
+  },
+  heroName: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.92)',
+    marginTop: 6,
+  },
+  heroId: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 4,
+    letterSpacing: 0.5,
   },
   scrollArea: {
     flex: 1,
-    paddingTop: 20,
+    paddingHorizontal: 14,
+    paddingTop: 8,
   },
   section: {
-    paddingHorizontal: 16,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   sectionTitle: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 11,
-    color: '#94A3B8',
-    marginLeft: 12,
-    marginBottom: 12,
-    letterSpacing: 1,
+    fontSize: 10,
+    color: Colors.slate500,
+    letterSpacing: 1.1,
+    marginBottom: 8,
+    marginLeft: 8,
+    textTransform: 'uppercase',
   },
   navItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 11,
     paddingHorizontal: 12,
     borderRadius: 14,
     marginBottom: 4,
+    position: 'relative',
+    overflow: 'hidden',
   },
   navItemActive: {
-    backgroundColor: '#2563EB',
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: Colors.admin.navActiveBg,
   },
-  navIcon: {
-    marginRight: 14,
-    width: 24,
-    textAlign: 'center',
+  activeBar: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: Colors.primary,
+  },
+  navIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  navIconWrapActive: {
+    backgroundColor: Colors.primary,
   },
   navLabel: {
+    flex: 1,
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 15,
+    fontSize: 14,
+    color: Colors.admin.muted,
   },
   navLabelActive: {
-    color: '#FFFFFF',
+    color: Colors.white,
+    fontFamily: 'Inter_700Bold',
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginHorizontal: 24,
-    marginBottom: 20,
-  },
-  footer: {
-    padding: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+  logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 28,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.35)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
   },
-  footerLogo: {
-    width: 24,
-    height: 24,
-    marginRight: 10,
-    opacity: 0.6,
+  logoutText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    color: '#FCA5A5',
   },
-  footerName: {
-    fontFamily: 'Poppins_700Bold',
-    fontSize: 10,
-    color: '#94A3B8',
-    letterSpacing: 0.5,
-  }
 });
