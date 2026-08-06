@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIn
 import ReAnimated, { FadeInDown, Layout } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { supabase, normalizeItemRow } from '../../../src/services/supabase';
+import { supabase, normalizeItemRow, getUserPendingClaimCount } from '../../../src/services/supabase';
 import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomBottomTab from '../../../src/components/CustomBottomTab';
@@ -11,19 +11,31 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRef } from 'react';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
+import { ITEM_STATUS, normalizeItemStatus } from '../../../src/utils/itemStatus';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
+
+function isMyItemsLive(item) {
+  const status = normalizeItemStatus(item);
+  return status === ITEM_STATUS.LIVE;
+}
+
+function isMyItemsPending(item) {
+  return normalizeItemStatus(item) === ITEM_STATUS.PENDING_REVIEW;
+}
 
 export default function MyItemsPage() {
   const WITHDRAW_WINDOW_MINUTES = 15;
   const WITHDRAW_WINDOW_MS = WITHDRAW_WINDOW_MINUTES * 60 * 1000;
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('lost'); // 'lost' or 'found'
+  const [statusFilter, setStatusFilter] = useState('live'); // 'live' | 'pending'
   const [loading, setLoading] = useState(true);
   const [lostItems, setLostItems] = useState([]);
   const [foundItems, setFoundItems] = useState([]);
   const [user, setUser] = useState(null);
+  const [pendingClaimCount, setPendingClaimCount] = useState(0);
   const [nowTs, setNowTs] = useState(Date.now());
   const toastRef = useRef(null);
 
@@ -65,6 +77,9 @@ export default function MyItemsPage() {
       if (foundError) throw foundError;
       setFoundItems((foundData || []).map(normalizeItemRow));
 
+      const pendingCount = await getUserPendingClaimCount(userEmail);
+      setPendingClaimCount(pendingCount);
+
     } catch (error) {
       console.error('Error fetching items:', error.message);
       showAppError('Load failed', 'Failed to load your items.');
@@ -77,6 +92,13 @@ export default function MyItemsPage() {
     useCallback(() => {
       fetchUserAndItems();
     }, [])
+  );
+
+  const tabItems = activeTab === 'lost' ? lostItems : foundItems;
+  const pendingCountForTab = tabItems.filter(isMyItemsPending).length;
+  const liveCountForTab = tabItems.filter(isMyItemsLive).length;
+  const visibleItems = tabItems.filter((item) =>
+    statusFilter === 'pending' ? isMyItemsPending(item) : isMyItemsLive(item)
   );
 
   const getWithdrawMeta = (item) => {
@@ -138,9 +160,8 @@ export default function MyItemsPage() {
   };
 
   const handleClearAll = async () => {
-    const activeItems = activeTab === 'lost' ? lostItems : foundItems;
-    const withdrawableItems = activeItems.filter((item) => getWithdrawMeta(item).canWithdraw);
-    const skippedCount = activeItems.length - withdrawableItems.length;
+    const withdrawableItems = visibleItems.filter((item) => getWithdrawMeta(item).canWithdraw);
+    const skippedCount = visibleItems.length - withdrawableItems.length;
     if (withdrawableItems.length === 0) {
       toastRef.current?.show(
         'No Withdrawable Items',
@@ -225,7 +246,7 @@ export default function MyItemsPage() {
             </Text>
           </View>
           <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{item.category.toUpperCase()}</Text>
+            <Text style={styles.categoryText}>{String(item.category || 'General').toUpperCase()}</Text>
           </View>
           <ItemStatusBadge item={item} compact />
         </View>
@@ -250,6 +271,12 @@ export default function MyItemsPage() {
           <Ionicons name="location-outline" size={14} color="#64748B" />
           <Text style={styles.infoText}> {item.location}</Text>
         </View>
+        {statusFilter === 'pending' ? (
+          <View style={styles.pendingHintRow}>
+            <Ionicons name="hourglass-outline" size={14} color="#B45309" />
+            <Text style={styles.pendingHintText}> Waiting for admin review</Text>
+          </View>
+        ) : null}
         {withdrawMeta.canWithdraw && (
           <View style={styles.withdrawInfoRow}>
             <Ionicons
@@ -263,12 +290,11 @@ export default function MyItemsPage() {
           </View>
         )}
       </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
   );
   };
 
-  const hasWithdrawableItems = (activeTab === 'lost' ? lostItems : foundItems)
-    .some((item) => getWithdrawMeta(item).canWithdraw);
+  const hasWithdrawableItems = visibleItems.some((item) => getWithdrawMeta(item).canWithdraw);
 
   return (
     <View style={styles.container}>
@@ -291,21 +317,37 @@ export default function MyItemsPage() {
           <View style={styles.titleRow}>
              <View style={{ flex: 1 }}>
                 <Text style={styles.pageTitle}>My Items</Text>
-                <Text style={styles.pageSubtitle}>Manage reports and withdraw within 15 minutes.</Text>
+                <Text style={styles.pageSubtitle}>
+                  Your lost/found reports. Live = on the feed. Pending = waiting for admin. Ownership claims are under Requests.
+                </Text>
              </View>
-             {hasWithdrawableItems && (
-               <TouchableOpacity 
-                 style={styles.clearAllBtn}
-                 onPress={() => handleClearAll()}
+             <View style={styles.titleActions}>
+               <TouchableOpacity
+                 style={styles.requestsBtn}
+                 onPress={() => router.push('/(user)/MyRequests')}
                >
-                  <Ionicons name="arrow-undo-outline" size={16} color="#EF4444" />
-                  <Text style={styles.clearAllText}>Withdraw Recent</Text>
+                 <Ionicons name="document-text-outline" size={16} color="#7C3AED" />
+                 <Text style={styles.requestsBtnText}>Requests</Text>
+                 {pendingClaimCount > 0 && (
+                   <View style={styles.requestsBadge}>
+                     <Text style={styles.requestsBadgeText}>{pendingClaimCount}</Text>
+                   </View>
+                 )}
                </TouchableOpacity>
-             )}
+               {hasWithdrawableItems && (
+                 <TouchableOpacity 
+                   style={styles.clearAllBtn}
+                   onPress={() => handleClearAll()}
+                 >
+                    <Ionicons name="arrow-undo-outline" size={16} color="#EF4444" />
+                    <Text style={styles.clearAllText}>Withdraw Recent</Text>
+                 </TouchableOpacity>
+               )}
+             </View>
           </View>
         </View>
 
-        {/* Segmented Control */}
+        {/* Lost / Found */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'lost' && styles.activeTab]}
@@ -321,18 +363,53 @@ export default function MyItemsPage() {
           </TouchableOpacity>
         </View>
 
+        {/* Live (default) vs Pending review */}
+        <View style={styles.statusFilterRow}>
+          <TouchableOpacity
+            style={[styles.statusChip, statusFilter === 'live' && styles.statusChipActiveLive]}
+            onPress={() => setStatusFilter('live')}
+          >
+            <Text style={[styles.statusChipText, statusFilter === 'live' && styles.statusChipTextActive]}>
+              Live{liveCountForTab > 0 ? ` (${liveCountForTab})` : ''}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.statusChip, statusFilter === 'pending' && styles.statusChipActivePending]}
+            onPress={() => setStatusFilter('pending')}
+          >
+            <Text style={[styles.statusChipText, statusFilter === 'pending' && styles.statusChipTextActivePending]}>
+              Pending{pendingCountForTab > 0 ? ` (${pendingCountForTab})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {loading ? (
           <ActivityIndicator size="large" color="#94A3B8" style={{ marginTop: 50 }} />
         ) : (
           <View style={styles.itemsList}>
-            {(activeTab === 'lost' ? lostItems : foundItems).length > 0 ? (
-              (activeTab === 'lost' ? lostItems : foundItems).map((item, index) => (
+            {visibleItems.length > 0 ? (
+              visibleItems.map((item, index) => (
                 <ItemCard key={item.id} item={item} type={activeTab} index={index} />
               ))
             ) : (
               <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="folder-open-outline" size={60} color="#CBD5E1" />
-                <Text style={styles.emptyText}>No {activeTab} items reported yet.</Text>
+                <MaterialCommunityIcons
+                  name={statusFilter === 'pending' ? 'timer-sand' : 'folder-open-outline'}
+                  size={60}
+                  color="#CBD5E1"
+                />
+                <Text style={styles.emptyText}>
+                  {statusFilter === 'pending'
+                    ? `No ${activeTab} reports waiting for admin review.`
+                    : `No live ${activeTab} items yet.`}
+                </Text>
+                {statusFilter === 'live' && pendingCountForTab > 0 ? (
+                  <TouchableOpacity onPress={() => setStatusFilter('pending')} style={styles.emptyLinkBtn}>
+                    <Text style={styles.emptyLinkText}>
+                      View {pendingCountForTab} pending report{pendingCountForTab === 1 ? '' : 's'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             )}
             <View style={{ height: 120 }} />
@@ -360,7 +437,38 @@ const styles = StyleSheet.create({
 
   scrollContainer: { paddingHorizontal: 20, paddingTop: 20 },
   titleSection: { marginBottom: 25 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  titleActions: { alignItems: 'flex-end', gap: 8 },
+  requestsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    gap: 6,
+  },
+  requestsBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
+  requestsBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#7C3AED',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  requestsBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFF',
+  },
   pageTitle: { fontSize: 32, fontWeight: '900', color: '#0F172A' },
   pageSubtitle: { fontSize: 13, color: '#64748B', marginTop: 2, lineHeight: 18 },
   clearAllBtn: { 
@@ -390,6 +498,59 @@ const styles = StyleSheet.create({
   },
   tabLabel: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   activeTabLabel: { color: '#1E40AF' },
+
+  statusFilterRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 22,
+  },
+  statusChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  statusChipActiveLive: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  statusChipActivePending: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FCD34D',
+  },
+  statusChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  statusChipTextActive: {
+    color: '#15803D',
+  },
+  statusChipTextActivePending: {
+    color: '#B45309',
+  },
+  pendingHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  pendingHintText: {
+    fontSize: 12,
+    color: '#B45309',
+    fontWeight: '700',
+  },
+  emptyLinkBtn: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  emptyLinkText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A56DB',
+  },
 
   itemsList: { gap: 20 },
   card: {

@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Image, ScrollView,
-  TouchableOpacity, Dimensions, Linking, Platform, StatusBar
+  TouchableOpacity, Dimensions, Linking, Platform, StatusBar, ActivityIndicator
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { readItemTimeField } from '../../../src/utils/itemTimeUtils';
 import {
   submitItemClaim,
   getUserPendingClaimForItem,
   CLAIM_ALREADY_PENDING_MSG,
+  supabase,
+  normalizeItemRow,
 } from '../../../src/services/supabase';
 import SuccessToast from '../../../src/components/SuccessToast';
-import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import ItemClaimFormModal from '../../../src/components/ItemClaimFormModal';
 import { showAppError } from '../../../src/utils/appAlert';
 import {
@@ -23,22 +25,24 @@ import {
   canShowThisIsMine,
   canShowNotMine,
   shouldShowClaimSection,
-  dismissStorageKey,
   pendingClaimStorageKey,
+  dismissStorageKey,
 } from '../../../src/utils/itemClaimUi';
+import { isSecureListing } from '../../../src/utils/itemStatus';
+import { getSecureItemDisplay } from '../../../src/utils/secureItemDisplay';
 
-const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-const LOST_COLOR = '#1D4ED8';
-const FOUND_COLOR = '#10B981';
+const LOST_COLOR = '#3B82F6'; // Beautiful bright blue
+const FOUND_COLOR = '#10B981'; // Beautiful emerald green
+const SECURE_COLOR = '#D97706'; // Amber orange
+const BRAND_PRIMARY = '#1A56DB'; // Jazeera Blue
+
 const SLATE_900 = '#0F172A';
 const SLATE_800 = '#1E293B';
 const SLATE_600 = '#475569';
 const SLATE_500 = '#64748B';
 const SLATE_400 = '#94A3B8';
-const BG_MAIN = '#F4F7FA';
-const PRIMARY_ACTION = '#1E40AF';
 
 export default function ItemDetailScreen() {
   const router = useRouter();
@@ -69,14 +73,23 @@ export default function ItemDetailScreen() {
         const parsed = JSON.parse(data);
         setItem(parsed);
         setClaimPending(false);
-        AsyncStorage.getItem(dismissStorageKey(parsed)).then((v) => {
-          setClaimDismissed(v === '1');
-        });
+        setClaimDismissed(false);
       } catch (e) {
         console.error("Failed to parse item data:", e);
       }
     }
   }, [data]);
+
+  // "Not mine" only hides claim actions for the current visit.
+  // Reopening / returning to the item always brings Not mine + Claim Item back.
+  useFocusEffect(
+    React.useCallback(() => {
+      setClaimDismissed(false);
+      if (!item?.id) return undefined;
+      AsyncStorage.removeItem(dismissStorageKey(item)).catch(() => {});
+      return undefined;
+    }, [item?.id, item?.type])
+  );
 
   useEffect(() => {
     if (!item?.id || !userEmail) return;
@@ -86,10 +99,8 @@ export default function ItemDetailScreen() {
     const type = isLostItemRecord(item) ? 'lost' : 'found';
 
     (async () => {
-      const local = await AsyncStorage.getItem(pendingKey);
-      if (!cancelled && local === '1') setClaimPending(true);
-
       try {
+        // Server is source of truth — must match item_type (lost vs found ids can collide).
         const row = await getUserPendingClaimForItem(item.id, type, userEmail);
         if (cancelled) return;
         if (row) {
@@ -101,31 +112,82 @@ export default function ItemDetailScreen() {
         }
       } catch (e) {
         console.warn('Could not check pending claim:', e?.message);
+        // Network fallback only — never invent Pending from a wrong-item cache.
+        const local = await AsyncStorage.getItem(pendingKey);
+        if (!cancelled) setClaimPending(local === '1');
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [item?.id, userEmail]);
+  }, [item?.id, item?.type, userEmail]);
+
+  useEffect(() => {
+    if (!item?.id || !isSecureListing(item)) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('found_items_public_feed')
+          .select('*')
+          .eq('id', item.id)
+          .maybeSingle();
+
+        if (cancelled || error || !data) return;
+        setItem((current) =>
+          normalizeItemRow({
+            ...(current || {}),
+            ...data,
+            type: current?.type || 'FOUND',
+          })
+        );
+      } catch {
+        // Keep navigation payload if refresh fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.id]);
 
   if (!item) {
     return (
       <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={BRAND_PRIMARY} />
         <Text style={styles.loadingText}>Loading item details...</Text>
       </View>
     );
   }
 
   const isLost = isLostItemRecord(item);
-  const themeColor = isLost ? LOST_COLOR : FOUND_COLOR;
-  const lightThemeColor = isLost ? '#EFF6FF' : '#D1FAE5';
+  const isSecure = isSecureListing(item);
+  const themeColor = isSecure ? SECURE_COLOR : isLost ? LOST_COLOR : FOUND_COLOR;
+  const secureDisplay = isSecure ? getSecureItemDisplay(item) : null;
 
-  const personName = isLost ? item.ownerName : item.finderName;
+  const isOwnItem = isOwnReportedItem(item, userEmail, userName);
+  const showClaimSection =
+    !isOwnItem && // Ensure reporter can never see the claim section
+    !claimDismissed &&
+    shouldShowClaimSection(item, userEmail, userName) &&
+    (canShowThisIsMine(item, userEmail, userName) || canShowNotMine(item, userEmail, userName));
+
+  const showThisIsMine = canShowThisIsMine(item, userEmail, userName);
+  const showNotMine = canShowNotMine(item, userEmail, userName);
+
+  const personName = isSecure ? 'Campus Security' : isLost ? item.ownerName : item.finderName;
   const itemDate = isLost ? item.dateLost : item.dateFound;
   const itemTime = isLost
     ? (readItemTimeField(item, 'lost') || 'Not specified')
     : (readItemTimeField(item, 'found') || 'Not specified');
+  const displayDescription = isSecure
+    ? secureDisplay.notice
+    : (item.description || 'No description provided.');
+  const displayLocation = isSecure
+    ? (item.security_location || item.location || 'Campus Security Office')
+    : item.location;
 
   const getPhoneNumber = () => {
     if (item.phnum && item.phnum !== 'N/A') return item.phnum;
@@ -134,13 +196,8 @@ export default function ItemDetailScreen() {
   };
 
   const handleCall = () => Linking.openURL(`tel:${getPhoneNumber()}`);
-  const handleSMS = () => Linking.openURL(`sms:${getPhoneNumber()}`);
 
-  const isOwnItem = isOwnReportedItem(item, userEmail, userName);
   const itemType = isLost ? 'lost' : 'found';
-  const showThisIsMine = canShowThisIsMine(item, userEmail, userName);
-  const showNotMine = canShowNotMine(item, userEmail, userName);
-  const showClaimSection = shouldShowClaimSection(item, userEmail, userName, claimDismissed);
 
   const markClaimPending = async () => {
     setClaimPending(true);
@@ -165,7 +222,7 @@ export default function ItemDetailScreen() {
       });
       setClaimModalVisible(false);
       await markClaimPending();
-      toastRef.current?.show('Sent to admin', 'Admin will review your request.', 'success');
+      toastRef.current?.show('Sent to admin', 'Track status in My Requests.', 'success');
     } catch (e) {
       const msg = e?.message || '';
       if (msg === CLAIM_ALREADY_PENDING_MSG || msg.includes('already sent')) {
@@ -180,159 +237,183 @@ export default function ItemDetailScreen() {
     }
   };
 
-  const handleNotMine = async () => {
-    await AsyncStorage.setItem(dismissStorageKey(item), '1');
+  const handleNotMine = () => {
+    // Temporary for this open only — claim buttons return when you reopen.
     setClaimDismissed(true);
-    toastRef.current?.show('Dismissed', 'You can still contact the reporter below.', 'success');
+    toastRef.current?.show(
+      'Dismissed',
+      'Call Reporter stays available. Reopen to claim later.',
+      'success'
+    );
   };
 
-  const DetailRow = ({ icon, label, value }) => (
-    <View style={styles.rowContainer}>
-      <View style={styles.rowLeft}>
-        <View style={[styles.iconCircle, { backgroundColor: lightThemeColor, borderColor: themeColor + '20' }]}>
-          <Ionicons name={icon} size={22} color={themeColor} />
+  const DetailRow = ({ icon, label, value, isLast }) => (
+    <View style={[styles.detailRow, isLast && styles.detailRowLast]}>
+      <View style={styles.detailLabelContainer}>
+        <View style={[styles.detailIconBox, { backgroundColor: themeColor + '10' }]}>
+          <Ionicons name={icon} size={18} color={themeColor} />
         </View>
+        <Text style={styles.detailLabel}>{label}</Text>
       </View>
-      <View style={styles.rowRight}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowValue}>{value}</Text>
-      </View>
+      <Text style={styles.detailValue} numberOfLines={2}>{value || '-'}</Text>
     </View>
   );
 
+  const displayName = isSecure ? secureDisplay.name : item.itemName;
+  const displayCategory = item.category || 'GENERAL';
+
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
-      {/* ── HEADER ── */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.headerIconBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={SLATE_900} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Image source={JU_LOGO} style={styles.headerLogo} resizeMode="contain" />
-          <Text style={styles.headerTitleText}>Item Details</Text>
-        </View>
-        <TouchableOpacity style={styles.headerIconBtn}>
-          <Ionicons name="ellipsis-vertical" size={22} color={SLATE_900} />
+      {/* ── HEADER BUTTONS (FLOATING) ── */}
+      <View style={styles.headerFloating}>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} color="#0F172A" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 180 }} showsVerticalScrollIndicator={false}>
-        {/* ── IMAGE ── */}
+      <ScrollView style={styles.mainScroll} contentContainerStyle={{ paddingBottom: 180 }} showsVerticalScrollIndicator={false} bounces={false}>
+        
+        {/* ── IMAGE SECTION ── */}
         <Animated.View entering={FadeIn.duration(600)} style={styles.imageWrapper}>
-          {item.imageURI ? (
+          {!isSecure && item.imageURI ? (
             <Image source={{ uri: item.imageURI }} style={styles.heroImage} resizeMode="cover" />
           ) : (
-            <View style={[styles.heroImage, styles.imagePlaceholder]}>
-              <MaterialCommunityIcons name="image-off-outline" size={48} color={SLATE_400} />
-            </View>
-          )}
-          <View style={[styles.floatingBadge, { backgroundColor: lightThemeColor }]}>
-            <MaterialCommunityIcons name="check-circle" size={16} color={themeColor} style={{ marginRight: 6 }} />
-            <Text style={[styles.floatingBadgeText, { color: themeColor }]}>{isLost ? 'LOST' : 'FOUND'}</Text>
-          </View>
-        </Animated.View>
-
-        <View style={styles.contentPadding}>
-          {/* ── CATEGORY & TITLE ── */}
-          <Animated.View entering={FadeInUp.delay(200).springify()} style={styles.titleSection}>
-            <View style={styles.titleBadgeRow}>
-              <View style={styles.categoryPill}>
-                <Text style={styles.categoryPillText}>{item.category || 'GENERAL'}</Text>
-              </View>
-              <ItemStatusBadge item={item} compact />
-            </View>
-            <Text style={styles.titleText}>{item.itemName}</Text>
-          </Animated.View>
-
-          {/* ── DETAILS LIST ── */}
-          <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.listCard}>
-            <DetailRow icon="document-text-outline" label="Description" value={item.description || "No description provided."} />
-            <DetailRow icon="location-outline" label="Address" value={item.location} />
-            <DetailRow icon="calendar-outline" label={isLost ? 'Date Lost' : 'Date Found'} value={itemDate} />
-            <DetailRow icon="time-outline" label={isLost ? 'Time Lost' : 'Time Found'} value={itemTime} />
-
-            <View style={styles.rowContainer}>
-              <View style={styles.rowLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: lightThemeColor, borderColor: themeColor + '20' }]}>
-                  <Ionicons name="person-outline" size={22} color={themeColor} />
-                </View>
-              </View>
-              <View style={[styles.rowRight, { borderBottomWidth: 0 }]}>
-                <Text style={styles.rowLabel}>{isLost ? 'Owner' : 'Finder'}</Text>
-                <Text style={[styles.rowValue, { color: themeColor, fontWeight: '800' }]}>{personName}</Text>
-              </View>
-            </View>
-          </Animated.View>
-
-          {showClaimSection && (
-            <Animated.View entering={FadeInDown.delay(500).springify()} style={styles.claimSection}>
-              <Text style={styles.claimTitle}>Ownership request</Text>
-              {claimPending ? (
-                <View style={styles.pendingBanner}>
-                  <Ionicons name="time-outline" size={22} color="#B45309" />
-                  <View style={styles.pendingBannerText}>
-                    <Text style={styles.pendingTitle}>Request sent</Text>
-                    <Text style={styles.pendingHint}>
-                      Admin is reviewing your ownership request. You cannot send another one for this item.
-                    </Text>
-                  </View>
+            <View style={[styles.heroImage, styles.imagePlaceholder, isSecure && styles.securePlaceholder]}>
+              {isSecure ? (
+                <View style={styles.secureBadgeBig}>
+                  <MaterialCommunityIcons name="shield-alert" size={72} color={SECURE_COLOR} />
+                  <Text style={styles.secureMarkText}>SECURE HOLD</Text>
                 </View>
               ) : (
-                <>
-                  <Text style={styles.claimHint}>
-                    If this item is yours, tell admin why. Use Not mine if it is not your item.
-                  </Text>
-                  <View style={styles.matchActions}>
-                    {showThisIsMine ? (
-                      <TouchableOpacity
-                        style={[styles.matchClaimBtn, showNotMine && { flex: 1 }]}
-                        onPress={() => setClaimModalVisible(true)}
-                        disabled={submitting}
-                      >
-                        <Ionicons name="checkmark-circle" size={16} color="#FFF" />
-                        <Text style={styles.matchClaimBtnText}>This is mine</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                    {showNotMine ? (
-                      <TouchableOpacity
-                        style={[styles.matchDismissBtn, showThisIsMine && { flex: 1 }]}
-                        onPress={handleNotMine}
-                        disabled={submitting}
-                      >
-                        <Ionicons name="close-circle-outline" size={16} color="#64748B" />
-                        <Text style={styles.matchDismissBtnText}>Not mine</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </>
+                <MaterialCommunityIcons name="image-off-outline" size={64} color="#CBD5E1" />
               )}
-            </Animated.View>
+            </View>
           )}
+        </Animated.View>
+
+        {/* ── BOTTOM SHEET CONTENT ── */}
+        <View style={styles.bottomSheetCard}>
+          {/* Drag Indicator */}
+          <View style={styles.dragIndicatorContainer}>
+            <View style={styles.dragIndicator} />
+          </View>
+
+          <Animated.View entering={FadeInUp.delay(150).springify()}>
+            {/* Title & Category Row */}
+            <View style={styles.titleRow}>
+              <View style={styles.titleContainer}>
+                <Text style={styles.titleText} numberOfLines={2}>{displayName}</Text>
+                <View style={styles.categoryBadge}>
+                  <MaterialCommunityIcons name="tag-outline" size={12} color="#64748B" />
+                  <Text style={styles.categoryText}>{displayCategory}</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Reporter Info Card */}
+            <View style={styles.reporterCard}>
+              <View style={styles.reporterLeft}>
+                <View style={[styles.avatarCircle, { backgroundColor: themeColor + '20' }]}>
+                  <Ionicons name="person" size={16} color={themeColor} />
+                </View>
+                <View>
+                  <Text style={styles.reportedByLabel}>Reported by</Text>
+                  <Text style={styles.reporterName}>{personName}</Text>
+                </View>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: themeColor + '12', borderColor: themeColor + '25' }]}>
+                <View style={[styles.statusDot, { backgroundColor: themeColor }]} />
+                <Text style={[styles.statusBadgeText, { color: themeColor }]}>
+                  {isSecure ? 'SECURE' : isLost ? 'LOST' : 'FOUND'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Description Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Description</Text>
+              <View style={styles.descriptionCard}>
+                <Text style={styles.descriptionText}>
+                  {displayDescription}
+                </Text>
+                {isSecure && (
+                  <View style={styles.secureNoticeBox}>
+                    <Ionicons name="information-circle" size={16} color={SECURE_COLOR} />
+                    <Text style={styles.secureHintText}>
+                      Photo and contact details are hidden for security. Please claim or visit Campus Security.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* Details Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Item Details</Text>
+              <View style={styles.detailsCard}>
+                <DetailRow icon="location-outline" label="Location" value={displayLocation} />
+                <DetailRow icon="calendar-outline" label="Date" value={itemDate} />
+                <DetailRow icon="time-outline" label="Time" value={itemTime} isLast={!isSecure} />
+                {isSecure && <DetailRow icon="shield-checkmark-outline" label="Security" value="Campus Security Office" isLast />}
+              </View>
+            </View>
+          </Animated.View>
         </View>
       </ScrollView>
 
-      {/* ── BOTTOM ACTION BAR (hidden on your own report) ── */}
-      {!isOwnItem && (
-        <Animated.View entering={FadeInUp.delay(600).duration(500)} style={styles.bottomBarWrapper}>
-          <Text style={styles.contactHint}>CONTACT {isLost ? 'OWNER' : 'FINDER'} TO RETURN ITEM</Text>
-          <View style={styles.actionButtonsRow}>
-            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: themeColor }]} onPress={handleCall}>
-              <Feather name="phone-call" size={20} color="#FFF" style={{ marginRight: 10 }} />
-              <Text style={styles.actionBtnText}>Call</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, styles.secondaryActionBtn, { borderColor: themeColor }]} onPress={handleSMS}>
-              <Feather name="message-square" size={20} color={themeColor} style={{ marginRight: 10 }} />
-              <Text style={[styles.actionBtnText, { color: themeColor }]}>SMS</Text>
+      {/* ── FIXED BOTTOM ACTION BAR ── */}
+      <View style={styles.bottomBar}>
+        {isOwnItem ? (
+          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: SLATE_400 }]} disabled>
+            <Ionicons name="shield-checkmark" size={18} color="#FFF" />
+            <Text style={styles.primaryBtnText}>Your Report</Text>
+          </TouchableOpacity>
+        ) : isSecure ? (
+          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#D97706' }]} disabled>
+            <Ionicons name="shield" size={18} color="#FFF" />
+            <Text style={styles.primaryBtnText}>Secure Hold</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.bottomBarStack}>
+            {claimPending ? (
+              <TouchableOpacity
+                style={[styles.primaryBtn, styles.bottomBarTopAction, { backgroundColor: '#D97706' }]}
+                onPress={() => router.push('/(user)/MyRequests')}
+              >
+                <Ionicons name="time" size={18} color="#FFF" />
+                <Text style={styles.primaryBtnText}>Pending — View Requests</Text>
+              </TouchableOpacity>
+            ) : showClaimSection ? (
+              <View style={styles.bottomBarActions}>
+                {showNotMine && (
+                  <TouchableOpacity onPress={handleNotMine} style={styles.secondaryBtn}>
+                    <Text style={styles.secondaryBtnText}>Not mine</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { backgroundColor: themeColor }]}
+                  onPress={() => setClaimModalVisible(true)}
+                >
+                  <Ionicons name="lock-closed" size={16} color="#FFF" />
+                  <Text style={styles.primaryBtnText}>Claim Item</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {/* Call stays in place on every visit for non-own listings */}
+            <TouchableOpacity style={[styles.contactBtn, styles.callBtn]} onPress={handleCall}>
+              <Ionicons name="call" size={20} color="#FFF" style={styles.btnIcon} />
+              <Text style={styles.contactBtnText}>Call Reporter</Text>
             </TouchableOpacity>
           </View>
-        </Animated.View>
-      )}
+        )}
+      </View>
 
       <ItemClaimFormModal
         visible={claimModalVisible}
-        onClose={() => !submitting && setClaimModalVisible(false)}
+        onClose={() => setClaimModalVisible(false)}
         onSubmit={submitClaim}
         submitting={submitting}
         initialName={userName}
@@ -344,125 +425,341 @@ export default function ItemDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG_MAIN },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG_MAIN },
-  loadingText: { color: SLATE_500, fontWeight: '600' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingTop: Platform.OS === 'android' ? 45 : 55,
-    paddingBottom: 15,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1, borderBottomColor: '#E2E8F0',
-    zIndex: 10
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
+  loadingText: { color: SLATE_500, fontWeight: '600', marginTop: 12 },
+  
+  headerFloating: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? StatusBar.currentHeight + 12 : 50,
+    left: 20,
+    zIndex: 100,
   },
-  headerIconBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  headerTitleContainer: { flexDirection: 'row', alignItems: 'center' },
-  headerLogo: { width: 22, height: 22, marginRight: 8 },
-  headerTitleText: { fontSize: 18, fontWeight: '900', color: '#1E40AF', letterSpacing: 0.5 },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // Premium soft shadow
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+
+  mainScroll: { flex: 1 },
   imageWrapper: {
-    width: '100%', height: 280,
-    borderBottomLeftRadius: 35, borderBottomRightRadius: 35,
-    backgroundColor: '#FFF', overflow: 'hidden',
-    marginBottom: 20
+    width: '100%',
+    height: height * 0.42,
+    backgroundColor: '#F8FAFC',
   },
   heroImage: { width: '100%', height: '100%' },
-  imagePlaceholder: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E2E8F0' },
-  floatingBadge: {
-    position: 'absolute', top: 20, left: 20,
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 25,
-    backgroundColor: '#FFF',
-    ...Platform.select({
-        ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 6 },
-        android: { elevation: 4 }
-    })
+  imagePlaceholder: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#F1F5F9' },
+  securePlaceholder: { backgroundColor: '#FEF3C7' },
+  secureBadgeBig: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
-  floatingBadgeText: { fontSize: 13, fontWeight: '900', letterSpacing: 1 },
-  contentPadding: { paddingHorizontal: 20 },
-  titleSection: { alignItems: 'center', marginBottom: 25, marginTop: 10 },
-  titleBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap', justifyContent: 'center' },
-  categoryPill: { backgroundColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
-  categoryPillText: { fontSize: 12, fontWeight: '900', color: SLATE_600, letterSpacing: 1, textTransform: 'uppercase' },
-  titleText: { fontSize: 32, fontWeight: '900', color: SLATE_900, lineHeight: 38, textAlign: 'center' },
-  listCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 32,
-    paddingVertical: 10,
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-    ...Platform.select({
-        ios: { shadowColor: '#1E293B', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.08, shadowRadius: 20 },
-        android: { elevation: 8 }
-    })
+  secureMarkText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: SECURE_COLOR,
+    letterSpacing: 1.5,
   },
-  rowContainer: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 20 },
-  rowLeft: { width: 60, alignItems: 'center', paddingTop: 18 },
-  iconCircle: { width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
-  rowRight: { flex: 1, paddingVertical: 20, paddingRight: 10, borderBottomWidth: 1.5, borderBottomColor: '#F4F7FA' },
-  rowLabel: { fontSize: 11, fontWeight: '800', color: SLATE_400, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 },
-  rowValue: { fontSize: 16, fontWeight: '600', color: SLATE_800, lineHeight: 24 },
-  claimSection: {
-    marginTop: 20,
-    backgroundColor: '#FFF',
-    borderRadius: 24,
-    padding: 16,
+
+  bottomSheetCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    marginTop: -32,
+    paddingHorizontal: 24,
+    minHeight: height * 0.6,
+    // Soft shadow for bottom sheet card
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.03,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  dragIndicatorContainer: {
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  dragIndicator: {
+    width: 36,
+    height: 5,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 3,
+  },
+
+  titleRow: {
+    marginBottom: 16,
+  },
+  titleContainer: {
+    gap: 8,
+  },
+  titleText: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: SLATE_900,
+    lineHeight: 32,
+  },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  categoryText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  reporterCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  claimTitle: { fontSize: 16, fontWeight: '900', color: SLATE_900, marginBottom: 6 },
-  claimHint: { fontSize: 12, color: SLATE_500, lineHeight: 18, marginBottom: 14 },
-  pendingBanner: {
+  reporterLeft: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reportedByLabel: {
+    fontSize: 11,
+    color: SLATE_500,
+    fontWeight: '600',
+  },
+  reporterName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: SLATE_900,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: SLATE_900,
+    marginBottom: 12,
+  },
+  descriptionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    // Subtle shadow
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  descriptionText: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: SLATE_600,
+  },
+  secureNoticeBox: {
+    flexDirection: 'row',
+    gap: 8,
     backgroundColor: '#FFFBEB',
-    borderRadius: 14,
-    padding: 14,
     borderWidth: 1,
     borderColor: '#FDE68A',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
   },
-  pendingBannerText: { flex: 1 },
-  pendingTitle: { fontSize: 14, fontWeight: '900', color: '#92400E', marginBottom: 4 },
-  pendingHint: { fontSize: 12, color: '#B45309', lineHeight: 18 },
-  matchActions: { flexDirection: 'row', gap: 8 },
-  matchClaimBtn: {
+  secureHintText: {
     flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#B45309',
+    fontWeight: '600',
+  },
+
+  detailsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    // Subtle shadow
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  detailRowLast: {
+    borderBottomWidth: 0,
+  },
+  detailLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  detailIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: SLATE_500,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  detailValue: {
+    flex: 1,
+    fontSize: 14,
+    color: SLATE_900,
+    fontWeight: '700',
+    textAlign: 'right',
+    marginLeft: 16,
+  },
+
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: PRIMARY_ACTION,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  matchClaimBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  matchDismissBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  matchDismissBtnText: { color: '#64748B', fontSize: 13, fontWeight: '700' },
-  bottomBarWrapper: {
-    position: 'absolute', bottom: 0, width: '100%',
-    backgroundColor: '#FFF', paddingHorizontal: 25, paddingTop: 20, paddingBottom: 35,
-    borderTopLeftRadius: 35, borderTopRightRadius: 35,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
     ...Platform.select({
-        ios: { shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.08, shadowRadius: 20 },
-        android: { elevation: 15 }
-    })
+      ios: { shadowColor: '#0F172A', shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.04, shadowRadius: 16 },
+      android: { elevation: 12 },
+    }),
   },
-  contactHint: { fontSize: 11, color: SLATE_400, textAlign: 'center', marginBottom: 15, fontWeight: '800', letterSpacing: 1 },
-  actionButtonsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  actionBtn: {
-    flex: 0.47, height: 62, borderRadius: 20,
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+  bottomBarStack: {
+    width: '100%',
+    gap: 10,
   },
-  secondaryActionBtn: { backgroundColor: '#FFF', borderWidth: 2 },
-  actionBtnText: { fontSize: 17, fontWeight: '800', color: '#FFF' },
+  bottomBarTopAction: {
+    flex: 0,
+    width: '100%',
+  },
+  bottomBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    width: '100%',
+  },
+  contactBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8 },
+      android: { elevation: 3 },
+    }),
+  },
+  callBtn: {
+    backgroundColor: '#10B981',
+  },
+  contactBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  btnIcon: {
+    marginTop: -1,
+  },
+  primaryBtn: {
+    flex: 1,
+    backgroundColor: BRAND_PRIMARY,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 14,
+    gap: 8,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8 },
+      android: { elevation: 4 },
+    }),
+  },
+  primaryBtnText: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  secondaryBtn: {
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  secondaryBtnText: {
+    color: SLATE_500,
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

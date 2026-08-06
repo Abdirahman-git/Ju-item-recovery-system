@@ -9,7 +9,7 @@ export default function AdminLayout() {
         headerShown: false,
         drawerStyle: {
           width: '82%',
-          backgroundColor: Colors.admin.sidebar,
+          backgroundColor: '#0f2d6b',
         },
         swipeEdgeWidth: 100,
       }}
@@ -44,6 +44,13 @@ export default function AdminLayout() {
         }}
       />
       <Drawer.Screen
+        name="Drafts/index"
+        options={{
+          drawerLabel: 'Drafts',
+          title: 'Draft Items',
+        }}
+      />
+      <Drawer.Screen
         name="Lost/index"
         options={{
           drawerLabel: 'Report Lost',
@@ -58,10 +65,24 @@ export default function AdminLayout() {
         }}
       />
       <Drawer.Screen
+        name="SecureFound/index"
+        options={{
+          drawerLabel: 'Secure Found',
+          title: 'Secure Found Hold',
+        }}
+      />
+      <Drawer.Screen
         name="MyItems/index"
         options={{
           drawerLabel: 'My Items',
           title: 'My Items',
+        }}
+      />
+      <Drawer.Screen
+        name="SystemReports/index"
+        options={{
+          drawerLabel: 'System Reports',
+          title: 'System Reports',
         }}
       />
       <Drawer.Screen

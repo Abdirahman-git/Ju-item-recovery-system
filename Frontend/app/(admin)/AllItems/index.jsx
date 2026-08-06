@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,13 +18,80 @@ import AdminHeader from '../../../src/components/AdminHeader';
 import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import {
-  adminGetAllLostItems,
-  adminGetAllFoundItems,
-  deleteLostItem,
-  deleteFoundItem,
+  fetchAllInventoryItems,
+  deleteInventoryItem,
+  markSecureFoundReturned,
 } from '../../../src/services/supabase';
-import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
+import { isSecureFoundItem, normalizeItemStatus, ITEM_STATUS } from '../../../src/utils/itemStatus';
+import { canMarkInventoryItemReturned } from '../../../src/utils/inventory';
 import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
+
+const STATUS_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'draft', label: 'Draft' },
+  { id: 'secure', label: 'Secure' },
+  { id: 'found', label: 'Found' },
+  { id: 'lost', label: 'Lost' },
+];
+
+const SORT_OPTIONS = [
+  { id: 'newest', label: 'Newest' },
+  { id: 'oldest', label: 'Oldest' },
+  { id: 'name', label: 'A–Z' },
+  { id: 'name-desc', label: 'Z–A' },
+];
+
+function getCardMeta(item) {
+  const status = normalizeItemStatus(item);
+  const itemType = item.itemType || (String(item.type || '').toUpperCase() === 'LOST' ? 'lost' : 'found');
+  const isSecure = isSecureFoundItem(item);
+
+  if (status === ITEM_STATUS.DRAFT || item.status === 'draft') {
+    return {
+      filter: 'draft',
+      badge: isSecure ? { label: 'Secure Draft', bg: '#F59E0B', color: '#FFF' } : { label: 'Draft', bg: '#7C3AED', color: '#FFF' },
+      action: { label: isSecure ? 'Continue Secure' : itemType === 'found' ? 'Continue Found' : 'Continue Lost', variant: 'primary' },
+    };
+  }
+
+  if (isSecure && status === ITEM_STATUS.LIVE) {
+    return {
+      filter: 'secure',
+      badge: { label: 'Secure', bg: '#D97706', color: '#FFF' },
+      action: { label: 'Mark Returned', variant: 'success' },
+    };
+  }
+
+  if (itemType === 'found') {
+    return {
+      filter: 'found',
+      badge: { label: 'Found', bg: Colors.success, color: '#FFF' },
+      action: { label: 'Details', variant: 'ghost' },
+    };
+  }
+
+  return {
+    filter: 'lost',
+    badge: { label: 'Lost', bg: Colors.error, color: '#FFF' },
+    action: { label: 'Details', variant: 'ghost' },
+  };
+}
+
+function formatDate(value) {
+  if (!value) return 'Recently';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Recently';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function sortItems(list, sortBy) {
+  const rows = [...list];
+  const key = (item) => new Date(item.created_at || item.id || 0).getTime();
+  if (sortBy === 'oldest') return rows.sort((a, b) => key(a) - key(b));
+  if (sortBy === 'name') return rows.sort((a, b) => String(a.itemName || '').localeCompare(String(b.itemName || '')));
+  if (sortBy === 'name-desc') return rows.sort((a, b) => String(b.itemName || '').localeCompare(String(a.itemName || '')));
+  return rows.sort((a, b) => key(b) - key(a));
+}
 
 export default function AllItemsScreen() {
   const router = useRouter();
@@ -32,31 +99,22 @@ export default function AllItemsScreen() {
   const toastRef = useRef(null);
   const { initialTab } = useLocalSearchParams();
 
-  const [lostItems, setLostItems] = useState([]);
-  const [foundItems, setFoundItems] = useState([]);
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [itemTypeFilter, setItemTypeFilter] = useState(
-    initialTab === 'found' ? 'found' : 'lost'
+  const [statusFilter, setStatusFilter] = useState(
+    ['all', 'draft', 'secure', 'found', 'lost'].includes(initialTab) ? initialTab : 'all'
   );
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   const [searchQuery, setSearchQuery] = useState('');
-
-  React.useEffect(() => {
-    if (initialTab === 'found' || initialTab === 'lost') {
-      setItemTypeFilter(initialTab);
-    }
-  }, [initialTab]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [allLost, allFound] = await Promise.all([
-        adminGetAllLostItems(),
-        adminGetAllFoundItems(),
-      ]);
-      setLostItems(allLost || []);
-      setFoundItems(allFound || []);
+      const data = await fetchAllInventoryItems();
+      setItems(data || []);
     } catch (error) {
-      console.error('Error fetching property list:', error);
+      console.error('Error fetching inventory:', error);
       showAppFailure('Failed to retrieve property logs.', 'Load failed');
     } finally {
       setLoading(false);
@@ -69,64 +127,104 @@ export default function AllItemsScreen() {
     }, [])
   );
 
-  const handleDeleteLost = async (item) => {
+  const categories = useMemo(() => {
+    const set = new Set();
+    items.forEach((item) => {
+      if (item.category) set.add(item.category);
+    });
+    return ['all', ...Array.from(set).sort()];
+  }, [items]);
+
+  const counts = useMemo(() => {
+    const c = { all: items.length, draft: 0, secure: 0, found: 0, lost: 0 };
+    items.forEach((item) => {
+      const meta = getCardMeta(item);
+      if (c[meta.filter] != null) c[meta.filter] += 1;
+    });
+    return c;
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return sortItems(
+      items.filter((item) => {
+        const meta = getCardMeta(item);
+        const matchesStatus = statusFilter === 'all' || meta.filter === statusFilter;
+        const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
+        const haystack = [item.itemName, item.category, item.location, item.ownerName, item.finderName, item.description]
+          .join(' ')
+          .toLowerCase();
+        return matchesStatus && matchesCategory && (!q || haystack.includes(q));
+      }),
+      sortBy
+    );
+  }, [items, statusFilter, categoryFilter, searchQuery, sortBy]);
+
+  const handleDelete = (item) => {
     showAppConfirm({
-      title: 'Remove lost item',
-      message: `Are you sure you want to permanently delete report for "${item.itemName}"?`,
+      title: 'Remove item',
+      message: `Delete "${item.itemName || 'this item'}" permanently?`,
       confirmText: 'Delete',
       destructive: true,
       onConfirm: async () => {
         try {
-          await deleteLostItem(item.id);
-          setLostItems((prev) => prev.filter((i) => i.id !== item.id));
-          toastRef.current?.show('Item Removed', 'Lost property report deleted.', 'success');
+          await deleteInventoryItem(item);
+          setItems((prev) => prev.filter((i) => i.id !== item.id || i.itemType !== item.itemType));
+          toastRef.current?.show('Item Removed', 'Property report deleted.', 'success');
         } catch (err) {
-          console.error('Delete lost failed:', err);
-          showAppFailure('Failed to remove lost item.', 'Delete failed');
+          console.error('Delete failed:', err);
+          showAppFailure(err?.message || 'Failed to remove item.', 'Delete failed');
         }
       },
     });
   };
 
-  const handleDeleteFound = async (item) => {
+  const handleMarkSecureReturned = (item) => {
     showAppConfirm({
-      title: 'Remove found item',
-      message: `Are you sure you want to permanently delete report for "${item.itemName}"?`,
-      confirmText: 'Delete',
-      destructive: true,
+      title: 'Mark secure hold returned',
+      message: `Release "${item.itemName || 'this secure hold'}" to its verified owner?`,
+      confirmText: 'Returned',
       onConfirm: async () => {
         try {
-          await deleteFoundItem(item.id);
-          setFoundItems((prev) => prev.filter((i) => i.id !== item.id));
-          toastRef.current?.show('Item Removed', 'Found property report deleted.', 'success');
+          await markSecureFoundReturned(item.id);
+          setItems((prev) => prev.filter((i) => i.id !== item.id));
+          toastRef.current?.show('Released', 'Secure hold archived as returned.', 'success');
         } catch (err) {
-          console.error('Delete found failed:', err);
-          showAppFailure('Failed to remove found item.', 'Delete failed');
+          showAppFailure(err?.message || 'Failed to release secure hold.', 'Release failed');
         }
       },
     });
   };
 
-  const query = searchQuery.trim().toLowerCase();
-  const filterByQuery = (item) =>
-    !query ||
-    item.itemName?.toLowerCase().includes(query) ||
-    item.category?.toLowerCase().includes(query) ||
-    item.location?.toLowerCase().includes(query) ||
-    item.ownerName?.toLowerCase().includes(query) ||
-    item.finderName?.toLowerCase().includes(query);
-
-  const filteredLostItems = lostItems.filter(filterByQuery);
-  const filteredFoundItems = foundItems.filter(filterByQuery);
-
-  const activeItems = itemTypeFilter === 'lost' ? filteredLostItems : filteredFoundItems;
-  const totalItems = lostItems.length + foundItems.length;
-  const fixedTab = initialTab === 'lost' || initialTab === 'found';
-
-  const openItem = (item, type) => {
+  const handleMarkReturned = (item) => {
+    const itemType = item.itemType || (String(item.type || '').toUpperCase() === 'LOST' ? 'lost' : 'found');
+    if (isSecureFoundItem(item) && normalizeItemStatus(item) === ITEM_STATUS.LIVE) {
+      handleMarkSecureReturned(item);
+      return;
+    }
     router.push({
       pathname: `/(admin)/item/${item.id}`,
-      params: { data: JSON.stringify({ ...item, type }) },
+      params: {
+        data: JSON.stringify({ ...item, type: itemType.toUpperCase() }),
+        openReturn: '1',
+      },
+    });
+  };
+
+  const handleOpenItem = (item) => {
+    const itemType = item.itemType || (String(item.type || '').toUpperCase() === 'LOST' ? 'lost' : 'found');
+    const meta = getCardMeta(item);
+
+    if (meta.filter === 'draft') {
+      const isSecure = isSecureFoundItem(item);
+      const path = isSecure ? '/(admin)/SecureFound' : itemType === 'found' ? '/(admin)/Found' : '/(admin)/Lost';
+      router.push({ pathname: path, params: { draftId: String(item.id) } });
+      return;
+    }
+
+    router.push({
+      pathname: `/(admin)/item/${item.id}`,
+      params: { data: JSON.stringify({ ...item, type: itemType.toUpperCase() }) },
     });
   };
 
@@ -146,22 +244,30 @@ export default function AllItemsScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <AdminPageHero
           eyebrow="Item Management"
-          title={fixedTab ? `${itemTypeFilter === 'lost' ? 'Lost' : 'Found'} items` : 'All property logs'}
-          subtitle="Browse reports, inspect status, and remove invalid or duplicate items."
+          title="All property logs"
+          subtitle="Browse, manage, and release every report in one unified inventory."
         />
 
         <View style={styles.statsRow}>
           <View style={[styles.statCard, styles.statCardPrimary]}>
-            <Text style={styles.statNum}>{totalItems}</Text>
-            <Text style={styles.statLabel}>Total items</Text>
+            <Text style={styles.statNum}>{counts.all}</Text>
+            <Text style={styles.statLabel}>Total</Text>
           </View>
-          <View style={[styles.statCard, styles.statCardLost]}>
-            <Text style={[styles.statNum, styles.statNumLost]}>{lostItems.length}</Text>
-            <Text style={styles.statLabel}>Lost</Text>
+          <View style={[styles.statCard, styles.statCardDraft]}>
+            <Text style={styles.statNum}>{counts.draft}</Text>
+            <Text style={styles.statLabel}>Draft</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardSecure]}>
+            <Text style={styles.statNum}>{counts.secure}</Text>
+            <Text style={styles.statLabel}>Secure</Text>
           </View>
           <View style={[styles.statCard, styles.statCardFound]}>
-            <Text style={[styles.statNum, styles.statNumFound]}>{foundItems.length}</Text>
+            <Text style={styles.statNum}>{counts.found}</Text>
             <Text style={styles.statLabel}>Found</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardLost]}>
+            <Text style={styles.statNum}>{counts.lost}</Text>
+            <Text style={styles.statLabel}>Lost</Text>
           </View>
         </View>
 
@@ -169,7 +275,7 @@ export default function AllItemsScreen() {
           <Ionicons name="search-outline" size={20} color={Colors.slate400} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder={`Search ${itemTypeFilter === 'lost' ? 'lost' : 'found'} items...`}
+            placeholder="Search items, locations, reporters..."
             placeholderTextColor={Colors.slate400}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -177,55 +283,81 @@ export default function AllItemsScreen() {
           />
         </View>
 
-        {!fixedTab ? (
-          <View style={styles.tabBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+          {STATUS_TABS.map((tab) => (
             <TouchableOpacity
-              style={[styles.tabBtn, itemTypeFilter === 'lost' && styles.tabBtnActive]}
-              onPress={() => setItemTypeFilter('lost')}
+              key={tab.id}
+              style={[styles.chip, statusFilter === tab.id && styles.chipActive]}
+              onPress={() => setStatusFilter(tab.id)}
             >
-              <Text style={[styles.tabText, itemTypeFilter === 'lost' && styles.tabTextActive]}>
-                Lost ({lostItems.length})
+              <Text style={[styles.chipText, statusFilter === tab.id && styles.chipTextActive]}>
+                {tab.label} ({counts[tab.id]})
               </Text>
             </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+          {categories.map((cat) => (
             <TouchableOpacity
-              style={[styles.tabBtn, itemTypeFilter === 'found' && styles.tabBtnActive]}
-              onPress={() => setItemTypeFilter('found')}
+              key={cat}
+              style={[styles.chip, categoryFilter === cat && styles.chipActive]}
+              onPress={() => setCategoryFilter(cat)}
             >
-              <Text style={[styles.tabText, itemTypeFilter === 'found' && styles.tabTextActive]}>
-                Found ({foundItems.length})
+              <Text style={[styles.chipText, categoryFilter === cat && styles.chipTextActive]}>
+                {cat === 'all' ? 'All categories' : cat}
               </Text>
             </TouchableOpacity>
-          </View>
-        ) : null}
+          ))}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+          {SORT_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt.id}
+              style={[styles.chip, sortBy === opt.id && styles.chipActive]}
+              onPress={() => setSortBy(opt.id)}
+            >
+              <Text style={[styles.chipText, sortBy === opt.id && styles.chipTextActive]}>{opt.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={Colors.primary} />
             <Text style={styles.loadingText}>Loading property logs...</Text>
           </View>
-        ) : activeItems.length > 0 ? (
-          activeItems.map((item) => {
-            const isLost = itemTypeFilter === 'lost';
+        ) : filteredItems.length > 0 ? (
+          filteredItems.map((item) => {
+            const meta = getCardMeta(item);
+            const isSecure = meta.filter === 'secure';
+            const showReturn = canMarkInventoryItemReturned(item);
             return (
               <TouchableOpacity
-                key={`${itemTypeFilter}-${item.id}`}
+                key={`${item.itemType}-${item.id}`}
                 style={styles.itemCard}
                 activeOpacity={0.9}
-                onPress={() => openItem(item, isLost ? 'LOST' : 'FOUND')}
+                onPress={() => handleOpenItem(item)}
               >
-                {item.imageURI ? (
+                {isSecure ? (
+                  <View style={[styles.itemCardImg, styles.secureImg]}>
+                    <Text style={styles.secureBang}>!</Text>
+                  </View>
+                ) : item.imageURI ? (
                   <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
                 ) : (
                   <View
                     style={[
-                      styles.itemCardImgPlaceholder,
-                      { backgroundColor: isLost ? Colors.lostBadge : Colors.foundBadge },
+                      styles.itemCardImg,
+                      styles.placeholderImg,
+                      { backgroundColor: meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge },
                     ]}
                   >
                     <Ionicons
-                      name={isLost ? 'help-buoy-outline' : 'checkmark-circle-outline'}
+                      name={meta.filter === 'lost' ? 'help-buoy-outline' : 'checkmark-circle-outline'}
                       size={28}
-                      color={isLost ? Colors.lostBadgeText : Colors.foundBadgeText}
+                      color={meta.filter === 'lost' ? Colors.lostBadgeText : Colors.foundBadgeText}
                     />
                   </View>
                 )}
@@ -233,28 +365,19 @@ export default function AllItemsScreen() {
                 <View style={styles.itemCardInfo}>
                   <View style={styles.itemHeader}>
                     <Text style={styles.itemCategory}>{item.category || 'Uncategorized'}</Text>
-                    <View style={styles.badges}>
-                      <ItemStatusBadge item={item} compact />
-                      <View style={[styles.typePill, isLost ? styles.typePillLost : styles.typePillFound]}>
-                        <Text style={[styles.typePillText, isLost ? styles.typeTextLost : styles.typeTextFound]}>
-                          {isLost ? 'LOST' : 'FOUND'}
-                        </Text>
-                      </View>
+                    <View style={[styles.badge, { backgroundColor: meta.badge.bg }]}>
+                      <Text style={[styles.badgeText, { color: meta.badge.color }]}>{meta.badge.label}</Text>
                     </View>
                   </View>
 
                   <Text style={styles.itemName} numberOfLines={1}>
-                    {item.itemName}
+                    {item.itemName || item.item_name}
                   </Text>
                   <Text style={styles.itemLine} numberOfLines={1}>
                     <Ionicons name="location-outline" size={13} color={Colors.slate500} /> {item.location || 'Unknown'}
                   </Text>
                   <Text style={styles.itemLine} numberOfLines={1}>
-                    <Ionicons name="person-outline" size={13} color={Colors.slate500} />{' '}
-                    {isLost ? `Owner: ${item.ownerName || 'Unknown'}` : `Finder: ${item.finderName || 'Unknown'}`}
-                  </Text>
-                  <Text style={styles.itemLine} numberOfLines={1}>
-                    <Ionicons name="call-outline" size={13} color={Colors.slate500} /> Contact: {item.phnum || 'N/A'}
+                    <Ionicons name="calendar-outline" size={13} color={Colors.slate500} /> {formatDate(item.created_at)}
                   </Text>
                 </View>
 
@@ -262,12 +385,22 @@ export default function AllItemsScreen() {
                   style={styles.itemDeleteBtn}
                   onPress={(e) => {
                     e.stopPropagation?.();
-                    if (isLost) handleDeleteLost(item);
-                    else handleDeleteFound(item);
+                    handleDelete(item);
                   }}
                 >
                   <Ionicons name="trash-outline" size={19} color={Colors.error} />
                 </TouchableOpacity>
+                {showReturn ? (
+                  <TouchableOpacity
+                    style={styles.itemReturnBtn}
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleMarkReturned(item);
+                    }}
+                  >
+                    <Text style={styles.itemReturnBtnText}>Return</Text>
+                  </TouchableOpacity>
+                ) : null}
               </TouchableOpacity>
             );
           })
@@ -275,7 +408,7 @@ export default function AllItemsScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="albums-outline" size={56} color={Colors.slate300} />
             <Text style={styles.emptyTitle}>No matching items</Text>
-            <Text style={styles.emptyText}>Try another search keyword or switch tabs.</Text>
+            <Text style={styles.emptyText}>Try another filter, search, or switch tabs.</Text>
           </View>
         )}
       </ScrollView>
@@ -286,10 +419,7 @@ export default function AllItemsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.slate50,
-  },
+  container: { flex: 1, backgroundColor: Colors.slate50 },
   refreshBtn: {
     width: 44,
     height: 44,
@@ -318,46 +448,43 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primaryLight,
     borderColor: '#BFDBFE',
   },
-  statCardLost: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+  statCardDraft: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#C4B5FD',
+  },
+  statCardSecure: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FCD34D',
   },
   statCardFound: {
     backgroundColor: '#ECFDF5',
     borderColor: '#A7F3D0',
   },
+  statCardLost: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
   statNum: {
     fontFamily: 'Poppins_700Bold',
-    fontSize: 18,
-    color: Colors.primaryDark,
-  },
-  statNumLost: {
-    color: Colors.error,
-  },
-  statNumFound: {
-    color: Colors.success,
+    fontSize: 16,
+    color: Colors.slate900,
   },
   statLabel: {
     marginTop: 2,
     fontFamily: 'Inter_500Medium',
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.slate600,
   },
   searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.white,
-    marginBottom: 12,
+    marginBottom: 10,
     paddingHorizontal: 14,
     height: 50,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.slate100,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 1,
   },
   searchIcon: {
     marginRight: 8,
@@ -368,34 +495,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.slate900,
   },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: Colors.slate100,
-    borderRadius: 12,
-    padding: 3,
-    marginBottom: 14,
+  filterScroll: {
+    marginBottom: 10,
   },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  tabBtnActive: {
+  chip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
     backgroundColor: Colors.white,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
   },
-  tabText: {
+  chipActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: '#93C5FD',
+  },
+  chipText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 12,
     color: Colors.slate500,
   },
-  tabTextActive: {
-    color: Colors.slate900,
+  chipTextActive: {
+    color: Colors.primaryDark,
   },
   loadingContainer: {
     paddingTop: 60,
@@ -423,93 +545,95 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   itemCardImg: {
-    width: 68,
-    height: 68,
+    width: 78,
+    height: 78,
     borderRadius: 14,
-    marginRight: 12,
+    backgroundColor: Colors.slate100,
   },
-  itemCardImgPlaceholder: {
-    width: 68,
-    height: 68,
-    borderRadius: 14,
-    marginRight: 12,
-    justifyContent: 'center',
+  placeholderImg: {
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secureImg: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF3C7',
+  },
+  secureBang: {
+    fontSize: 48,
+    fontFamily: 'Poppins_700Bold',
+    color: '#D97706',
   },
   itemCardInfo: {
     flex: 1,
+    marginLeft: 12,
   },
   itemHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 3,
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 4,
   },
   itemCategory: {
+    flex: 1,
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: Colors.slate500,
+    textTransform: 'uppercase',
+  },
+  badge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 10,
-    color: Colors.slate400,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  badges: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  typePill: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  typePillLost: {
-    backgroundColor: '#FEF2F2',
-  },
-  typePillFound: {
-    backgroundColor: '#ECFDF5',
-  },
-  typePillText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.5,
-  },
-  typeTextLost: {
-    color: Colors.error,
-  },
-  typeTextFound: {
-    color: Colors.success,
   },
   itemName: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 18,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 15,
     color: Colors.slate900,
-    marginBottom: 3,
+    marginBottom: 6,
   },
   itemLine: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Inter_500Medium',
     fontSize: 12,
     color: Colors.slate600,
-    marginTop: 2,
+    marginBottom: 2,
   },
   itemDeleteBtn: {
-    width: 42,
-    height: 42,
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: '#FEF2F2',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
   },
+  itemReturnBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    marginLeft: 4,
+  },
+  itemReturnBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 12,
+    color: '#047857',
+  },
   emptyContainer: {
+    paddingTop: 60,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 70,
   },
   emptyTitle: {
-    marginTop: 14,
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 18,
-    color: Colors.slate800,
+    marginTop: 12,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 16,
+    color: Colors.slate700,
   },
   emptyText: {
     marginTop: 6,

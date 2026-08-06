@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import { supabase, resolveReporterPhone } from '../../src/services/supabase';
-import { canUseApp, ACCOUNT_SUSPENDED_MESSAGE, clearUserSession } from '../../src/utils/userAccess';
+import { loginViaBackend } from '../../src/services/supabase';
+import { ACCOUNT_SUSPENDED_MESSAGE } from '../../src/utils/userAccess';
 import { Colors } from '../../src/constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -51,70 +51,58 @@ export default function LoginScreen() {
     setLoading(true);
     clearNotice();
     try {
-      const studentId = identifier.trim();
-
-      // 1. Manual lookup in public.users (handles case-insensitive Student/Admin IDs)
-      const { data: userData, error: dbError } = await supabase
-        .from('users')
-        .select('*')
-        .or(`student_id.eq.${studentId.toUpperCase()},student_id.eq.${studentId.toLowerCase()}`)
-        .limit(1);
-
-      if (dbError) throw dbError;
-
-      if (!userData || userData.length === 0) {
-        throw new Error('Account not found. Please register first.');
-      }
-
-      const userRecord = userData[0];
-
-      // 2. Check Password manually
-      if (userRecord.password !== password) {
-        throw new Error('Incorrect Password.');
-      }
-
-      // 3. Block suspended / pending student accounts
-      if (!canUseApp(userRecord)) {
-        throw new Error(ACCOUNT_SUSPENDED_MESSAGE);
-      }
-
-      // 4. Save session (phone from users table, or student_directory fallback)
-      const sessionPhone = await resolveReporterPhone({
-        email: userRecord.email,
-        name: userRecord.name,
-        studentId: userRecord.student_id,
-        usersPhone: userRecord.phone,
+      const session = await loginViaBackend({
+        identifier: identifier.trim(),
+        password,
       });
 
       await AsyncStorage.setItem('userSession', JSON.stringify({
-        email: userRecord.email,
-        role: userRecord.role,
+        email: session.email,
+        role: session.role,
         isLoggedIn: true,
-        userName: userRecord.name,
-        studentId: userRecord.student_id,
-        phone: sessionPhone || userRecord.phone || '',
+        userName: session.userName,
+        studentId: session.studentId,
+        phone: session.phone || '',
+        adminToken: session.adminToken || null,
       }));
 
       await AsyncStorage.setItem('showLoginToast', 'true');
 
-      if (userRecord.role === 'admin') {
+      if (session.role === 'admin') {
         router.replace('/(admin)/DashBoard');
       } else {
         router.replace('/(user)/DashBoard');
       }
-
     } catch (err) {
-      if (err.message === ACCOUNT_SUSPENDED_MESSAGE) {
+      if (err.code === 'ACCOUNT_SUSPENDED' || err.message === ACCOUNT_SUSPENDED_MESSAGE) {
         setInlineNotice({
           type: 'suspended',
           title: 'Account not active',
+          message: err.message || ACCOUNT_SUSPENDED_MESSAGE,
+        });
+      } else if (err.code === 'ACCOUNT_BANNED') {
+        setInlineNotice({
+          type: 'banned',
+          title: "You're banned",
+          message: err.message,
+        });
+      } else if (err.code === 'ACCOUNT_NOT_FOUND') {
+        setInlineNotice({
+          type: 'not_found',
+          title: 'Account not found',
+          message: err.message,
+        });
+      } else if (err.code === 'WRONG_PASSWORD') {
+        setInlineNotice({
+          type: 'error',
+          title: 'Incorrect password',
           message: err.message,
         });
       } else {
         setInlineNotice({
           type: 'error',
-          title: 'Login failed',
-          message: err.message,
+          title: 'Sign in unsuccessful',
+          message: err.message || 'Something went wrong. Please try again.',
         });
       }
     } finally {
@@ -135,21 +123,68 @@ export default function LoginScreen() {
       </View>
 
       <View style={styles.card}>
-        {inlineNotice ? (
+      {inlineNotice ? (
           <View
             style={[
               styles.noticeBox,
-              inlineNotice.type === 'suspended' ? styles.noticeSuspended : styles.noticeError,
+              inlineNotice.type === 'suspended'
+                ? styles.noticeSuspended
+                : inlineNotice.type === 'banned'
+                  ? styles.noticeBanned
+                  : inlineNotice.type === 'not_found'
+                    ? styles.noticeNotFound
+                    : styles.noticeError,
             ]}
           >
-            <Ionicons
-              name={inlineNotice.type === 'suspended' ? 'lock-closed-outline' : 'alert-circle-outline'}
-              size={22}
-              color={inlineNotice.type === 'suspended' ? '#B45309' : Colors.error}
-              style={styles.noticeIcon}
-            />
+            <View
+              style={[
+                styles.noticeIconWrap,
+                inlineNotice.type === 'suspended'
+                  ? styles.noticeIconSuspended
+                  : inlineNotice.type === 'banned'
+                    ? styles.noticeIconBanned
+                    : inlineNotice.type === 'not_found'
+                      ? styles.noticeIconNotFound
+                      : styles.noticeIconError,
+              ]}
+            >
+              <Ionicons
+                name={
+                  inlineNotice.type === 'suspended'
+                    ? 'lock-closed'
+                    : inlineNotice.type === 'banned'
+                      ? 'ban'
+                      : inlineNotice.type === 'not_found'
+                        ? 'person-outline'
+                        : 'alert-circle'
+                }
+                size={18}
+                color={
+                  inlineNotice.type === 'suspended'
+                    ? '#B45309'
+                    : inlineNotice.type === 'banned'
+                      ? '#DC2626'
+                      : inlineNotice.type === 'not_found'
+                        ? '#1A56DB'
+                        : '#DC2626'
+                }
+              />
+            </View>
             <View style={styles.noticeTextWrap}>
-              <Text style={styles.noticeTitle}>{inlineNotice.title}</Text>
+              <Text
+                style={[
+                  styles.noticeTitle,
+                  inlineNotice.type === 'suspended'
+                    ? styles.noticeTitleSuspended
+                    : inlineNotice.type === 'banned'
+                      ? styles.noticeTitleBanned
+                      : inlineNotice.type === 'not_found'
+                        ? styles.noticeTitleNotFound
+                        : styles.noticeTitleError,
+                ]}
+              >
+                {inlineNotice.title}
+              </Text>
               <Text style={styles.noticeMessage}>{inlineNotice.message}</Text>
             </View>
           </View>
@@ -268,14 +303,14 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   card: {
-    backgroundColor: Colors.white,
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 24,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 20 },
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 16 },
     shadowOpacity: 0.05,
-    shadowRadius: 40,
-    elevation: 10,
+    shadowRadius: 30,
+    elevation: 8,
     borderWidth: 1,
     borderColor: '#F1F5F9',
   },
@@ -283,7 +318,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     padding: 14,
-    borderRadius: 14,
+    borderRadius: 16,
     marginBottom: 18,
     borderWidth: 1,
   },
@@ -291,13 +326,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderColor: '#FDE68A',
   },
+  noticeBanned: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  noticeNotFound: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
   noticeError: {
     backgroundColor: '#FEF2F2',
     borderColor: '#FECACA',
   },
-  noticeIcon: {
-    marginRight: 10,
-    marginTop: 2,
+  noticeIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    marginTop: 1,
+  },
+  noticeIconSuspended: {
+    backgroundColor: '#FEF3C7',
+  },
+  noticeIconBanned: {
+    backgroundColor: '#FEE2E2',
+  },
+  noticeIconNotFound: {
+    backgroundColor: '#DBEAFE',
+  },
+  noticeIconError: {
+    backgroundColor: '#FEE2E2',
   },
   noticeTextWrap: {
     flex: 1,
@@ -305,8 +365,19 @@ const styles = StyleSheet.create({
   noticeTitle: {
     fontFamily: 'Inter_700Bold',
     fontSize: 14,
-    color: Colors.slate900,
     marginBottom: 4,
+  },
+  noticeTitleSuspended: {
+    color: '#92400E',
+  },
+  noticeTitleBanned: {
+    color: '#991B1B',
+  },
+  noticeTitleNotFound: {
+    color: '#1E40AF',
+  },
+  noticeTitleError: {
+    color: '#991B1B',
   },
   noticeMessage: {
     fontFamily: 'Inter_400Regular',

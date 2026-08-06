@@ -1,250 +1,274 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect, DrawerActions, useNavigation } from '@react-navigation/native';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Platform, Dimensions, StatusBar } from 'react-native';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
+import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { supabase } from '../../../src/services/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchAllInventoryItems, deleteInventoryItem } from '../../../src/services/supabase';
+import { isSecureFoundItem, normalizeItemStatus, ITEM_STATUS } from '../../../src/utils/itemStatus';
 import SuccessToast from '../../../src/components/SuccessToast';
-import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
+import AdminHeader from '../../../src/components/AdminHeader';
+import AdminPageHero from '../../../src/components/AdminPageHero';
+import { Colors } from '../../../src/constants/colors';
+import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
-const { width } = Dimensions.get('window');
-const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
+const STATUS_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'secure', label: 'Secure' },
+  { id: 'found', label: 'Found' },
+  { id: 'lost', label: 'Lost' },
+];
+
+function getAdminIdentity(user) {
+  return {
+    email: String(user?.email || '').trim().toLowerCase(),
+    name: String(user?.userName || user?.name || '').trim().toLowerCase(),
+    studentId: String(user?.studentId || user?.student_id || '').trim().toUpperCase(),
+  };
+}
+
+function isAdminCreatedItem(item, user) {
+  if (!user) return false;
+  const { email, name, studentId } = getAdminIdentity(user);
+  const itemEmail = String(item.email || '').trim().toLowerCase();
+  const itemName = String(item.ownerName || item.finderName || item.itemName || '').trim().toLowerCase();
+  const itemId = String(item.studentId || item.student_id || '').trim().toUpperCase();
+  return itemEmail === email || itemName === name || itemId === studentId || itemEmail.includes(email);
+}
+
+function getCardMeta(item) {
+  const status = normalizeItemStatus(item);
+  const itemType = item.itemType || (String(item.type || '').toUpperCase() === 'LOST' ? 'lost' : 'found');
+  const isSecure = isSecureFoundItem(item);
+
+  if (isSecure && status === ITEM_STATUS.LIVE) return { filter: 'secure', badge: { label: 'Secure', bg: '#F59E0B', color: '#FFF' } };
+  if (itemType === 'found') return { filter: 'found', badge: { label: 'Found', bg: Colors.success, color: '#FFF' } };
+  return { filter: 'lost', badge: { label: 'Lost', bg: Colors.error, color: '#FFF' } };
+}
+
+function formatDate(value) {
+  if (!value) return 'Recently';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Recently';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 export default function AdminMyItemsPage() {
   const router = useRouter();
   const navigation = useNavigation();
-  const [activeTab, setActiveTab] = useState('lost');
-  const [loading, setLoading] = useState(true);
-  const [lostItems, setLostItems] = useState([]);
-  const [foundItems, setFoundItems] = useState([]);
-  const [user, setUser] = useState(null);
   const toastRef = useRef(null);
 
-  const fetchUserAndItems = async () => {
+  const [items, setItems] = useState([]);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const fetchUserAndItems = useCallback(async () => {
     try {
       setLoading(true);
       const sessionData = await AsyncStorage.getItem('userSession');
-      if (!sessionData) {
-        setLoading(false);
-        return;
-      }
-      const userData = JSON.parse(sessionData);
+      const userData = sessionData ? JSON.parse(sessionData) : null;
       setUser(userData);
-
-      const userEmail = userData.email;
-
-      // Fetch Lost Items
-      const { data: lostData, error: lostError } = await supabase
-        .from('lost_items')
-        .select('*')
-        .eq('email', userEmail)
-        .order('created_at', { ascending: false });
-
-      if (lostError) throw lostError;
-      setLostItems(lostData || []);
-
-      // Fetch Found Items
-      const { data: foundData, error: foundError } = await supabase
-        .from('found_items')
-        .select('*')
-        .eq('email', userEmail)
-        .order('created_at', { ascending: false });
-
-      if (foundError) throw foundError;
-      setFoundItems(foundData || []);
-
+      const allItems = await fetchAllInventoryItems();
+      setItems((allItems || []).filter((item) => isAdminCreatedItem(item, userData)));
     } catch (error) {
       console.error('Error fetching items:', error.message);
-      showAppError('Load failed', 'Failed to load your items.');
+      showAppFailure('Failed to load your items.', 'Load failed');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       fetchUserAndItems();
-    }, [])
+    }, [fetchUserAndItems])
   );
 
-  const handleDelete = async (itemId, type) => {
+  const counts = useMemo(() => {
+    const c = { all: items.length, secure: 0, found: 0, lost: 0 };
+    items.forEach((item) => {
+      const meta = getCardMeta(item);
+      if (c[meta.filter] != null) c[meta.filter] += 1;
+    });
+    return c;
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      const meta = getCardMeta(item);
+      const matchesStatus = statusFilter === 'all' || meta.filter === statusFilter;
+      const haystack = [item.itemName, item.category, item.location, item.ownerName, item.finderName, item.description]
+        .join(' ')
+        .toLowerCase();
+      return matchesStatus && (!q || haystack.includes(q));
+    });
+  }, [items, statusFilter, searchQuery]);
+
+  const handleDelete = (item) => {
     showAppConfirm({
       title: 'Delete item',
-      message: 'Are you sure you want to delete this report?',
+      message: `Remove "${item.itemName || 'this item'}" permanently?`,
       confirmText: 'Delete',
       destructive: true,
       onConfirm: async () => {
         try {
-          const table = type === 'lost' ? 'lost_items' : 'found_items';
-          const { error } = await supabase.from(table).delete().eq('id', itemId);
-          if (error) throw error;
-
-          toastRef.current?.show('Deleted!', 'Item has been removed successfully.');
-
-          if (type === 'lost') {
-            setLostItems(lostItems.filter(i => i.id !== itemId));
-          } else {
-            setFoundItems(foundItems.filter(i => i.id !== itemId));
-          }
+          await deleteInventoryItem(item);
+          setItems((prev) => prev.filter((i) => i.id !== item.id || i.itemType !== item.itemType));
+          toastRef.current?.show('Deleted!', 'Item has been removed successfully.', 'success');
         } catch (error) {
-          showAppFailure('Could not delete item. Please try again.', 'Delete failed');
+          showAppFailure(error?.message || 'Could not delete item.', 'Delete failed');
         }
       },
     });
   };
-
-  const handleClearAll = async () => {
-    const itemCount = activeTab === 'lost' ? lostItems.length : foundItems.length;
-    if (itemCount === 0) return;
-
-    showAppConfirm({
-      title: 'Clear all items',
-      message: `Are you sure you want to delete all ${activeTab} items? This cannot be undone.`,
-      confirmText: 'Delete all',
-      destructive: true,
-      onConfirm: async () => {
-        try {
-          const table = activeTab === 'lost' ? 'lost_items' : 'found_items';
-          const { error } = await supabase.from(table).delete().eq('email', user.email);
-          if (error) throw error;
-
-          toastRef.current?.show('Cleared All!', `All ${activeTab} items have been removed.`);
-
-          if (activeTab === 'lost') {
-            setLostItems([]);
-          } else {
-            setFoundItems([]);
-          }
-        } catch (error) {
-          showAppError('Clear failed', 'Could not clear items.');
-        }
-      },
-    });
-  };
-
-  const ItemCard = ({ item, type, index }) => (
-    <TouchableOpacity
-      activeOpacity={0.95}
-      style={styles.card}
-      onPress={() => router.push({
-        pathname: `/(admin)/item/${item.id}`,
-        params: { data: JSON.stringify({ ...item, type: type.toUpperCase() }) }
-      })}
-    >
-      <View style={styles.imageWrapper}>
-        {item.imageURI ? (
-          <Image source={{ uri: item.imageURI }} style={styles.itemImage} />
-        ) : (
-          <View style={styles.placeholderImage}>
-            <Ionicons name="image-outline" size={40} color="#CBD5E1" />
-          </View>
-        )}
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={(e) => {
-            // Stop propagation to prevent navigation on delete
-            handleDelete(item.id, type);
-          }}
-        >
-          <Ionicons name="trash-outline" size={18} color="#EF4444" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.cardBody}>
-        <View style={styles.badgeRow}>
-          <View style={[styles.statusBadge, { backgroundColor: type === 'lost' ? '#FEE2E2' : '#DCFCE7' }]}>
-            <Text style={[styles.statusText, { color: type === 'lost' ? '#EF4444' : '#10B981' }]}>
-              {type.toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{item.category.toUpperCase()}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.itemTitle}>{item.itemName}</Text>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="calendar-outline" size={14} color="#64748B" />
-          <Text style={styles.infoText}> Reported {type === 'lost' ? item.dateLost : item.dateFound}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="location-outline" size={14} color="#64748B" />
-          <Text style={styles.infoText}> {item.location}</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <AdminHeader
+        title="My Items"
+        subtitle="Items you reported"
+        onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+        rightElement={
+          <TouchableOpacity style={styles.refreshBtn} onPress={fetchUserAndItems}>
+            <Ionicons name="refresh-outline" size={22} color={Colors.primary} />
+          </TouchableOpacity>
+        }
+      />
 
-      {/* Header aligned with Admin pages */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-        >
-          <Ionicons name="menu-outline" size={28} color="#1E3A8A" />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Image source={JU_LOGO} style={styles.headerLogoSmall} />
-          <Text style={styles.headerBrandText}>Jazeera University</Text>
-        </View>
-        <View style={{ width: 44 }} />
-      </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <AdminPageHero
+          eyebrow="My Property"
+          title="My Items"
+          subtitle="Manage every report you created across lost, found, and secure holds."
+        />
 
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.titleSection}>
-          <View style={styles.titleRow}>
-             <View style={{ flex: 1 }}>
-                <Text style={styles.pageTitle}>My Items</Text>
-                <Text style={styles.pageSubtitle}>Manage your reported items.</Text>
-             </View>
-             <TouchableOpacity 
-               style={styles.clearAllBtn}
-               onPress={() => handleClearAll()}
-             >
-                <Ionicons name="trash-bin-outline" size={16} color="#EF4444" />
-                <Text style={styles.clearAllText}>Clear All</Text>
-             </TouchableOpacity>
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, styles.statCardPrimary]}>
+            <Text style={styles.statNum}>{counts.all}</Text>
+            <Text style={styles.statLabel}>Total</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardSecure]}>
+            <Text style={styles.statNum}>{counts.secure}</Text>
+            <Text style={styles.statLabel}>Secure</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardFound]}>
+            <Text style={styles.statNum}>{counts.found}</Text>
+            <Text style={styles.statLabel}>Found</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardLost]}>
+            <Text style={styles.statNum}>{counts.lost}</Text>
+            <Text style={styles.statLabel}>Lost</Text>
           </View>
         </View>
 
-        {/* Segmented Control */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'lost' && styles.activeTab]}
-            onPress={() => setActiveTab('lost')}
-          >
-            <Text style={[styles.tabLabel, activeTab === 'lost' && styles.activeTabLabel]}>My Lost Items</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'found' && styles.activeTab]}
-            onPress={() => setActiveTab('found')}
-          >
-            <Text style={[styles.tabLabel, activeTab === 'found' && styles.activeTabLabel]}>My Found Items</Text>
-          </TouchableOpacity>
+        <View style={styles.searchBarContainer}>
+          <Ionicons name="search-outline" size={20} color={Colors.slate400} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search your items..."
+            placeholderTextColor={Colors.slate400}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+          />
+        </View>
+
+        <View style={styles.tabBar}>
+          {STATUS_TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              style={[styles.tabBtn, statusFilter === tab.id && styles.tabBtnActive]}
+              onPress={() => setStatusFilter(tab.id)}
+            >
+              <Text style={[styles.tabText, statusFilter === tab.id && styles.tabTextActive]}>
+                {tab.label} ({counts[tab.id]})
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color="#94A3B8" style={{ marginTop: 50 }} />
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>Loading your items...</Text>
+          </View>
+        ) : filteredItems.length > 0 ? (
+          filteredItems.map((item) => {
+            const meta = getCardMeta(item);
+            const isSecure = meta.filter === 'secure';
+            return (
+              <TouchableOpacity
+                key={`${item.itemType}-${item.id}`}
+                style={styles.itemCard}
+                activeOpacity={0.9}
+                onPress={() =>
+                  router.push({
+                    pathname: `/(admin)/item/${item.id}`,
+                    params: { data: JSON.stringify({ ...item, type: meta.filter.toUpperCase() }) },
+                  })
+                }
+              >
+                {isSecure ? (
+                  <View style={[styles.itemCardImg, styles.secureImg]}>
+                    <Text style={styles.secureBang}>!</Text>
+                  </View>
+                ) : item.imageURI ? (
+                  <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
+                ) : (
+                  <View
+                    style={[
+                      styles.itemCardImg,
+                      styles.placeholderImg,
+                      { backgroundColor: meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge },
+                    ]}
+                  >
+                    <Ionicons
+                      name={meta.filter === 'lost' ? 'help-buoy-outline' : 'checkmark-circle-outline'}
+                      size={28}
+                      color={meta.filter === 'lost' ? Colors.lostBadgeText : Colors.foundBadgeText}
+                    />
+                  </View>
+                )}
+
+                <View style={styles.itemCardInfo}>
+                  <View style={styles.itemHeader}>
+                    <Text style={styles.itemCategory}>{item.category || 'Uncategorized'}</Text>
+                    <View style={[styles.badge, { backgroundColor: meta.badge.bg }]}>
+                      <Text style={[styles.badgeText, { color: meta.badge.color }]}>{meta.badge.label}</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.itemName || item.item_name}
+                  </Text>
+                  <Text style={styles.itemLine} numberOfLines={1}>
+                    <Ionicons name="location-outline" size={13} color={Colors.slate500} /> {item.location || 'Unknown'}
+                  </Text>
+                  <Text style={styles.itemLine} numberOfLines={1}>
+                    <Ionicons name="calendar-outline" size={13} color={Colors.slate500} /> {formatDate(item.created_at)}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.itemDeleteBtn}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    handleDelete(item);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={19} color={Colors.error} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            );
+          })
         ) : (
-          <View style={styles.itemsList}>
-            {(activeTab === 'lost' ? lostItems : foundItems).length > 0 ? (
-              (activeTab === 'lost' ? lostItems : foundItems).map((item, index) => (
-                <ItemCard key={item.id} item={item} type={activeTab} index={index} />
-              ))
-            ) : (
-              <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="folder-open-outline" size={60} color="#CBD5E1" />
-                <Text style={styles.emptyText}>No {activeTab} items reported yet.</Text>
-              </View>
-            )}
-            <View style={{ height: 120 }} />
+          <View style={styles.emptyContainer}>
+            <Ionicons name="folder-open-outline" size={56} color={Colors.slate300} />
+            <Text style={styles.emptyTitle}>No items</Text>
+            <Text style={styles.emptyText}>You have not created any matching items yet.</Text>
           </View>
         )}
       </ScrollView>
@@ -255,82 +279,67 @@ export default function AdminMyItemsPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9'
-  },
-  menuButton: {
+  container: { flex: 1, backgroundColor: Colors.slate50 },
+  refreshBtn: {
     width: 44,
     height: 44,
+    borderRadius: 14,
+    backgroundColor: Colors.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
+  },
+  scrollContent: { padding: 20, paddingBottom: 40 },
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  statCard: { flex: 1, borderRadius: 14, paddingVertical: 10, alignItems: 'center', borderWidth: 1 },
+  statCardPrimary: { backgroundColor: Colors.primaryLight, borderColor: '#BFDBFE' },
+  statCardSecure: { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' },
+  statCardFound: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  statCardLost: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  statNum: { fontFamily: 'Poppins_700Bold', fontSize: 17, color: Colors.slate900 },
+  statLabel: { marginTop: 2, fontFamily: 'Inter_500Medium', fontSize: 11, color: Colors.slate600 },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    height: 50,
     borderRadius: 14,
-  },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flex: 1 },
-  headerLogoSmall: { width: 28, height: 28, marginRight: 8 },
-  headerBrandText: { fontSize: 15, fontFamily: 'Poppins_700Bold', color: '#0F172A' },
-
-  scrollContainer: { paddingHorizontal: 20, paddingTop: 20 },
-  titleSection: { marginBottom: 25 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  pageTitle: { fontSize: 32, fontWeight: '900', color: '#0F172A' },
-  pageSubtitle: { fontSize: 13, color: '#64748B', marginTop: 2, lineHeight: 18 },
-  clearAllBtn: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#FFF1F2', 
-    paddingHorizontal: 12, 
-    paddingVertical: 8, 
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#FECACA'
+    borderColor: Colors.slate100,
   },
-  clearAllText: { 
-    fontSize: 12, 
-    fontWeight: '700', 
-    color: '#EF4444', 
-    marginLeft: 6 
+  searchIcon: { marginRight: 8 },
+  searchInput: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 14, color: Colors.slate900 },
+  tabBar: { flexDirection: 'row', backgroundColor: Colors.slate100, borderRadius: 12, padding: 3, marginBottom: 14 },
+  tabBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center' },
+  tabBtnActive: { backgroundColor: Colors.white },
+  tabText: { fontFamily: 'Inter_600SemiBold', fontSize: 12, color: Colors.slate500 },
+  tabTextActive: { color: Colors.slate900 },
+  loadingContainer: { paddingTop: 60, alignItems: 'center' },
+  loadingText: { marginTop: 12, fontFamily: 'Inter_500Medium', color: Colors.slate500 },
+  itemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
   },
-
-  tabContainer: {
-    flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 25, padding: 6, marginBottom: 30
-  },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 20 },
-  activeTab: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2
-  },
-  tabLabel: { fontSize: 14, fontWeight: '700', color: '#64748B' },
-  activeTabLabel: { color: '#1E40AF' },
-
-  itemsList: { gap: 20 },
-  card: {
-    flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 20, padding: 14,
-    borderWidth: 1.5, borderColor: '#F1F5F9',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 1
-  },
-  imageWrapper: { width: 90, height: 90, borderRadius: 16, backgroundColor: '#F8FAFC', overflow: 'hidden', position: 'relative' },
-  itemImage: { width: '100%', height: '100%' },
-  placeholderImage: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  deleteBtn: {
-    position: 'absolute', top: 6, right: 6, width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2
-  },
-  cardBody: { flex: 1, marginLeft: 16, justifyContent: 'center' },
-  badgeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  statusText: { fontSize: 9, fontWeight: '800' },
-  categoryBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: '#F1F5F9' },
-  categoryText: { fontSize: 9, fontWeight: '700', color: '#475569' },
-  itemTitle: { fontSize: 18, fontWeight: '850', color: '#1E293B', marginBottom: 6 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  infoText: { fontSize: 12, color: '#64748B' },
-  emptyState: { alignItems: 'center', marginTop: 60, paddingVertical: 40 },
-  emptyText: { fontSize: 14, color: '#94A3B8', marginTop: 12, fontFamily: 'Inter_500Medium' }
+  itemCardImg: { width: 78, height: 78, borderRadius: 14, backgroundColor: Colors.slate100 },
+  placeholderImg: { alignItems: 'center', justifyContent: 'center' },
+  secureImg: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEF3C7' },
+  secureBang: { fontSize: 46, fontFamily: 'Poppins_700Bold', color: '#D97706' },
+  itemCardInfo: { flex: 1, marginLeft: 12 },
+  itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 },
+  itemCategory: { flex: 1, fontFamily: 'Inter_600SemiBold', fontSize: 11, color: Colors.slate500, textTransform: 'uppercase' },
+  badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeText: { fontFamily: 'Inter_700Bold', fontSize: 10 },
+  itemName: { fontFamily: 'Poppins_700Bold', fontSize: 15, color: Colors.slate900, marginBottom: 6 },
+  itemLine: { fontFamily: 'Inter_500Medium', fontSize: 12, color: Colors.slate600, marginBottom: 2 },
+  itemDeleteBtn: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
+  emptyContainer: { paddingTop: 60, alignItems: 'center' },
+  emptyTitle: { marginTop: 12, fontFamily: 'Poppins_700Bold', fontSize: 16, color: Colors.slate700 },
+  emptyText: { marginTop: 6, fontFamily: 'Inter_400Regular', fontSize: 13, color: Colors.slate500, textAlign: 'center' },
 });

@@ -6,9 +6,11 @@ import {
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { markItemAsReturned } from '../../../src/services/supabase';
+import { markItemAsReturned, markSecureFoundReturned } from '../../../src/services/supabase';
 import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import { readItemTimeField } from '../../../src/utils/itemTimeUtils';
+import { canMarkInventoryItemReturned } from '../../../src/utils/inventory';
+import { isSecureFoundItem, normalizeItemStatus, ITEM_STATUS } from '../../../src/utils/itemStatus';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { AppButton, AppInput, AppModalSheet } from '../../../src/components/AppForm';
 import { safeGoBack } from '../../../src/utils/navigation';
@@ -29,7 +31,7 @@ const BG_MAIN = '#F4F7FA';
 
 export default function AdminItemDetailScreen() {
   const router = useRouter();
-  const { data } = useLocalSearchParams();
+  const { data, openReturn } = useLocalSearchParams();
   const [item, setItem] = useState(null);
   const toastRef = useRef(null);
 
@@ -47,6 +49,12 @@ export default function AdminItemDetailScreen() {
       }
     }
   }, [data]);
+
+  useEffect(() => {
+    if (openReturn === '1' && item && canMarkInventoryItemReturned(item) && !item.isArchive) {
+      setShowReturnModal(true);
+    }
+  }, [openReturn, item]);
 
   if (!item) {
     return (
@@ -67,6 +75,45 @@ export default function AdminItemDetailScreen() {
     ? (readItemTimeField(item, 'lost') || 'Not specified')
     : (readItemTimeField(item, 'found') || 'Not specified');
 
+  const formatDateTime = (value) => {
+    if (!value) return 'Not recorded';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Not recorded';
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  const formatSubmittedAt = () => {
+    if (item.submitted_at) return formatDateTime(item.submitted_at);
+    const datePart = item.date_reported
+      ? new Date(item.date_reported).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : '';
+    const timePart = item.time_reported ? String(item.time_reported).slice(0, 5) : '';
+    if (datePart && timePart) return `${datePart} · ${timePart}`;
+    if (datePart) return datePart;
+    if (timePart) return timePart;
+
+    // Infer from image upload timestamp (items/{Date.now()}_...)
+    const raw = String(item.imageURI || item.imageuri || '');
+    const match = raw.match(/(?:^|\/)items\/(\d{12,14})_/i);
+    if (match) {
+      const inferred = new Date(Number(match[1]));
+      if (!Number.isNaN(inferred.getTime()) && inferred.getFullYear() >= 2020) {
+        return formatDateTime(inferred.toISOString());
+      }
+    }
+    return 'Not recorded';
+  };
+
   const getPhoneNumber = () => {
     if (item.phnum && item.phnum !== 'N/A') return item.phnum;
     if (item.phone && item.phone !== 'N/A') return item.phone;
@@ -74,17 +121,23 @@ export default function AdminItemDetailScreen() {
   };
 
   const handleCall = () => Linking.openURL(`tel:${getPhoneNumber()}`);
-  const handleSMS = () => Linking.openURL(`sms:${getPhoneNumber()}`);
 
   const handleConfirmReturn = async () => {
-    if (!recipientName.trim()) {
+    const isSecureLive =
+      isSecureFoundItem(item) && normalizeItemStatus(item) === ITEM_STATUS.LIVE;
+
+    if (!isSecureLive && !recipientName.trim()) {
       showAppWarning('Required info', 'Please enter the name of the person receiving the item.');
       return;
     }
 
     try {
       setSubmitting(true);
-      await markItemAsReturned(item, typeLabel, recipientName.trim(), recipientId.trim() || null);
+      if (isSecureLive) {
+        await markSecureFoundReturned(item.id);
+      } else {
+        await markItemAsReturned(item, typeLabel, recipientName.trim(), recipientId.trim() || null);
+      }
       
       setShowReturnModal(false);
       
@@ -122,6 +175,10 @@ export default function AdminItemDetailScreen() {
     </View>
   );
 
+  const canReturn = !item.isArchive && canMarkInventoryItemReturned(item);
+  const isSecureLiveReturn =
+    isSecureFoundItem(item) && normalizeItemStatus(item) === ITEM_STATUS.LIVE;
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -142,15 +199,19 @@ export default function AdminItemDetailScreen() {
         {/* ── IMAGE ── */}
         <Animated.View entering={FadeIn.duration(600)} style={styles.imageWrapper}>
           {(item.imageURI || item.imageuri) ? (
-            <Image source={{ uri: item.imageURI || item.imageuri }} style={styles.heroImage} resizeMode="cover" />
+            <Image source={{ uri: item.imageURI || item.imageuri }} style={styles.heroImage} resizeMode="contain" />
           ) : (
             <View style={[styles.heroImage, styles.imagePlaceholder]}>
               <MaterialCommunityIcons name="image-off-outline" size={48} color={SLATE_400} />
             </View>
           )}
-          <View style={[styles.floatingBadge, { backgroundColor: lightThemeColor }]}>
-            <MaterialCommunityIcons name="check-circle" size={16} color={themeColor} style={{ marginRight: 6 }} />
-            <Text style={[styles.floatingBadgeText, { color: themeColor }]}>{typeLabel}</Text>
+          <View style={[styles.floatingBadge, item.isArchive ? styles.archiveBadge : { backgroundColor: lightThemeColor }]}>
+            {!item.isArchive ? (
+              <MaterialCommunityIcons name="check-circle" size={16} color={themeColor} style={{ marginRight: 6 }} />
+            ) : null}
+            <Text style={[styles.floatingBadgeText, { color: item.isArchive ? SLATE_800 : themeColor }]}>
+              {item.isArchive ? 'REUNITED' : typeLabel}
+            </Text>
           </View>
         </Animated.View>
 
@@ -164,17 +225,50 @@ export default function AdminItemDetailScreen() {
               {!item.isArchive && <ItemStatusBadge item={item} compact />}
             </View>
             <Text style={styles.titleText}>{item.itemName || item.item_name}</Text>
+            {item.isArchive ? (
+              <Text style={styles.archiveSubtitle}>Return receipt · archived handover</Text>
+            ) : null}
           </Animated.View>
 
           {/* ── DETAILS LIST ── */}
           <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.listCard}>
-            
-            {!item.isArchive && (
-              <DetailRow icon="document-text-outline" label="Description" value={item.description || "No description provided."} />
-            )}
-            
-            <DetailRow icon="location-outline" label="Address" value={item.location} />
-            
+
+            {item.isArchive ? (
+              <View style={styles.timelineRow}>
+                <View style={styles.timelineBox}>
+                  <View style={[styles.timelineIcon, { backgroundColor: '#EFF6FF' }]}>
+                    <Ionicons name="calendar-outline" size={18} color={LOST_COLOR} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.timelineLabel}>Submitted</Text>
+                    <Text style={styles.timelineValue} numberOfLines={1}>
+                      {formatSubmittedAt()}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.timelineBox, styles.timelineBoxReturned]}>
+                  <View style={[styles.timelineIcon, { backgroundColor: '#D1FAE5' }]}>
+                    <Ionicons name="checkmark-done-circle-outline" size={18} color={FOUND_COLOR} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.timelineLabel, { color: '#047857' }]}>Returned</Text>
+                    <Text style={[styles.timelineValue, { color: '#065F46' }]} numberOfLines={1}>
+                      {formatDateTime(item.returned_at)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            <DetailRow
+              icon="document-text-outline"
+              label="Description"
+              value={item.description || 'No description provided.'}
+            />
+
+            <DetailRow icon="pricetag-outline" label="Type" value={item.isArchive ? (item.type || typeLabel) : typeLabel} />
+            <DetailRow icon="location-outline" label="Location" value={item.location || 'Campus'} />
+
             {!item.isArchive && (
               <>
                 <DetailRow icon="calendar-outline" label={isLost ? 'Date Lost' : 'Date Found'} value={itemDate} />
@@ -189,8 +283,11 @@ export default function AdminItemDetailScreen() {
                 </View>
               </View>
               <View style={[styles.rowRight, { borderBottomWidth: item.isArchive ? 1 : 0 }]}>
-                <Text style={styles.rowLabel}>{isLost ? 'Owner' : 'Finder'}</Text>
-                <Text style={[styles.rowValue, { color: themeColor, fontWeight: '800' }]}>{personName}</Text>
+                <Text style={styles.rowLabel}>{item.isArchive ? 'Original reporter' : (isLost ? 'Owner' : 'Finder')}</Text>
+                <Text style={[styles.rowValue, { color: themeColor, fontWeight: '800' }]}>{personName || 'N/A'}</Text>
+                {item.isArchive && item.reporter_email ? (
+                  <Text style={[styles.rowLabel, { marginTop: 2, fontSize: 11 }]}>{item.reporter_email}</Text>
+                ) : null}
               </View>
             </View>
 
@@ -198,29 +295,20 @@ export default function AdminItemDetailScreen() {
               <Animated.View entering={FadeInDown.delay(500).springify()}>
                 <View style={[styles.rowContainer, { marginTop: 5 }]}>
                   <View style={styles.rowLeft}>
-                    <View style={[styles.iconCircle, { backgroundColor: '#EEF2F6', borderColor: '#CBD5E1' }]}>
-                      <Ionicons name="gift-outline" size={22} color={RETURN_COLOR} />
-                    </View>
-                  </View>
-                  <View style={[styles.rowRight, { borderBottomWidth: 1 }]}>
-                    <Text style={styles.rowLabel}>Returned To</Text>
-                    <Text style={[styles.rowValue, { color: RETURN_COLOR, fontWeight: '800' }]}>{item.recipient_name || 'N/A'}</Text>
-                    {item.recipient_student_id && (
-                      <Text style={[styles.rowLabel, { marginTop: 2, fontSize: 10 }]}>ID: {item.recipient_student_id}</Text>
-                    )}
-                  </View>
-                </View>
-                <View style={styles.rowContainer}>
-                  <View style={styles.rowLeft}>
-                    <View style={[styles.iconCircle, { backgroundColor: '#EEF2F6', borderColor: '#CBD5E1' }]}>
-                      <Ionicons name="checkmark-done-circle-outline" size={22} color={RETURN_COLOR} />
+                    <View style={[styles.iconCircle, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+                      <Ionicons name="gift-outline" size={22} color={FOUND_COLOR} />
                     </View>
                   </View>
                   <View style={[styles.rowRight, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.rowLabel}>Date Returned</Text>
-                    <Text style={styles.rowValue}>
-                      {item.returned_at ? new Date(item.returned_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                    <Text style={styles.rowLabel}>Returned To</Text>
+                    <Text style={[styles.rowValue, { color: FOUND_COLOR, fontWeight: '800' }]}>
+                      {item.recipient_name || 'N/A'}
                     </Text>
+                    {item.recipient_student_id ? (
+                      <Text style={[styles.rowLabel, { marginTop: 2, fontSize: 10 }]}>
+                        ID: {item.recipient_student_id}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
               </Animated.View>
@@ -231,7 +319,7 @@ export default function AdminItemDetailScreen() {
       </ScrollView>
 
       {/* ── BOTTOM ACTION BAR ── */}
-      {!item.isArchive && (
+      {canReturn ? (
         <Animated.View entering={FadeInUp.delay(600).duration(500)} style={styles.bottomBarWrapper}>
           <Text style={styles.contactHint}>CONTACT & PROPERTY RETURN MANAGEMENT</Text>
           
@@ -252,27 +340,26 @@ export default function AdminItemDetailScreen() {
               </View>
             </TouchableOpacity>
 
-            {/* Secondary Action Row: Sleek & Compact Contact Actions */}
+            {/* Secondary Action Row: Call only */}
             <View style={styles.secondaryActionRow}>
               <TouchableOpacity style={[styles.contactIconButton, { borderColor: themeColor + '30' }]} onPress={handleCall}>
                 <Feather name="phone-call" size={18} color={themeColor} style={{ marginRight: 8 }} />
                 <Text style={[styles.contactIconText, { color: themeColor }]}>Call {isLost ? 'Owner' : 'Finder'}</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.contactIconButton, { borderColor: themeColor + '30' }]} onPress={handleSMS}>
-                <Feather name="message-square" size={18} color={themeColor} style={{ marginRight: 8 }} />
-                <Text style={[styles.contactIconText, { color: themeColor }]}>Send SMS</Text>
-              </TouchableOpacity>
             </View>
           </View>
         </Animated.View>
-      )}
+      ) : null}
 
       {/* ── RETURN TRANSACTION MODAL ── */}
       <AppModalSheet
         visible={showReturnModal}
         title="Property Handover Ledger"
-        subtitle="Register the recipient details before moving this item to the returned archive."
+        subtitle={
+          isSecureLiveReturn
+            ? 'Confirm this secure hold has been released to its verified owner.'
+            : 'Register the recipient details before moving this item to the returned archive.'
+        }
         icon="gift-outline"
         onClose={() => !submitting && setShowReturnModal(false)}
         maxHeight="64%"
@@ -295,21 +382,25 @@ export default function AdminItemDetailScreen() {
           </View>
         }
       >
-        <AppInput
-          label="Recipient name *"
-          value={recipientName}
-          onChangeText={setRecipientName}
-          placeholder="Full name of person receiving the item"
-          icon="person-outline"
-        />
-        <AppInput
-          label="Student ID (optional)"
-          value={recipientId}
-          onChangeText={setRecipientId}
-          placeholder="e.g. JU-10294"
-          icon="card-outline"
-          autoCapitalize="characters"
-        />
+        {!isSecureLiveReturn ? (
+          <>
+            <AppInput
+              label="Recipient name *"
+              value={recipientName}
+              onChangeText={setRecipientName}
+              placeholder="Full name of person receiving the item"
+              icon="person-outline"
+            />
+            <AppInput
+              label="Student ID (optional)"
+              value={recipientId}
+              onChangeText={setRecipientId}
+              placeholder="e.g. JU-10294"
+              icon="card-outline"
+              autoCapitalize="characters"
+            />
+          </>
+        ) : null}
       </AppModalSheet>
 
       <SuccessToast ref={toastRef} />
@@ -337,8 +428,10 @@ const styles = StyleSheet.create({
   imageWrapper: {
     width: '100%', height: 280,
     borderBottomLeftRadius: 35, borderBottomRightRadius: 35,
-    backgroundColor: '#FFF', overflow: 'hidden',
-    marginBottom: 20
+    backgroundColor: '#EEF1F6', overflow: 'hidden',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   heroImage: { width: '100%', height: '100%' },
   imagePlaceholder: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E2E8F0' },
@@ -353,6 +446,59 @@ const styles = StyleSheet.create({
     })
   },
   floatingBadgeText: { fontSize: 13, fontWeight: '900', letterSpacing: 1 },
+  archiveBadge: {
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  archiveSubtitle: {
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: '600',
+    color: SLATE_500,
+    textAlign: 'center',
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  timelineBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  timelineBoxReturned: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  timelineIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: SLATE_400,
+  },
+  timelineValue: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '800',
+    color: SLATE_800,
+  },
   contentPadding: { paddingHorizontal: 20 },
   titleSection: { alignItems: 'center', marginBottom: 25, marginTop: 10 },
   titleBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap', justifyContent: 'center' },

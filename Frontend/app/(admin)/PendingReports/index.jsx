@@ -285,7 +285,7 @@ export default function PendingReportsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC', // Sleek clean off-white
+    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',

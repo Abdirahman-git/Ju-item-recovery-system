@@ -1,120 +1,219 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Dimensions } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-const { width } = Dimensions.get('window');
 const SLATE_400 = '#94A3B8';
-const PRIMARY_BLUE = '#1E40AF';
-const PRIMARY_GREEN = '#10B981';
+const SLATE_600 = '#475569';
+const PRIMARY = '#1A56DB';
+const LOST_COLOR = '#1D4ED8';
+const FOUND_COLOR = '#10B981';
+const ITEMS_COLOR = '#7C3AED';
+const PROFILE_COLOR = '#0F172A';
 
-const TABS = [
-  { name: 'HOME', icon: 'home', route: '/(user)/DashBoard' },
-  { name: 'LOST', icon: 'magnify', route: '/(user)/Lost' },
-  { name: 'FOUND', icon: 'cube-outline', route: '/(user)/Found' },
-  { name: 'ITEMS', icon: 'view-dashboard-outline', route: '/(user)/MyItems' },
-  { name: 'PROFILE', icon: 'account-outline', route: '/(user)/MyProfile' },
+const LEFT_TABS = [
+  { name: 'LOST', icon: 'magnify', route: '/(user)/Lost', color: LOST_COLOR },
+  { name: 'FOUND', icon: 'cube-outline', route: '/(user)/Found', color: FOUND_COLOR },
 ];
+
+const HOME_TAB = {
+  name: 'HOME',
+  icon: 'home',
+  route: '/(user)/DashBoard',
+  color: PRIMARY,
+};
+
+const RIGHT_TABS = [
+  { name: 'ITEMS', icon: 'view-dashboard-outline', route: '/(user)/MyItems', color: ITEMS_COLOR },
+  { name: 'PROFILE', icon: 'account-outline', route: '/(user)/MyProfile', color: PROFILE_COLOR },
+];
+
+function isTabActive(pathname, tab) {
+  const path = pathname.toLowerCase();
+  if (tab.name === 'HOME') return path.includes('dashboard');
+  if (tab.name === 'ITEMS') return path.includes('myitems');
+  if (tab.name === 'PROFILE') return path.includes('myprofile');
+  return path.includes(tab.name.toLowerCase());
+}
+
+function SideTab({ tab, pathname, onPress }) {
+  const active = isTabActive(pathname, tab);
+
+  return (
+    <TouchableOpacity style={styles.sideTab} onPress={onPress} activeOpacity={0.75}>
+      <MaterialCommunityIcons
+        name={tab.icon}
+        size={22}
+        color={active ? tab.color : SLATE_400}
+      />
+      <Text style={[styles.sideLabel, active && { color: tab.color, fontWeight: '800' }]}>
+        {tab.name}
+      </Text>
+      {active ? <View style={[styles.activeDot, { backgroundColor: tab.color }]} /> : null}
+    </TouchableOpacity>
+  );
+}
 
 export default function CustomBottomTab() {
   const router = useRouter();
   const pathname = usePathname();
-
-  const getActiveColor = () => {
-    return '#0F172A'; // Sleek dark active color
-  };
+  const homeActive = isTabActive(pathname, HOME_TAB);
 
   return (
-    <View style={styles.container}>
-      {TABS.map((tab) => {
-        const isActive = 
-          pathname.toLowerCase().includes(tab.name.toLowerCase()) || 
-          (tab.name === 'HOME' && pathname.toLowerCase().includes('dashboard')) ||
-          (tab.name === 'ITEMS' && pathname.toLowerCase().includes('myitems'));
-        
-        const activeColor = getActiveColor(tab.name);
+    <View style={styles.wrapper}>
+      <View style={styles.bar}>
+        <View style={styles.sideGroup}>
+          {LEFT_TABS.map((tab) => (
+            <SideTab
+              key={tab.name}
+              tab={tab}
+              pathname={pathname}
+              onPress={() => router.push(tab.route)}
+            />
+          ))}
+        </View>
 
-        return (
-          <TouchableOpacity 
-            key={tab.name} 
-            style={styles.tab} 
-            onPress={() => router.push(tab.route)}
-            activeOpacity={0.7}
-          >
-            <View style={[
-              styles.iconContainer, 
-              isActive && { backgroundColor: activeColor + '10' }
-            ]}>
-              <MaterialCommunityIcons 
-                name={tab.icon}
-                size ={24}
-                color ={isActive ? activeColor : SLATE_400}
-              />
-              {isActive && <View style={[styles.activeDot, { backgroundColor: activeColor }]} />}
-            </View>
-            <Text style={[
-              styles.label, 
-              { color: isActive ? activeColor : '#94A3B8' }
-            ]}>
-              {tab.name}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+        <View style={styles.centerSlot} />
+
+        <View style={styles.sideGroup}>
+          {RIGHT_TABS.map((tab) => (
+            <SideTab
+              key={tab.name}
+              tab={tab}
+              pathname={pathname}
+              onPress={() => router.push(tab.route)}
+            />
+          ))}
+        </View>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.centerBtn, homeActive && styles.centerBtnActive]}
+        onPress={() => router.push(HOME_TAB.route)}
+        activeOpacity={0.88}
+      >
+        <View style={[styles.centerBtnInner, homeActive && styles.centerBtnInnerActive]}>
+          <MaterialCommunityIcons name={HOME_TAB.icon} size={28} color="#FFF" />
+        </View>
+        <Text style={[styles.centerLabel, homeActive && styles.centerLabelActive]}>
+          {HOME_TAB.name}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
+const BAR_HEIGHT = Platform.OS === 'ios' ? 88 : 72;
+const CENTER_SIZE = 62;
+
 const styles = StyleSheet.create({
-  container: {
+  wrapper: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    height: Platform.OS === 'ios' ? 100 : 85,
-    paddingBottom: Platform.OS === 'ios' ? 35 : 20,
-    paddingTop: 12,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    // Modern Shadow
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 15,
-    elevation: 20,
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    height: BAR_HEIGHT + 28,
     zIndex: 1000,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  tab: {
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  bar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: BAR_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingHorizontal: 8,
+    borderTopWidth: 1,
+    borderColor: '#E2E8F0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: -6 },
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+      },
+      android: { elevation: 24 },
+    }),
+  },
+  sideGroup: {
     flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
   },
-  iconContainer: {
-    width: 48,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
+  centerSlot: {
+    width: CENTER_SIZE + 16,
+  },
+  sideTab: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: 4,
-    position: 'relative',
+    justifyContent: 'flex-end',
+    paddingBottom: 2,
+    minHeight: 52,
+  },
+  sideLabel: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+    color: SLATE_400,
+    letterSpacing: 0.4,
+    marginTop: 4,
   },
   activeDot: {
-    position: 'absolute',
-    bottom: -6,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginTop: 4,
   },
-  label: {
+  centerBtn: {
+    position: 'absolute',
+    top: 0,
+    alignItems: 'center',
+    width: CENTER_SIZE + 20,
+  },
+  centerBtnActive: {},
+  centerBtnInner: {
+    width: CENTER_SIZE,
+    height: CENTER_SIZE,
+    borderRadius: CENTER_SIZE / 2,
+    backgroundColor: PRIMARY,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    ...Platform.select({
+      ios: {
+        shadowColor: PRIMARY,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.45,
+        shadowRadius: 14,
+      },
+      android: { elevation: 12 },
+    }),
+  },
+  centerBtnInnerActive: {
+    backgroundColor: '#1E40AF',
+    transform: [{ scale: 1.04 }],
+  },
+  centerLabel: {
+    marginTop: 6,
     fontSize: 10,
     fontFamily: 'Inter_700Bold',
-    letterSpacing: 0.5,
-    marginTop: 2,
+    color: SLATE_600,
+    letterSpacing: 0.6,
+  },
+  centerLabelActive: {
+    color: PRIMARY,
   },
 });

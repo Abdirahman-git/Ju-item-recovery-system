@@ -1,11 +1,30 @@
 export const ITEM_STATUS = {
+  DRAFT: 'draft',
   PENDING_REVIEW: 'pending_review',
   LIVE: 'live',
   RETURNED: 'returned',
 };
 
+export const LISTING_MODE = {
+  PUBLIC: 'public',
+  SECURE: 'secure',
+};
+
 /** Statuses visible on the public student feed (Lost / Found lists). */
 export const FEED_STATUSES = [ITEM_STATUS.LIVE];
+
+export function isSecureListing(item) {
+  if (!item) return false;
+  return item.listing_mode === LISTING_MODE.SECURE || item.listingMode === LISTING_MODE.SECURE;
+}
+
+/** Any secure found listing (live hold or secure draft) — use for the amber ! mark. */
+export function isSecureFoundItem(item) {
+  if (!item) return false;
+  const type = item.itemType || item.type;
+  const isFound = type === 'found' || String(type || '').toUpperCase() === 'FOUND';
+  return isFound && isSecureListing(item);
+}
 
 export function normalizeItemStatus(item) {
   if (!item) return ITEM_STATUS.PENDING_REVIEW;
@@ -25,10 +44,16 @@ export function isPendingReview(item) {
   return normalizeItemStatus(item) === ITEM_STATUS.PENDING_REVIEW;
 }
 
+export function isDraftItem(item) {
+  return normalizeItemStatus(item) === ITEM_STATUS.DRAFT;
+}
+
 export function getStatusBadgeConfig(status) {
   const key =
     status === 'matched' || status === 'claim_pending' ? ITEM_STATUS.LIVE : status || ITEM_STATUS.PENDING_REVIEW;
   switch (key) {
+    case ITEM_STATUS.DRAFT:
+      return { label: 'Draft', bg: '#EDE9FE', color: '#6D28D9' };
     case ITEM_STATUS.PENDING_REVIEW:
       return { label: 'Pending review', bg: '#FEF3C7', color: '#B45309' };
     case ITEM_STATUS.LIVE:

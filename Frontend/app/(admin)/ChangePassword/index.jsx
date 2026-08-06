@@ -16,7 +16,7 @@ import { Colors } from '../../../src/constants/colors';
 import AdminHeader from '../../../src/components/AdminHeader';
 import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
-import { supabase } from '../../../src/services/supabase';
+import { supabase, changeAdminPassword } from '../../../src/services/supabase';
 import { showAppError, showAppValidation } from '../../../src/utils/appAlert';
 
 function getInitials(name) {
@@ -85,7 +85,7 @@ export default function ChangePasswordScreen() {
         const session = JSON.parse(sessionData);
         const { data, error } = await supabase
           .from('users')
-          .select('*')
+          .select('email, name, student_id')
           .eq('email', session.email)
           .single();
 
@@ -112,11 +112,6 @@ export default function ChangePasswordScreen() {
       return;
     }
 
-    if (admin.password !== oldPassword) {
-      showAppValidation('Current password is incorrect.');
-      return;
-    }
-
     if (newPassword !== confirmPassword) {
       showAppValidation('New passwords do not match.');
       return;
@@ -129,12 +124,12 @@ export default function ChangePasswordScreen() {
 
     try {
       setPasswordLoading(true);
-      const { error } = await supabase
-        .from('users')
-        .update({ password: newPassword })
-        .eq('email', admin.email);
-
-      if (error) throw error;
+      await changeAdminPassword({
+        email: admin?.email,
+        studentId: admin?.student_id,
+        currentPassword: oldPassword,
+        newPassword,
+      });
 
       toastRef.current?.show('Password updated', 'Your credentials have been saved.', 'success');
       setOldPassword('');
@@ -143,10 +138,9 @@ export default function ChangePasswordScreen() {
       setShowOld(false);
       setShowNew(false);
       setShowConfirm(false);
-      setAdmin((prev) => ({ ...prev, password: newPassword }));
     } catch (err) {
       console.error('Update password failed:', err);
-      showAppError('Update failed', 'Failed to change password. Please try again.');
+      showAppError('Update failed', err?.message || 'Failed to change password. Please try again.');
     } finally {
       setPasswordLoading(false);
     }
@@ -157,7 +151,7 @@ export default function ChangePasswordScreen() {
   const passwordStrength =
     newPassword.length === 0
       ? null
-      : newPassword.length < 6
+      : newPassword.length < 4
         ? { label: 'Too short', color: Colors.error, width: '25%' }
         : newPassword.length < 10
           ? { label: 'Fair', color: Colors.warning, width: '55%' }
@@ -238,7 +232,7 @@ export default function ChangePasswordScreen() {
 
             <PasswordField
               label="New password"
-              hint="At least 6 characters"
+              hint="At least 4 characters"
               icon="key-outline"
               placeholder="Enter new password"
               value={newPassword}
@@ -311,10 +305,7 @@ export default function ChangePasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.slate50,
-  },
+  container: { flex: 1, backgroundColor: Colors.slate50 },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

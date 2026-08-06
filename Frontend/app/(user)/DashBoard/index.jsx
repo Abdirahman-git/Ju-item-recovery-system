@@ -4,88 +4,20 @@ import Animated, { FadeInDown, Layout, FadeInRight } from 'react-native-reanimat
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions, useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
-import { supabase, getAllLostItems, getAllFoundItems } from '../../../src/services/supabase';
+import { getAllLostItems, getAllFoundItems } from '../../../src/services/supabase';
 import { Colors } from '../../../src/constants/colors';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomBottomTab from '../../../src/components/CustomBottomTab';
 import SuccessToast from '../../../src/components/SuccessToast';
+import FeedItemCard from '../../../src/components/FeedItemCard';
+import { useUserNotifications } from '../../../src/context/UserNotificationContext';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const BANNER_IMAGES = [
   require('../../../assets/images/dashboard_img1.png'),
   require('../../../assets/images/dashboard_img2.png'),
 ];
-
-const ItemCard = ({ item, router, index }) => {
-  const isLost = item.type === 'LOST';
-  const badgeBg = isLost ? '#3B82F6' : '#10B981';
-  const isPostedByAdmin = item.email && (
-    item.email.toLowerCase().includes('admin') || 
-    item.userId === 'admin-01' || 
-    item.finderId === 'admin-01'
-  );
-
-  return (
-    <TouchableOpacity
-      style={styles.cardContainer}
-      activeOpacity={0.9}
-      onPress={() => {
-        router.push({
-          pathname: `/(user)/item/${item.id}`,
-          params: { data: JSON.stringify(item) }
-        });
-      }}
-    >
-      <View style={styles.cardImagePlaceholder}>
-        {item.imageURI ? (
-          <Image source={{ uri: item.imageURI }} style={styles.cardImage} resizeMode="cover" />
-        ) : (
-          <View style={styles.iconPlaceholderWrapper}>
-            <MaterialCommunityIcons
-              name={item.type === 'LOST' ? 'magnify-scan' : 'check-circle-outline'}
-              size={30}
-              color={isLost ? '#3B82F6' : '#10B981'}
-            />
-          </View>
-        )}
-      </View>
-
-      <View style={styles.cardContent}>
-        <View style={styles.cardHeader}>
-          <View style={styles.catWithIcon}>
-            <MaterialCommunityIcons name="tag-outline" size={10} color="#94A3B8" />
-            <Text style={styles.cardCategory}> {item.category}</Text>
-          </View>
-          <View style={styles.badgeRow}>
-            {isPostedByAdmin && (
-              <View style={styles.adminBadge}>
-                <Ionicons name="shield-checkmark" size={9} color="#1E40AF" style={{ marginRight: 2 }} />
-                <Text style={styles.adminBadgeText}>ADMIN</Text>
-              </View>
-            )}
-            <View style={[styles.badgeContainer, { backgroundColor: badgeBg + '15', borderColor: badgeBg + '40' }]}>
-              <Text style={[styles.badgeText, { color: badgeBg }]}>{item.type}</Text>
-            </View>
-          </View>
-        </View>
-
-        <Text style={styles.cardTitle} numberOfLines={1}>{item.itemName}</Text>
-
-        <View style={styles.cardFooterRow}>
-          <View style={styles.footerItem}>
-            <Ionicons name="location-outline" size={13} color="#64748B" />
-            <Text style={styles.cardFooterText} numberOfLines={1}> {item.location}</Text>
-          </View>
-          <View style={styles.footerItem}>
-            <Ionicons name="time-outline" size={13} color="#64748B" />
-            <Text style={styles.cardFooterText}> {item.timeAgo}</Text>
-          </View>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-};
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -97,6 +29,7 @@ export default function DashboardScreen() {
   const toastRef = useRef(null);
   const fadeAnim = useRef(new RNAnimated.Value(1)).current;
   const intervalRef = useRef(null);
+  const { unreadCount: unreadNotifications, refresh: refreshNotifications } = useUserNotifications();
 
   const startBannerRotate = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -181,11 +114,10 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       AsyncStorage.getItem('userSession').then((data) => {
-        if (data) {
-          const session = JSON.parse(data);
-          const nameParts = session.userName ? session.userName.split(' ') : ['Student'];
-          setUserName(nameParts[0]);
-        }
+        if (!data) return;
+        const session = JSON.parse(data);
+        const nameParts = session.userName ? session.userName.split(' ') : ['Student'];
+        setUserName(nameParts[0]);
       });
 
       // Check for login toast
@@ -197,7 +129,8 @@ export default function DashboardScreen() {
       });
 
       fetchItems();
-    }, [])
+      refreshNotifications?.();
+    }, [refreshNotifications])
   );
 
   useEffect(() => {
@@ -227,7 +160,20 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        <View style={{ width: 40 }} />
+        <TouchableOpacity
+          style={styles.headerIcon}
+          onPress={() => router.push('/(user)/Notifications')}
+          accessibilityLabel="Notifications inbox"
+        >
+          <Ionicons name="notifications-outline" size={24} color="#1E40AF" />
+          {unreadNotifications > 0 ? (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>
+                {unreadNotifications > 9 ? '9+' : String(unreadNotifications)}
+              </Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -292,7 +238,7 @@ export default function DashboardScreen() {
             <Text style={styles.sectionTitle}>Recent Activity</Text>
             <Text style={styles.sectionSubtitle}>Discover latest lost and found items</Text>
           </View>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/(user)/AllItems')}>
             <Text style={styles.viewAllText}>View All</Text>
           </TouchableOpacity>
         </View>
@@ -302,7 +248,14 @@ export default function DashboardScreen() {
             <ActivityIndicator size="large" color="#94A3B8" style={{ marginTop: 40 }} />
           ) : items.length > 0 ? (
             items.map((item, index) => (
-              <ItemCard key={`${item.type}-${item.id}-${index}`} item={item} router={router} index={index} />
+              <FeedItemCard
+                key={`${item.type}-${item.id}-${index}`}
+                item={item}
+                onPress={() => router.push({
+                  pathname: `/(user)/item/${item.id}`,
+                  params: { data: JSON.stringify(item) },
+                })}
+              />
             ))
           ) : (
             <Text style={styles.emptyText}>No recent items found.</Text>
@@ -344,6 +297,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#EFF6FF',
     borderRadius: 14,
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  notifBadgeText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   headerCenter: {
     flexDirection: 'row',
@@ -546,7 +516,7 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   feedContainer: {
-    gap: 16,
+    gap: 14,
   },
   cardContainer: {
     flexDirection: 'row',
@@ -582,6 +552,51 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  securePlaceholder: { backgroundColor: '#FEF3C7' },
+  secureMark: { fontSize: 36, fontWeight: '900', color: '#D97706', lineHeight: 40 },
+  secureBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(217, 119, 6, 0.95)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  secureBadgeText: { color: '#FFF', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  secureHoldOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    paddingVertical: 5,
+    alignItems: 'center',
+  },
+  secureHoldOverlayText: {
+    color: '#FFF',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  secureCategoryPill: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  secureCategoryPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  secureDashDesc: { fontSize: 11, color: '#64748B', fontWeight: '600', marginTop: 2, marginBottom: 4, lineHeight: 16 },
   cardContent: {
     flex: 1,
     justifyContent: 'center',

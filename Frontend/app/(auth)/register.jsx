@@ -43,7 +43,7 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // STEP 1: Validate Student ID & Automatically Send OTP to Registered Email
+  // STEP 1: Validate Student ID & Automatically Send OTP to Registered Phone via SMS
   const handleValidateId = async () => {
     if (!studentId.trim()) {
       showAppValidation('Enter your Student ID.');
@@ -66,15 +66,15 @@ export default function RegisterScreen() {
         throw new Error('This Student ID is already activated. Please login instead.');
       }
 
-      if (!student.email) {
-        throw new Error('No pre-registered email found for this ID. Contact Admin.');
+      if (!student.phone_number) {
+        throw new Error('No pre-registered phone number found for this ID. Contact Admin.');
       }
 
       // Populate student info
       setStudentName(student.full_name);
       setStudentPhone(student.phone_number || '');
       setStudentFaculty(student.faculty);
-      const studentEmail = student.email.trim().toLowerCase();
+      const studentEmail = (student.email || '').trim().toLowerCase();
       setEmail(studentEmail);
 
       const response = await fetch(`${BACKEND_URL}/api/send-otp`, {
@@ -89,10 +89,11 @@ export default function RegisterScreen() {
       const resData = await response.json();
 
       if (!response.ok) {
-        throw new Error(resData.error || 'Failed to send OTP email.');
+        throw new Error(resData.error || 'Failed to send OTP SMS.');
       }
 
-      toastRef.current?.show('OTP Code Sent! Check your university email.', '', 'success');
+      const masked = resData.phone || student.phone_number;
+      toastRef.current?.show('OTP Code Sent!', `Check your phone ending in ${masked.slice(-4)}`, 'success');
       setStep(2);
     } catch (err) {
       const message =
@@ -129,7 +130,8 @@ export default function RegisterScreen() {
         throw new Error(resData.error || 'Failed to send OTP.');
       }
 
-      toastRef.current?.show('OTP Code Resent! Check your university email.', '', 'success');
+      const masked = resData.phone || studentPhone;
+      toastRef.current?.show('OTP Code Resent!', `Check your phone ending in ${masked.slice(-4)}`, 'success');
       setStep(2);
     } catch (err) {
       showAppError('Could not send OTP', err.message || 'Failed to send OTP');
@@ -141,7 +143,7 @@ export default function RegisterScreen() {
   // STEP 2: Verify OTP Code
   const handleVerifyOtp = async () => {
     if (otp.trim().length < 6) {
-      showAppValidation('Enter the 6-digit code from your email.');
+      showAppValidation('Enter the 6-digit code from your SMS.');
       return;
     }
 
@@ -151,6 +153,7 @@ export default function RegisterScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          studentId: studentId.trim().toUpperCase(),
           email: email.trim().toLowerCase(),
           otp: otp.trim(),
         }),
@@ -223,9 +226,8 @@ export default function RegisterScreen() {
   const getStepTitle = () => {
     switch (step) {
       case 1: return 'Student ID Lookup';
-      case 2: return 'Activation Email';
-      case 3: return 'OTP Verification';
-      case 4: return 'Secure Account';
+      case 2: return 'OTP Verification';
+      case 3: return 'Secure Account';
       default: return 'Register';
     }
   };
@@ -233,15 +235,15 @@ export default function RegisterScreen() {
   const getStepSubtitle = () => {
     switch (step) {
       case 1: return 'Lookup Jazeera University academic roster to verify credentials.';
-      case 2: return 'Specify your personal email to receive a secure activation key.';
-      case 3: return 'Type the 6-digit confirmation key delivered to your inbox.';
-      case 4: return 'Establish your secret access password to complete activation.';
+      case 2: return 'Type the 6-digit confirmation key sent to your phone via SMS.';
+      case 3: return 'Establish your secret access password to complete activation.';
       default: return 'Join the Jazeera University network.';
     }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.scrollContent}>
       {/* Back Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => step > 1 ? setStep(step - 1) : router.back()} style={styles.backButton}>
@@ -272,7 +274,7 @@ export default function RegisterScreen() {
       <Text style={styles.subtitle}>{getStepSubtitle()}</Text>
 
       <View style={styles.card}>
-        {/* STEP 1: Student ID */}
+      {/* STEP 1: Student ID */}
         {step === 1 && (
           <View>
             <Text style={styles.label}>ENTER STUDENT ID</Text>
@@ -312,7 +314,7 @@ export default function RegisterScreen() {
             </View>
             
             <Text style={{ fontSize: 11, color: '#64748B', fontFamily: 'Inter_500Medium', marginTop: 6, marginBottom: 15, lineHeight: 16 }}>
-              🛡️ Check the university email linked to your Student ID. Do not share your OTP with anyone.
+              🛡️ Check your registered phone ending in {studentPhone ? studentPhone.slice(-4) : '****'} for the SMS OTP code. Do not share your OTP with anyone.
             </Text>
 
             <TouchableOpacity style={styles.button} onPress={handleVerifyOtp} disabled={loading}>
@@ -370,9 +372,9 @@ export default function RegisterScreen() {
           </TouchableOpacity>
         </View>
       </View>
-
       <SuccessToast ref={toastRef} />
     </ScrollView>
+    </View>
   );
 }
 

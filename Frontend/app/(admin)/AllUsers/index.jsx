@@ -329,10 +329,7 @@ export default function AllUsersScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.slate50,
-  },
+  container: { flex: 1, backgroundColor: Colors.slate50 },
   refreshBtn: {
     width: 44,
     height: 44,

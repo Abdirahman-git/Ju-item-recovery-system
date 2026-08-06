@@ -10,6 +10,27 @@ node_modules/
 !.env.example
 !**/.env.example
 
+# Local / vendor docs (do not publish)
+Map.md
+OTP.md
+web.md
+Maptest.md
+Tabaarak*.pdf
+*.pdf
+landing page.md
+
+# Local agent / OS / scratch
+.cursor/
+desktop.ini
+brain/
+design-system/
+web-images/
+Frontend/img/WhatsApp*
+
+# Unrelated local HTML scratch in supabase/
+supabase/index.html
+supabase/medicines.html
+
 # Expo / React Native
 .expo/
 dist/
@@ -17,6 +38,10 @@ web-build/
 expo-env.d.ts
 ios/
 android/
+
+# Next.js build (also covered by Web/.gitignore)
+**/.next/
+**/out/
 
 # Logs
 npm-debug.*
@@ -30,9 +55,6 @@ Thumbs.db
 .vscode/
 %ProgramData%/
 **/%ProgramData%/
-
-# Local agent scratch files
-brain/
 
 # Backup of nested Frontend git metadata
 Frontend/.git-backup-before-github-push/

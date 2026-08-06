@@ -1,14 +1,12 @@
-export const Categories = [
-  'Electronics',
-  'Clothing',
-  'Accessories',
-  'Books',
-  'Documents',
-  'Keys',
-  'Bags',
-  'Sports Equipment',
-  'Glasses/Sunglasses',
-  'Wallet/Purse',
-  'ID/Cards',
-  'Other'
-];
+export {
+  PUBLIC_CATEGORIES,
+  ADMIN_ONLY_CATEGORIES,
+  SYSTEM_CATEGORIES,
+  CATEGORY_ICONS,
+  collectCategoriesFromItems,
+  mergeCategoryLists,
+  resolveSystemCategories,
+  toCategoryPickerEntries,
+  isHighValueCategory,
+  isAdminOnlyCategory,
+} from '../utils/categories';

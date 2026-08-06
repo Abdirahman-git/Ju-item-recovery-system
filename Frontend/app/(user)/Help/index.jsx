@@ -50,7 +50,7 @@ const FAQ_GROUPS = [
       },
       {
         q: 'Can I contact the reporter?',
-        a: 'Yes. Use Call or SMS button when contact number is available.',
+        a: 'Yes. Use the Call Reporter button when a contact number is available.',
       },
     ],
   },

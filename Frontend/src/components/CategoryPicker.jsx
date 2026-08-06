@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
-import { Categories } from '../constants/categories';
+import { useDynamicCategories } from '../hooks/useDynamicCategories';
 
-export default function CategoryPicker({ selectedCategory, onSelect }) {
+export default function CategoryPicker({ selectedCategory, onSelect, items = [], forAdmin = false }) {
   const [modalVisible, setModalVisible] = useState(false);
+  const { categoryNames, loading } = useDynamicCategories(items, { forAdmin });
 
   const handleSelect = (category) => {
     onSelect(category);
@@ -14,12 +15,12 @@ export default function CategoryPicker({ selectedCategory, onSelect }) {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity 
-        style={styles.pickerButton} 
+      <TouchableOpacity
+        style={styles.pickerButton}
         onPress={() => setModalVisible(true)}
       >
         <Text style={[
-          styles.pickerText, 
+          styles.pickerText,
           !selectedCategory && { color: Colors.slate400 }
         ]}>
           {selectedCategory || 'Select Category'}
@@ -42,31 +43,40 @@ export default function CategoryPicker({ selectedCategory, onSelect }) {
               </TouchableOpacity>
             </View>
 
-            <FlatList
-              data={Categories}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity 
-                  style={[
-                    styles.categoryItem,
-                    selectedCategory === item && styles.categoryItemActive
-                  ]}
-                  onPress={() => handleSelect(item)}
-                >
-                  <Text style={[
-                    styles.categoryText,
-                    selectedCategory === item && styles.categoryTextActive
-                  ]}>
-                    {item}
-                  </Text>
-                  {selectedCategory === item && (
-                    <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
-                  )}
-                </TouchableOpacity>
-              )}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-              contentContainerStyle={styles.listContent}
-            />
+            {loading ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <Text style={styles.loadingText}>Loading categories...</Text>
+              </View>
+            ) : categoryNames.length === 0 ? (
+              <Text style={styles.emptyText}>No categories yet. Categories appear after the first report.</Text>
+            ) : (
+              <FlatList
+                data={categoryNames}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryItem,
+                      selectedCategory === item && styles.categoryItemActive
+                    ]}
+                    onPress={() => handleSelect(item)}
+                  >
+                    <Text style={[
+                      styles.categoryText,
+                      selectedCategory === item && styles.categoryTextActive
+                    ]}>
+                      {item}
+                    </Text>
+                    {selectedCategory === item && (
+                      <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                contentContainerStyle={styles.listContent}
+              />
+            )}
           </View>
         </View>
       </Modal>
@@ -121,6 +131,25 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 24,
+  },
+  loadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 10,
+  },
+  loadingText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: Colors.slate500,
+  },
+  emptyText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    color: Colors.slate500,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 32,
   },
   categoryItem: {
     flexDirection: 'row',

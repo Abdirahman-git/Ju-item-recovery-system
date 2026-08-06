@@ -1,4 +1,4 @@
-import { isFeedVisible } from './itemStatus';
+import { isFeedVisible, isSecureListing } from './itemStatus';
 
 export function isLostItemRecord(item) {
   const t = String(item?.type || '').toUpperCase();

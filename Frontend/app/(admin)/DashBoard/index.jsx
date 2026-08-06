@@ -23,6 +23,7 @@ import {
   getPendingLostItems,
   getPendingFoundItems,
   getPendingItemClaimCount,
+  getAllReturnedItems,
 } from '../../../src/services/supabase';
 import { showAppFailure } from '../../../src/utils/appAlert';
 
@@ -36,6 +37,7 @@ export default function AdminDashboardOverview() {
 
   const [lostItems, setLostItems] = useState([]);
   const [foundItems, setFoundItems] = useState([]);
+  const [returnedItems, setReturnedItems] = useState([]);
   const [pendingReportsCount, setPendingReportsCount] = useState(0);
   const [claimsCount, setClaimsCount] = useState(0);
   const [studentCount, setStudentCount] = useState(0);
@@ -52,10 +54,11 @@ export default function AdminDashboardOverview() {
         setAdminName(session.userName || 'Admin');
       }
 
-      const [allUsers, allLost, allFound, pendingLost, pendingFound, claims] = await Promise.all([
+      const [allUsers, allLost, allFound, allReturned, pendingLost, pendingFound, claims] = await Promise.all([
         getAllUsers(),
         getAllLostItems(),
         getAllFoundItems(),
+        getAllReturnedItems(),
         getPendingLostItems(),
         getPendingFoundItems(),
         getPendingItemClaimCount(),
@@ -63,6 +66,7 @@ export default function AdminDashboardOverview() {
 
       setLostItems(allLost || []);
       setFoundItems(allFound || []);
+      setReturnedItems(allReturned || []);
       setStudentCount((allUsers || []).filter((u) => u.role === 'user').length);
       setPendingReportsCount((pendingLost?.length || 0) + (pendingFound?.length || 0));
       setClaimsCount(claims || 0);
@@ -82,7 +86,19 @@ export default function AdminDashboardOverview() {
 
   const openDrawer = () => navigation.dispatch(DrawerActions.openDrawer());
 
+  const totalItems = lostItems.length + foundItems.length + returnedItems.length;
+  const recoveryRate = totalItems ? Math.round((returnedItems.length / totalItems) * 100) : 0;
+
   const stats = [
+    {
+      label: 'Total Items',
+      value: totalItems,
+      sub: 'Lost + found + returned',
+      icon: 'cube-outline',
+      color: Colors.primary,
+      bg: Colors.primaryLight,
+      onPress: () => router.push('/(admin)/AllItems'),
+    },
     {
       label: 'Pending Reports',
       value: pendingReportsCount,
@@ -93,35 +109,33 @@ export default function AdminDashboardOverview() {
       onPress: () => router.push('/(admin)/PendingReports'),
     },
     {
-      label: 'Students',
-      value: studentCount,
-      sub: 'Registered',
-      icon: 'people-outline',
-      color: Colors.primary,
-      bg: Colors.primaryLight,
-      onPress: () => router.push('/(admin)/AllUsers'),
-    },
-    {
-      label: 'Lost Items',
-      value: lostItems.length,
-      sub: 'Total listed',
-      icon: 'search-outline',
-      color: Colors.error,
-      bg: Colors.lostBadge,
-      onPress: () => router.push({ pathname: '/(admin)/AllItems', params: { initialTab: 'lost' } }),
-    },
-    {
-      label: 'Found Items',
-      value: foundItems.length,
-      sub: 'Total listed',
-      icon: 'checkmark-circle-outline',
+      label: 'Successful Recoveries',
+      value: returnedItems.length,
+      sub: `${recoveryRate}% recovery rate`,
+      icon: 'checkmark-done-outline',
       color: Colors.success,
-      bg: Colors.foundBadge,
-      onPress: () => router.push({ pathname: '/(admin)/AllItems', params: { initialTab: 'found' } }),
+      bg: '#ECFDF5',
+      onPress: () => router.push('/(admin)/ReturnedItems'),
+    },
+    {
+      label: 'Active Students',
+      value: studentCount,
+      sub: 'Registered users',
+      icon: 'people-outline',
+      color: '#7C3AED',
+      bg: '#EDE9FE',
+      onPress: () => router.push('/(admin)/AllUsers'),
     },
   ];
 
   const pulseBars = [
+    {
+      label: 'Total',
+      value: totalItems,
+      color: Colors.primary,
+      track: Colors.primaryLight,
+      onPress: () => router.push('/(admin)/AllItems'),
+    },
     {
       label: 'Pending',
       value: pendingReportsCount,
@@ -137,24 +151,17 @@ export default function AdminDashboardOverview() {
       onPress: () => router.push('/(admin)/MatchClaims'),
     },
     {
-      label: 'Lost',
-      value: lostItems.length,
-      color: Colors.error,
-      track: Colors.lostBadge,
-      onPress: () => router.push({ pathname: '/(admin)/AllItems', params: { initialTab: 'lost' } }),
-    },
-    {
-      label: 'Found',
-      value: foundItems.length,
+      label: 'Returned',
+      value: returnedItems.length,
       color: Colors.success,
-      track: Colors.foundBadge,
-      onPress: () => router.push({ pathname: '/(admin)/AllItems', params: { initialTab: 'found' } }),
+      track: '#ECFDF5',
+      onPress: () => router.push('/(admin)/ReturnedItems'),
     },
     {
       label: 'Students',
       value: studentCount,
-      color: Colors.primary,
-      track: Colors.primaryLight,
+      color: '#0F172A',
+      track: '#E2E8F0',
       onPress: () => router.push('/(admin)/AllUsers'),
     },
   ];
@@ -284,10 +291,7 @@ export default function AdminDashboardOverview() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.slate50,
-  },
+  container: { flex: 1, backgroundColor: Colors.slate50 },
   refreshBtn: {
     width: 44,
     height: 44,

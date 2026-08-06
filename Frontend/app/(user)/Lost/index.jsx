@@ -10,13 +10,16 @@ import { useRouter } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons, FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Categories } from '../../../src/constants/categories';
+import { validateLostItemForm, getValidationAlertMessage } from '../../../src/utils/itemFormValidation';
+import { pickItemImage, getDefaultTimeLabel } from '../../../src/utils/pickItemImage';
+import { CATEGORY_ICONS } from '../../../src/constants/categories';
+import { useDynamicCategories } from '../../../src/hooks/useDynamicCategories';
+import CategoryPills from '../../../src/components/CategoryPills';
 import { supabase, getAllLostItems, createLostItem } from '../../../src/services/supabase';
 import CustomBottomTab from '../../../src/components/CustomBottomTab';
 import SuccessToast from '../../../src/components/SuccessToast';
+import FeedItemCard from '../../../src/components/FeedItemCard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { validateLostItemForm, getValidationAlertMessage } from '../../../src/utils/itemFormValidation';
-import { pickItemImage, getDefaultTimeLabel } from '../../../src/utils/pickItemImage';
 import {
   formatItemTime,
   parseTimeLabelToDate,
@@ -34,32 +37,16 @@ const SLATE_600 = '#475569';
 const SLATE_500 = '#64748B';
 const SLATE_400 = '#94A3B8';
 const BG_LIGHT = '#F8FAFC';
-
-const CATEGORY_MAP = [
-  { name: 'Electronics', icon: 'laptop', type: 'MaterialCommunityIcons' },
-  { name: 'Clothing', icon: 'tshirt', type: 'FontAwesome5' },
-  { name: 'Accessories', icon: 'watch', type: 'MaterialCommunityIcons' },
-  { name: 'Books', icon: 'book-open-variant', type: 'MaterialCommunityIcons' },
-  { name: 'Documents', icon: 'file-document-outline', type: 'MaterialCommunityIcons' },
-  { name: 'Keys', icon: 'key', type: 'MaterialCommunityIcons' },
-  { name: 'Bags', icon: 'bag-personal', type: 'MaterialCommunityIcons' },
-  { name: 'ID/Cards', icon: 'card-account-details-outline', type: 'MaterialCommunityIcons' },
-  { name: 'Other', icon: 'dots-horizontal-circle-outline', type: 'MaterialCommunityIcons' },
-];
-
-const CATEGORY_ICONS = {
-  'Electronics': 'laptop',
-  'Documents': 'file-document-outline',
-  'Personal': 'wallet-outline',
-  'Books': 'book-open-variant',
-  'Other': 'dots-horizontal-circle-outline'
-};
+const ITEM_NAME_LIMIT = 60;
+const LOCATION_LIMIT = 80;
+const DESCRIPTION_LIMIT = 220;
 
 export default function LostPage() {
   const router = useRouter();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [modalVisible, setModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -67,6 +54,7 @@ export default function LostPage() {
   const [tempDate, setTempDate] = useState(new Date());
   const [tempTime, setTempTime] = useState(() => parseTimeLabelToDate(getDefaultTimeLabel(), new Date().toISOString().split('T')[0]));
   const toastRef = useRef(null);
+  const { categoryEntries, loading: categoriesLoading } = useDynamicCategories(items);
 
   // New Item Form State
   const [newItem, setNewItem] = useState({
@@ -150,9 +138,9 @@ export default function LostPage() {
   );
 
   const handleCreateItem = async () => {
-    const { valid, missing } = validateLostItemForm(newItem);
-    if (!valid) {
-      showAppWarning('Required fields', getValidationAlertMessage(missing));
+    const result = validateLostItemForm(newItem);
+    if (!result.valid) {
+      showAppWarning(result.contentError?.title || 'Required fields', getValidationAlertMessage(result));
       return;
     }
 
@@ -206,59 +194,17 @@ export default function LostPage() {
     }
   };
 
-  const filteredItems = items.filter(item =>
-    item.itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.location.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const ItemCard = ({ item, index }) => {
-    return (
-      <TouchableOpacity
-        activeOpacity={0.9}
-        style={styles.card}
-        onPress={() => router.push({
-          pathname: `/(user)/item/${item.id}`,
-          params: { data: JSON.stringify({ ...item, type: 'LOST' }) }
-        })}
-      >
-        <View style={styles.cardImageContainer}>
-          {item.imageURI ? (
-            <Image source={{ uri: item.imageURI }} style={styles.cardImage} />
-          ) : (
-            <View style={[styles.cardImage, styles.placeholderImage]}>
-              <MaterialCommunityIcons name={CATEGORY_ICONS[item.category] || 'cube-outline'} size={35} color={SLATE_400} opacity={0.5} />
-            </View>
-          )}
-        </View>
-        <View style={styles.cardContent}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.catWithIcon}>
-              <MaterialCommunityIcons name={CATEGORY_ICONS[item.category] || 'tag-outline'} size={12} color={SLATE_400} />
-              <Text style={styles.cardCategoryText}> {item.category}</Text>
-            </View>
-            {item.email && (item.email.toLowerCase().includes('admin') || item.userId === 'admin-01') && (
-              <View style={styles.adminBadgeSmall}>
-                <Ionicons name="shield-checkmark" size={8} color="#1E40AF" style={{ marginRight: 2 }} />
-                <Text style={styles.adminBadgeTextSmall}>ADMIN</Text>
-              </View>
-            )}
-          </View>
-          <Text style={styles.cardTitle} numberOfLines={1}>{item.itemName}</Text>
-          <View style={styles.cardFooter}>
-            <View style={styles.footerItem}>
-              <Ionicons name="location-outline" size={13} color={SLATE_400} />
-              <Text style={styles.footerText} numberOfLines={1}> {item.location}</Text>
-            </View>
-            <View style={styles.footerItem}>
-              <Ionicons name="calendar-outline" size={13} color={SLATE_400} />
-              <Text style={styles.footerText}> {item.dateLost}</Text>
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const filteredItems = items.filter((item) => {
+    const q = searchQuery.trim().toLowerCase();
+    const haystack = [item.itemName, item.category, item.location, item.description]
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ');
+    const matchesSearch = !q || haystack.includes(q);
+    const itemCategory = String(item.category || '').trim().toLowerCase();
+    const matchesCategory =
+      categoryFilter === 'all' || itemCategory === String(categoryFilter).trim().toLowerCase();
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <View style={styles.container}>
@@ -280,16 +226,37 @@ export default function LostPage() {
             onChangeText={setSearchQuery}
           />
         </View>
+        <View style={styles.categoryFilterRow}>
+          <CategoryPills
+            entries={categoryEntries}
+            selectedCategory={categoryFilter}
+            onSelect={setCategoryFilter}
+            accentColor={PRIMARY_BLUE}
+            loading={categoriesLoading}
+            allowCustom={false}
+            showAllOption
+            allLabel="All"
+          />
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
         {loading ? (
           <ActivityIndicator size="large" color="#94A3B8" style={{ marginTop: 50 }} />
         ) : filteredItems.length > 0 ? (
-          filteredItems.map((item, index) => <ItemCard key={item.id} item={item} index={index} />)
+          filteredItems.map((item, index) => (
+            <FeedItemCard
+              key={item.id}
+              item={{ ...item, type: 'LOST' }}
+              onPress={() => router.push({
+                pathname: `/(user)/item/${item.id}`,
+                params: { data: JSON.stringify({ ...item, type: 'LOST' }) },
+              })}
+            />
+          ))
         ) : (
           <View style={styles.emptyContainer}>
-            <MaterialCommunityIcons name="cube-scan" size={80} color={SLATE_400} opacity={0.3} />
+            <MaterialCommunityIcons name="cube-scan" size={80} color={SLATE_400} style={{ opacity: 0.3 }} />
             <Text style={styles.emptyText}>No items found matches your search.</Text>
           </View>
         )}
@@ -355,6 +322,7 @@ export default function LostPage() {
                     placeholder="e.g. Silver MacBook Air M2"
                     placeholderTextColor="#94A3B8"
                     value={newItem.itemName}
+                    maxLength={ITEM_NAME_LIMIT}
                     onChangeText={(val) => setNewItem({ ...newItem, itemName: val })}
                   />
                 </View>
@@ -362,19 +330,13 @@ export default function LostPage() {
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>CATEGORY</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-                  {CATEGORY_MAP.map(cat => (
-                    <TouchableOpacity
-                      key={cat.name}
-                      style={[styles.categoryPillNew, { borderColor: PRIMARY_BLUE + '15' }, newItem.category === cat.name && { backgroundColor: PRIMARY_BLUE, borderColor: PRIMARY_BLUE }]}
-                      onPress={() => setNewItem({ ...newItem, category: cat.name })}
-                    >
-                      {cat.type === 'MaterialCommunityIcons' && <MaterialCommunityIcons name={cat.icon} size={18} color={newItem.category === cat.name ? '#FFF' : PRIMARY_BLUE} />}
-                      {cat.type === 'FontAwesome5' && <FontAwesome5 name={cat.icon} size={16} color={newItem.category === cat.name ? '#FFF' : PRIMARY_BLUE} />}
-                      <Text style={[styles.categoryPillTextNew, newItem.category === cat.name && styles.categoryPillTextActiveNew]}>{cat.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                <CategoryPills
+                  entries={categoryEntries}
+                  loading={categoriesLoading}
+                  selectedCategory={newItem.category}
+                  onSelect={(category) => setNewItem({ ...newItem, category })}
+                  accentColor={PRIMARY_BLUE}
+                />
               </View>
 
               <View style={styles.inputGroup}>
@@ -386,6 +348,7 @@ export default function LostPage() {
                     placeholder="e.g. Library 2nd Floor"
                     placeholderTextColor="#94A3B8"
                     value={newItem.location}
+                    maxLength={LOCATION_LIMIT}
                     onChangeText={(val) => setNewItem({ ...newItem, location: val })}
                   />
                 </View>
@@ -401,9 +364,11 @@ export default function LostPage() {
                     placeholderTextColor="#94A3B8"
                     multiline
                     value={newItem.description}
+                    maxLength={DESCRIPTION_LIMIT}
                     onChangeText={(val) => setNewItem({ ...newItem, description: val })}
                   />
                 </View>
+                <Text style={styles.characterCount}>{newItem.description.length}/{DESCRIPTION_LIMIT}</Text>
               </View>
 
               <View style={styles.inputGroup}>
@@ -479,6 +444,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 28, fontWeight: '900', color: SLATE_900 },
   addBtn: { width: 48, height: 48, backgroundColor: PRIMARY_BLUE, borderRadius: 16, justifyContent: 'center', alignItems: 'center', elevation: 4 },
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 15, paddingHorizontal: 15, height: 50 },
+  categoryFilterRow: { marginTop: 12 },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1, fontSize: 15, color: SLATE_900, fontWeight: '500' },
   listContent: { padding: 20, paddingBottom: 120 },
@@ -589,8 +555,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderStyle: 'dashed',
     marginBottom: 30,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFF',
     overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: PRIMARY_BLUE,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 2,
+      }
+    })
   },
   uploadedImage: {
     width: '100%',
@@ -632,13 +609,24 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFF',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     borderRadius: 16,
     paddingHorizontal: 14,
     height: 56,
     marginHorizontal: 25,
+    ...Platform.select({
+      ios: {
+        shadowColor: PRIMARY_BLUE,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 2,
+      }
+    })
   },
   inputIcon: {
     marginRight: 12,
@@ -648,6 +636,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: SLATE_800,
+  },
+  characterCount: {
+    alignSelf: 'flex-end',
+    marginRight: 28,
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '700',
+    color: SLATE_400,
   },
   categoryScroll: {
     paddingLeft: 25,

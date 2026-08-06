@@ -1,3 +1,5 @@
+import { validateItemReportContent } from './contentValidation';
+
 const isFilled = (value) => typeof value === 'string' && value.trim() !== '';
 
 export const validateLostItemForm = (item) => {
@@ -10,7 +12,20 @@ export const validateLostItemForm = (item) => {
   if (!isFilled(item?.dateLost)) missing.push('Date Lost');
   if (!isFilled(item?.timeLost)) missing.push('Time Lost');
 
-  return { valid: missing.length === 0, missing };
+  if (missing.length) {
+    return { valid: false, missing };
+  }
+
+  const content = validateItemReportContent({
+    itemName: item.itemName,
+    location: item.location,
+    description: item.description,
+  });
+  if (!content.valid) {
+    return { valid: false, missing: [], contentError: content };
+  }
+
+  return { valid: true, missing: [] };
 };
 
 export const validateFoundItemForm = (item) => {
@@ -24,8 +39,26 @@ export const validateFoundItemForm = (item) => {
   if (!isFilled(item?.timeFound)) missing.push('Time Found');
   if (!isFilled(item?.imageURI)) missing.push('Photo');
 
-  return { valid: missing.length === 0, missing };
+  if (missing.length) {
+    return { valid: false, missing };
+  }
+
+  const content = validateItemReportContent({
+    itemName: item.itemName,
+    location: item.location,
+    description: item.description,
+  });
+  if (!content.valid) {
+    return { valid: false, missing: [], contentError: content };
+  }
+
+  return { valid: true, missing: [] };
 };
 
-export const getValidationAlertMessage = (missing) =>
-  `Please complete all required fields:\n\n• ${missing.join('\n• ')}`;
+export const getValidationAlertMessage = (result) => {
+  if (result?.contentError) {
+    return result.contentError.message;
+  }
+  const missing = Array.isArray(result) ? result : result?.missing || [];
+  return `Please complete all required fields:\n\n• ${missing.join('\n• ')}`;
+};

@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '../../../src/constants/colors';
 import UserInfoLayout, { InfoCard } from '../../../src/components/UserInfoLayout';
 import SuccessToast from '../../../src/components/SuccessToast';
-import { supabase } from '../../../src/services/supabase';
+import { supabase, changeAdminPassword } from '../../../src/services/supabase';
 import { showAppError, showAppValidation } from '../../../src/utils/appAlert';
 
 function getInitials(name) {
@@ -82,7 +82,7 @@ export default function ChangePasswordPage() {
       const session = JSON.parse(sessionData);
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select('email, name, student_id, phone, role')
         .eq('email', session.email)
         .single();
 
@@ -112,11 +112,6 @@ export default function ChangePasswordPage() {
       return;
     }
 
-    if (user.password !== oldPassword) {
-      showAppValidation('Current password is incorrect.');
-      return;
-    }
-
     if (newPassword !== confirmPassword) {
       showAppValidation('New passwords do not match.');
       return;
@@ -134,12 +129,12 @@ export default function ChangePasswordPage() {
 
     try {
       setPasswordLoading(true);
-      const { error } = await supabase
-        .from('users')
-        .update({ password: newPassword })
-        .eq('email', user.email);
-
-      if (error) throw error;
+      await changeAdminPassword({
+        email: user?.email,
+        studentId: user?.studentId || user?.student_id,
+        currentPassword: oldPassword,
+        newPassword,
+      });
 
       toastRef.current?.show('Password updated', 'Your new password has been saved.', 'success');
       setOldPassword('');

@@ -20,3 +20,8 @@ CREATE POLICY IF NOT EXISTS "item_images_anon_update"
 ON storage.objects FOR UPDATE
 TO anon, authenticated
 USING (bucket_id = 'item-images');
+
+CREATE POLICY IF NOT EXISTS "item_images_anon_delete"
+ON storage.objects FOR DELETE
+TO anon, authenticated
+USING (bucket_id = 'item-images');

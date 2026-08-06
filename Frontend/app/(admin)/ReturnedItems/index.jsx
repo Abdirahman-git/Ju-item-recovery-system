@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,90 @@ import SuccessToast from '../../../src/components/SuccessToast';
 import { getAllReturnedItems } from '../../../src/services/supabase';
 import { showAppFailure } from '../../../src/utils/appAlert';
 
+const SORT_OPTIONS = [
+  { id: 'newest', label: 'Newest' },
+  { id: 'oldest', label: 'Oldest' },
+  { id: 'name', label: 'A–Z' },
+  { id: 'recipient', label: 'Recipient' },
+];
+
+function formatDate(dateStr) {
+  if (!dateStr) return 'N/A';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatSubmittedAt(item) {
+  if (item.submitted_at) {
+    const date = new Date(item.submitted_at);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+  }
+
+  const datePart = item.date_reported ? formatDate(item.date_reported) : '';
+  const timePart = item.time_reported ? String(item.time_reported).slice(0, 5) : '';
+  if (datePart && datePart !== 'N/A' && timePart) return `${datePart} · ${timePart}`;
+  if (datePart && datePart !== 'N/A') return datePart;
+
+  const raw = String(item.imageURI || item.imageuri || '');
+  const match = raw.match(/(?:^|\/)items\/(\d{12,14})_/i);
+  if (match) {
+    const inferred = new Date(Number(match[1]));
+    if (!Number.isNaN(inferred.getTime()) && inferred.getFullYear() >= 2020) {
+      return inferred.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+  }
+
+  return 'Not recorded';
+}
+
+function daysBetween(start) {
+  const date = new Date(start);
+  if (!start || Number.isNaN(date.getTime())) return null;
+  const diff = Math.max(0, Date.now() - date.getTime());
+  return Math.max(1, Math.round(diff / 86_400_000));
+}
+
+function sortReturnedItems(list, sortBy) {
+  const rows = [...list];
+  if (sortBy === 'oldest') {
+    return rows.sort(
+      (a, b) => new Date(a.returned_at || 0).getTime() - new Date(b.returned_at || 0).getTime()
+    );
+  }
+  if (sortBy === 'name') {
+    return rows.sort((a, b) =>
+      String(a.item_name || a.itemName || '').localeCompare(String(b.item_name || b.itemName || ''))
+    );
+  }
+  if (sortBy === 'recipient') {
+    return rows.sort((a, b) =>
+      String(a.recipient_name || '').localeCompare(String(b.recipient_name || ''))
+    );
+  }
+  return rows.sort(
+    (a, b) => new Date(b.returned_at || 0).getTime() - new Date(a.returned_at || 0).getTime()
+  );
+}
+
 export default function ReturnedItemsScreen() {
   const navigation = useNavigation();
   const router = useRouter();
@@ -29,6 +113,8 @@ export default function ReturnedItemsScreen() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all'); // all | lost | found
+  const [category, setCategory] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
 
   const fetchItems = async () => {
     try {
@@ -49,31 +135,51 @@ export default function ReturnedItemsScreen() {
     }, [])
   );
 
-  const lostCount = returnedItems.filter((i) => i.type === 'LOST').length;
-  const foundCount = returnedItems.filter((i) => i.type === 'FOUND').length;
+  const lostCount = returnedItems.filter((i) => String(i.type).toUpperCase() === 'LOST').length;
+  const foundCount = returnedItems.filter((i) => String(i.type).toUpperCase() === 'FOUND').length;
 
-  const query = searchQuery.trim().toLowerCase();
-  const filteredItems = returnedItems.filter((item) => {
-    const matchesSearch =
-      !query ||
-      item.item_name?.toLowerCase().includes(query) ||
-      item.category?.toLowerCase().includes(query) ||
-      item.recipient_name?.toLowerCase().includes(query) ||
-      item.location?.toLowerCase().includes(query);
-
-    if (activeTab === 'all') return matchesSearch;
-    return matchesSearch && item.type.toLowerCase() === activeTab;
-  });
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return 'N/A';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
+  const categories = useMemo(() => {
+    const set = new Set();
+    returnedItems.forEach((item) => {
+      if (item.category) set.add(item.category);
     });
-  };
+    return ['all', ...Array.from(set).sort()];
+  }, [returnedItems]);
+
+  const avgArchiveDays = useMemo(() => {
+    if (!returnedItems.length) return 0;
+    const total = returnedItems.reduce((sum, item) => sum + (daysBetween(item.returned_at) || 1), 0);
+    return Math.round(total / returnedItems.length);
+  }, [returnedItems]);
+
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    const next = returnedItems.filter((item) => {
+      const type = String(item.type || '').toUpperCase();
+      const matchesTab =
+        activeTab === 'all' ||
+        (activeTab === 'lost' && type === 'LOST') ||
+        (activeTab === 'found' && type === 'FOUND');
+      const matchesCategory = category === 'all' || item.category === category;
+      const haystack = [
+        item.item_name,
+        item.itemName,
+        item.category,
+        item.location,
+        item.recipient_name,
+        item.recipient_student_id,
+        item.original_reporter,
+        item.reporter_email,
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return matchesTab && matchesCategory && (!query || haystack.includes(query));
+    });
+
+    return sortReturnedItems(next, sortBy);
+  }, [returnedItems, activeTab, category, searchQuery, sortBy]);
 
   const openArchiveItem = (item) => {
     router.push({
@@ -105,15 +211,15 @@ export default function ReturnedItemsScreen() {
         <View style={styles.statsRow}>
           <View style={[styles.statCard, styles.statCardPrimary]}>
             <Text style={styles.statNum}>{returnedItems.length}</Text>
-            <Text style={styles.statLabel}>Total archived</Text>
+            <Text style={styles.statLabel}>Total returned</Text>
+            <Text style={styles.statSub}>
+              {foundCount} found · {lostCount} lost
+            </Text>
           </View>
-          <View style={[styles.statCard, styles.statCardLost]}>
-            <Text style={[styles.statNum, styles.statNumLost]}>{lostCount}</Text>
-            <Text style={styles.statLabel}>Returned lost</Text>
-          </View>
-          <View style={[styles.statCard, styles.statCardFound]}>
-            <Text style={[styles.statNum, styles.statNumFound]}>{foundCount}</Text>
-            <Text style={styles.statLabel}>Returned found</Text>
+          <View style={[styles.statCard, styles.statCardArchive]}>
+            <Text style={styles.statNum}>{returnedItems.length ? `${avgArchiveDays}d` : '0d'}</Text>
+            <Text style={styles.statLabel}>Avg. archive age</Text>
+            <Text style={styles.statSub}>Since return date</Text>
           </View>
         </View>
 
@@ -121,7 +227,7 @@ export default function ReturnedItemsScreen() {
           <Ionicons name="search-outline" size={20} color={Colors.slate400} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search recipient, item, or location..."
+            placeholder="Search item, recipient or reporter..."
             placeholderTextColor={Colors.slate400}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -140,15 +246,6 @@ export default function ReturnedItemsScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'lost' && styles.tabBtnActive]}
-            onPress={() => setActiveTab('lost')}
-          >
-            <Text style={[styles.tabText, activeTab === 'lost' && styles.tabTextActive]}>
-              Lost ({lostCount})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'found' && styles.tabBtnActive]}
             onPress={() => setActiveTab('found')}
           >
@@ -156,7 +253,42 @@ export default function ReturnedItemsScreen() {
               Found ({foundCount})
             </Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'lost' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('lost')}
+          >
+            <Text style={[styles.tabText, activeTab === 'lost' && styles.tabTextActive]}>
+              Lost ({lostCount})
+            </Text>
+          </TouchableOpacity>
         </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+          {categories.map((cat) => (
+            <TouchableOpacity
+              key={cat}
+              style={[styles.chip, category === cat && styles.chipActive]}
+              onPress={() => setCategory(cat)}
+            >
+              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>
+                {cat === 'all' ? 'All categories' : cat}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+          {SORT_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt.id}
+              style={[styles.chip, sortBy === opt.id && styles.chipActive]}
+              onPress={() => setSortBy(opt.id)}
+            >
+              <Text style={[styles.chipText, sortBy === opt.id && styles.chipTextActive]}>{opt.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -165,7 +297,7 @@ export default function ReturnedItemsScreen() {
           </View>
         ) : filteredItems.length > 0 ? (
           filteredItems.map((item) => {
-            const isLost = item.type === 'LOST';
+            const isLost = String(item.type).toUpperCase() === 'LOST';
             return (
               <TouchableOpacity
                 key={`returned-${item.id}`}
@@ -193,15 +325,13 @@ export default function ReturnedItemsScreen() {
                 <View style={styles.itemCardInfo}>
                   <View style={styles.itemHeader}>
                     <Text style={styles.itemCategory}>{item.category || 'Uncategorized'}</Text>
-                    <View style={[styles.typePill, isLost ? styles.typePillLost : styles.typePillFound]}>
-                      <Text style={[styles.typePillText, isLost ? styles.typeTextLost : styles.typeTextFound]}>
-                        {item.type}
-                      </Text>
+                    <View style={styles.reunitedPill}>
+                      <Text style={styles.reunitedPillText}>Reunited</Text>
                     </View>
                   </View>
 
                   <Text style={styles.itemName} numberOfLines={1}>
-                    {item.item_name}
+                    {item.item_name || item.itemName}
                   </Text>
 
                   <View style={styles.recipientCard}>
@@ -214,12 +344,13 @@ export default function ReturnedItemsScreen() {
                     ) : null}
                   </View>
 
-                  <View style={styles.metaRow}>
+                  <View style={styles.metaColumn}>
                     <Text style={styles.metaText} numberOfLines={1}>
-                      <Ionicons name="calendar-outline" size={13} color={Colors.slate500} /> {formatDate(item.returned_at)}
+                      <Ionicons name="calendar-outline" size={13} color={Colors.slate500} />{' '}
+                      {formatDate(item.returned_at)}
                     </Text>
-                    <Text style={styles.metaText} numberOfLines={1}>
-                      <Ionicons name="location-outline" size={13} color={Colors.slate500} /> {item.location || 'N/A'}
+                    <Text style={styles.submittedMeta} numberOfLines={1}>
+                      Submitted {formatSubmittedAt(item)}
                     </Text>
                   </View>
                 </View>
@@ -241,10 +372,7 @@ export default function ReturnedItemsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.slate50,
-  },
+  container: { flex: 1, backgroundColor: Colors.slate50 },
   refreshBtn: {
     width: 44,
     height: 44,
@@ -267,19 +395,16 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     paddingVertical: 10,
+    paddingHorizontal: 8,
     alignItems: 'center',
   },
   statCardPrimary: {
     backgroundColor: Colors.primaryLight,
     borderColor: '#BFDBFE',
   },
-  statCardLost: {
+  statCardArchive: {
     backgroundColor: '#EEF2FF',
     borderColor: '#C7D2FE',
-  },
-  statCardFound: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
   },
   statNum: {
     fontFamily: 'Poppins_700Bold',
@@ -287,17 +412,18 @@ const styles = StyleSheet.create({
     color: Colors.primaryDark,
     lineHeight: 23,
   },
-  statNumLost: {
-    color: '#4F46E5',
-  },
-  statNumFound: {
-    color: Colors.success,
-  },
   statLabel: {
     marginTop: 2,
     fontFamily: 'Inter_500Medium',
     fontSize: 11,
     color: Colors.slate600,
+  },
+  statSub: {
+    marginTop: 2,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10,
+    color: Colors.slate500,
+    textAlign: 'center',
   },
   searchBarContainer: {
     flexDirection: 'row',
@@ -324,7 +450,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.slate100,
     borderRadius: 12,
     padding: 3,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   tabBtn: {
     flex: 1,
@@ -341,16 +467,39 @@ const styles = StyleSheet.create({
     color: Colors.slate500,
   },
   tabTextActive: {
-    color: Colors.slate900,
+    color: Colors.primaryDark,
+  },
+  filterScroll: {
+    marginBottom: 10,
+  },
+  chip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+  },
+  chipActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: '#93C5FD',
+  },
+  chipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate500,
+  },
+  chipTextActive: {
+    color: Colors.primaryDark,
   },
   loadingContainer: {
-    paddingTop: 60,
+    paddingVertical: 60,
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 12,
     fontFamily: 'Inter_500Medium',
-    fontSize: 14,
     color: Colors.slate500,
   },
   itemCard: {
@@ -361,24 +510,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: Colors.slate100,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    elevation: 2,
   },
   itemCardImg: {
-    width: 88,
-    height: 112,
+    width: 78,
+    height: 78,
     borderRadius: 14,
     backgroundColor: Colors.slate100,
   },
   itemCardImgPlaceholder: {
-    width: 88,
-    height: 112,
+    width: 78,
+    height: 78,
     borderRadius: 14,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   itemCardInfo: {
     flex: 1,
@@ -386,92 +530,83 @@ const styles = StyleSheet.create({
   },
   itemHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   itemCategory: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 10,
-    color: Colors.slate400,
+    flex: 1,
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: Colors.slate500,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
   },
-  typePill: {
+  reunitedPill: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 9,
   },
-  typePillLost: {
-    backgroundColor: '#EEF2FF',
-  },
-  typePillFound: {
-    backgroundColor: '#D1FAE5',
-  },
-  typePillText: {
+  reunitedPillText: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.6,
-  },
-  typeTextLost: {
-    color: '#4F46E5',
-  },
-  typeTextFound: {
+    fontSize: 10,
     color: Colors.success,
+    textTransform: 'uppercase',
   },
   itemName: {
-    marginTop: 2,
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 22,
+    marginTop: 4,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 15,
     color: Colors.slate900,
   },
   recipientCard: {
-    marginTop: 6,
+    marginTop: 8,
     backgroundColor: Colors.slate50,
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   recipientLabel: {
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Inter_500Medium',
     fontSize: 10,
-    color: Colors.slate500,
+    color: Colors.slate400,
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
   },
   recipientValue: {
     marginTop: 2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Inter_700Bold',
     fontSize: 13,
-    color: '#4338CA',
+    color: Colors.slate800,
   },
   recipientId: {
-    marginTop: 1,
-    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
+    fontFamily: 'Inter_500Medium',
     fontSize: 11,
     color: Colors.slate500,
   },
-  metaRow: {
+  metaColumn: {
     marginTop: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
+    gap: 2,
   },
   metaText: {
-    flex: 1,
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
     color: Colors.slate600,
   },
+  submittedMeta: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: Colors.slate400,
+  },
   emptyContainer: {
+    paddingVertical: 60,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 70,
   },
   emptyTitle: {
-    marginTop: 14,
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 18,
-    color: Colors.slate800,
+    marginTop: 12,
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 16,
+    color: Colors.slate700,
   },
   emptyText: {
     marginTop: 6,

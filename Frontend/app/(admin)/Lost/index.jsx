@@ -6,11 +6,22 @@ import {
   Dimensions, Platform, StatusBar, Animated as RNAnimated
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { supabase, getAllLostItems, createLostItem } from '../../../src/services/supabase';
+import { CATEGORY_ICONS } from '../../../src/constants/categories';
+import { useDynamicCategories } from '../../../src/hooks/useDynamicCategories';
+import CategoryPills from '../../../src/components/CategoryPills';
+import {
+  supabase,
+  getAllLostItems,
+  createLostItem,
+  createLostDraft,
+  updateLostDraft,
+  publishLostDraft,
+  fetchDraftItemById,
+} from '../../../src/services/supabase';
 import SuccessToast from '../../../src/components/SuccessToast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { validateLostItemForm, getValidationAlertMessage } from '../../../src/utils/itemFormValidation';
@@ -32,30 +43,19 @@ const SLATE_600 = '#475569';
 const SLATE_500 = '#64748B';
 const SLATE_400 = '#94A3B8';
 const BG_LIGHT = '#F8FAFC';
-
-const CATEGORY_MAP = [
-  { name: 'Electronics', icon: 'laptop', type: 'MaterialCommunityIcons' },
-  { name: 'Clothing', icon: 'tshirt', type: 'FontAwesome5' },
-  { name: 'Accessories', icon: 'watch', type: 'MaterialCommunityIcons' },
-  { name: 'Books', icon: 'book-open-variant', type: 'MaterialCommunityIcons' },
-  { name: 'Documents', icon: 'file-document-outline', type: 'MaterialCommunityIcons' },
-  { name: 'Keys', icon: 'key', type: 'MaterialCommunityIcons' },
-  { name: 'Bags', icon: 'bag-personal', type: 'MaterialCommunityIcons' },
-  { name: 'ID/Cards', icon: 'card-account-details-outline', type: 'MaterialCommunityIcons' },
-  { name: 'Other', icon: 'dots-horizontal-circle-outline', type: 'MaterialCommunityIcons' },
-];
-
-const CATEGORY_ICONS = {
-  'Electronics': 'laptop',
-  'Documents': 'file-document-outline',
-  'Personal': 'wallet-outline',
-  'Books': 'book-open-variant',
-  'Other': 'dots-horizontal-circle-outline'
-};
+const ITEM_NAME_LIMIT = 60;
+const LOCATION_LIMIT = 80;
+const DESCRIPTION_LIMIT = 220;
 
 export default function AdminLostPage() {
   const router = useRouter();
   const navigation = useNavigation();
+  const params = useLocalSearchParams();
+  const draftParamId = params?.draftId ? Number(params.draftId) : null;
+  const draftLoadedRef = useRef(false);
+  const [draftId, setDraftId] = useState(null);
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,13 +66,14 @@ export default function AdminLostPage() {
   const [tempDate, setTempDate] = useState(new Date());
   const [tempTime, setTempTime] = useState(() => parseTimeLabelToDate(getDefaultTimeLabel(), new Date().toISOString().split('T')[0]));
   const toastRef = useRef(null);
+  const { categoryEntries, loading: categoriesLoading } = useDynamicCategories(items, { forAdmin: true });
 
   // New Item Form State
   const [newItem, setNewItem] = useState({
     itemName: '',
     description: '',
     location: '',
-    category: 'Electronics',
+    category: '',
     dateLost: new Date().toISOString().split('T')[0],
     timeLost: getDefaultTimeLabel(),
     ownerName: '',
@@ -148,10 +149,94 @@ export default function AdminLostPage() {
     }, [])
   );
 
+  useEffect(() => {
+    if (!draftParamId || draftLoadedRef.current) return;
+    draftLoadedRef.current = true;
+    (async () => {
+      try {
+        setLoadingDraft(true);
+        const draft = await fetchDraftItemById('lost', draftParamId);
+        setDraftId(draft.id);
+        const resolvedDate = draft.dateLost || new Date().toISOString().split('T')[0];
+        const resolvedTime = draft.timeLost || getDefaultTimeLabel();
+        setNewItem((prev) => ({
+          ...prev,
+          itemName: draft.itemName || '',
+          description: draft.description || '',
+          location: draft.location || '',
+          category: draft.category || '',
+          dateLost: resolvedDate,
+          timeLost: resolvedTime,
+          ownerName: draft.ownerName || prev.ownerName,
+          phnum: draft.phnum || prev.phnum,
+          imageURI: draft.imageURI || '',
+        }));
+        setTempDate(new Date(resolvedDate));
+        setTempTime(parseTimeLabelToDate(resolvedTime, resolvedDate));
+        setModalVisible(true);
+      } catch (error) {
+        console.error('Failed to load lost draft:', error);
+        showAppWarning('Could not load draft', error?.message || 'This draft may have already been published.');
+      } finally {
+        setLoadingDraft(false);
+      }
+    })();
+  }, [draftParamId]);
+
+  const resetForm = () => {
+    const resetDate = new Date().toISOString().split('T')[0];
+    const resetTime = getDefaultTimeLabel();
+    setTempTime(parseTimeLabelToDate(resetTime, resetDate));
+    setNewItem((prev) => ({
+      itemName: '', description: '', location: '', category: '',
+      dateLost: resetDate, timeLost: resetTime,
+      ownerName: prev.ownerName, phnum: prev.phnum, email: prev.email, imageURI: ''
+    }));
+    setDraftId(null);
+  };
+
+  const handleSaveDraft = async () => {
+    const result = validateLostItemForm(newItem);
+    if (!result.valid) {
+      showAppWarning(result.contentError?.title || 'Required fields', getValidationAlertMessage(result));
+      return;
+    }
+
+    try {
+      setSavingDraft(true);
+
+      const sessionData = await AsyncStorage.getItem('userSession');
+      if (!sessionData) throw new Error("No user session found. Please login again.");
+
+      const user = JSON.parse(sessionData);
+
+      const itemToSave = {
+        ...newItem,
+        ownerName: user.userName || newItem.ownerName || 'Student',
+        phnum: user.phone || newItem.phnum || '',
+        email: user.email,
+        userId: user.email
+      };
+
+      const saved = draftId
+        ? await updateLostDraft(draftId, itemToSave)
+        : await createLostDraft(itemToSave);
+
+      setDraftId(saved.id);
+      toastRef.current?.show('Draft saved', 'You can continue this later from Drafts.');
+      fetchLostItems();
+    } catch (error) {
+      console.error('Save lost draft failed:', error);
+      toastRef.current?.show('Error', error?.message || 'Failed to save draft.', 'error');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
   const handleCreateItem = async () => {
-    const { valid, missing } = validateLostItemForm(newItem);
-    if (!valid) {
-      showAppWarning('Required fields', getValidationAlertMessage(missing));
+    const result = validateLostItemForm(newItem);
+    if (!result.valid) {
+      showAppWarning(result.contentError?.title || 'Required fields', getValidationAlertMessage(result));
       return;
     }
 
@@ -171,26 +256,23 @@ export default function AdminLostPage() {
         userId: user.email
       };
 
-      const success = await createLostItem(itemToSave, user.role === 'admin');
+      const success = draftId
+        ? await publishLostDraft(draftId, itemToSave)
+        : await createLostItem(itemToSave, user.role === 'admin');
       if (success) {
         setModalVisible(false);
         setTimeout(() => {
-          const successMsg = user.role === 'admin' 
-            ? 'Lost Item Published Directly! 📢' 
-            : 'Item added successfully. Wait for admin approval.';
-          const successSub = user.role === 'admin' 
-            ? 'The listing is live on the student feed immediately.' 
+          const successMsg = draftId
+            ? 'Draft Published! 📢'
+            : (user.role === 'admin'
+              ? 'Lost Item Published Directly! 📢'
+              : 'Item added successfully. Wait for admin approval.');
+          const successSub = (draftId || user.role === 'admin')
+            ? 'The listing is live on the student feed immediately.'
             : '';
           toastRef.current?.show(successMsg, successSub);
         }, 300);
-        const resetDate = new Date().toISOString().split('T')[0];
-        const resetTime = getDefaultTimeLabel();
-        setTempTime(parseTimeLabelToDate(resetTime, resetDate));
-        setNewItem({
-          itemName: '', description: '', location: '', category: '',
-          dateLost: resetDate, timeLost: resetTime,
-          ownerName: '', phnum: '', imageURI: ''
-        });
+        resetForm();
         fetchLostItems();
       }
     } catch (error) {
@@ -205,11 +287,14 @@ export default function AdminLostPage() {
     }
   };
 
-  const filteredItems = items.filter(item =>
-    item.itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.location.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredItems = items.filter((item) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    const haystack = [item.itemName, item.category, item.location, item.description]
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ');
+    return haystack.includes(q);
+  });
 
   const ItemCard = ({ item, index }) => {
     const isPostedByAdmin = item.email && (
@@ -231,7 +316,7 @@ export default function AdminLostPage() {
             <Image source={{ uri: item.imageURI }} style={styles.cardImage} />
           ) : (
             <View style={[styles.cardImage, styles.placeholderImage]}>
-              <MaterialCommunityIcons name={CATEGORY_ICONS[item.category] || 'cube-outline'} size={35} color={SLATE_400} opacity={0.5} />
+              <MaterialCommunityIcons name={CATEGORY_ICONS[item.category] || 'cube-outline'} size={35} color={SLATE_400} style={{ opacity: 0.5 }} />
             </View>
           )}
         </View>
@@ -299,7 +384,7 @@ export default function AdminLostPage() {
           filteredItems.map((item, index) => <ItemCard key={item.id} item={item} index={index} />)
         ) : (
           <View style={styles.emptyContainer}>
-            <MaterialCommunityIcons name="cube-scan" size={80} color={SLATE_400} opacity={0.3} />
+            <MaterialCommunityIcons name="cube-scan" size={80} color={SLATE_400} style={{ opacity: 0.3 }} />
             <Text style={styles.emptyText}>No items found matches your search.</Text>
           </View>
         )}
@@ -365,6 +450,7 @@ export default function AdminLostPage() {
                     placeholder="e.g. Silver MacBook Air M2"
                     placeholderTextColor="#94A3B8"
                     value={newItem.itemName}
+                    maxLength={ITEM_NAME_LIMIT}
                     onChangeText={(val) => setNewItem({ ...newItem, itemName: val })}
                   />
                 </View>
@@ -372,19 +458,13 @@ export default function AdminLostPage() {
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>CATEGORY</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-                  {CATEGORY_MAP.map(cat => (
-                    <TouchableOpacity
-                      key={cat.name}
-                      style={[styles.categoryPillNew, { borderColor: PRIMARY_BLUE + '15' }, newItem.category === cat.name && { backgroundColor: PRIMARY_BLUE, borderColor: PRIMARY_BLUE }]}
-                      onPress={() => setNewItem({ ...newItem, category: cat.name })}
-                    >
-                      {cat.type === 'MaterialCommunityIcons' && <MaterialCommunityIcons name={cat.icon} size={18} color={newItem.category === cat.name ? '#FFF' : PRIMARY_BLUE} />}
-                      {cat.type === 'FontAwesome5' && <FontAwesome5 name={cat.icon} size={16} color={newItem.category === cat.name ? '#FFF' : PRIMARY_BLUE} />}
-                      <Text style={[styles.categoryPillTextNew, newItem.category === cat.name && styles.categoryPillTextActiveNew]}>{cat.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                <CategoryPills
+                  entries={categoryEntries}
+                  loading={categoriesLoading}
+                  selectedCategory={newItem.category}
+                  onSelect={(category) => setNewItem({ ...newItem, category })}
+                  accentColor={PRIMARY_BLUE}
+                />
               </View>
 
               <View style={styles.inputGroup}>
@@ -396,6 +476,7 @@ export default function AdminLostPage() {
                     placeholder="e.g. Library 2nd Floor"
                     placeholderTextColor="#94A3B8"
                     value={newItem.location}
+                    maxLength={LOCATION_LIMIT}
                     onChangeText={(val) => setNewItem({ ...newItem, location: val })}
                   />
                 </View>
@@ -411,9 +492,11 @@ export default function AdminLostPage() {
                     placeholderTextColor="#94A3B8"
                     multiline
                     value={newItem.description}
+                    maxLength={DESCRIPTION_LIMIT}
                     onChangeText={(val) => setNewItem({ ...newItem, description: val })}
                   />
                 </View>
+                <Text style={styles.characterCount}>{newItem.description.length}/{DESCRIPTION_LIMIT}</Text>
               </View>
 
               <View style={styles.inputGroup}>
@@ -464,13 +547,27 @@ export default function AdminLostPage() {
                 />
               )}
 
-              <TouchableOpacity
-                style={[styles.submitBtnNew, submitting && { opacity: 0.7 }]}
-                onPress={handleCreateItem}
-                disabled={submitting}
-              >
-                {submitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitBtnTextNew}>Submit Report</Text>}
-              </TouchableOpacity>
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.draftBtnNew, (submitting || savingDraft) && { opacity: 0.7 }]}
+                  onPress={handleSaveDraft}
+                  disabled={submitting || savingDraft}
+                >
+                  {savingDraft ? (
+                    <ActivityIndicator color={PRIMARY_BLUE} />
+                  ) : (
+                    <Text style={styles.draftBtnTextNew}>{draftId ? 'Update Draft' : 'Save Draft'}</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.submitBtnNew, styles.submitBtnFlex, (submitting || savingDraft) && { opacity: 0.7 }]}
+                  onPress={handleCreateItem}
+                  disabled={submitting || savingDraft}
+                >
+                  {submitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitBtnTextNew}>{draftId ? 'Publish Draft' : 'Submit Report'}</Text>}
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -666,6 +763,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: SLATE_800,
   },
+  characterCount: {
+    alignSelf: 'flex-end',
+    marginRight: 28,
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '700',
+    color: SLATE_400,
+  },
   categoryScroll: {
     paddingLeft: 25,
     paddingRight: 10,
@@ -713,6 +818,27 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: SLATE_900,
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginHorizontal: 25,
+    marginTop: 20,
+  },
+  draftBtnNew: {
+    flex: 1,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: PRIMARY_BLUE + '12',
+    borderWidth: 1.5,
+    borderColor: PRIMARY_BLUE + '30',
+  },
+  draftBtnTextNew: {
+    color: PRIMARY_BLUE,
+    fontSize: 15,
+    fontWeight: '800',
+  },
   submitBtnNew: {
     backgroundColor: PRIMARY_BLUE,
     marginHorizontal: 25,
@@ -721,6 +847,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 20,
+  },
+  submitBtnFlex: {
+    flex: 1.4,
+    marginHorizontal: 0,
+    marginTop: 0,
   },
   submitBtnTextNew: {
     color: '#FFF',

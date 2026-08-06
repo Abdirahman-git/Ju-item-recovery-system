@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 const { createClient } = require('@supabase/supabase-js');
@@ -13,6 +14,62 @@ const PORT = process.env.PORT || 5000;
 // Supabase Init
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
+
+function decodeJwtRole(jwt) {
+  try {
+    const payload = String(jwt || '').split('.')[1];
+    if (!payload) return null;
+    const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    return JSON.parse(json)?.role || null;
+  } catch {
+    return null;
+  }
+}
+
+function assertServerSupabaseKey(key) {
+  const raw = String(key || '').trim();
+  if (!raw) {
+    console.error('================================================');
+    console.error('❌ SUPABASE_KEY is missing in Backend/.env');
+    console.error('   Use sb_secret_... (API Keys → Secret) or legacy service_role JWT.');
+    console.error('================================================');
+    return;
+  }
+
+  // New Supabase secret keys bypass RLS — valid for Backend
+  if (raw.startsWith('sb_secret_')) {
+    console.log('[Supabase] Using sb_secret_ server key (OK for Backend).');
+    return;
+  }
+
+  // Publishable / anon must never be used as Backend key after Phase 3A
+  if (raw.startsWith('sb_publishable_')) {
+    console.error('================================================');
+    console.error('❌ SUPABASE_KEY is a publishable key — Backend needs sb_secret_...');
+    console.error('   After Phase 3A, anon/publishable cannot use admin_recycle_bin / archived_items.');
+    console.error('================================================');
+    return;
+  }
+
+  const role = decodeJwtRole(raw);
+  if (role === 'service_role') {
+    console.log('[Supabase] Using legacy service_role JWT (OK for Backend).');
+    return;
+  }
+  if (role === 'anon') {
+    console.error('================================================');
+    console.error('❌ SUPABASE_KEY is the anon JWT — Backend needs sb_secret_ or service_role.');
+    console.error('   Supabase → Project Settings → API Keys → Secret keys');
+    console.error('   After Phase 3A, anon cannot use admin_recycle_bin / archived_items.');
+    console.error('================================================');
+    return;
+  }
+
+  console.warn('[Supabase] Could not detect key type; ensure this is a server secret, not anon.');
+}
+
+assertServerSupabaseKey(supabaseKey);
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Middlewares
@@ -32,12 +89,106 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function normalizePhone(phone) {
+  let cleaned = String(phone || '').replace(/[\s\-\(\)\+]/g, '');
+  if (cleaned.startsWith('252')) {
+    cleaned = cleaned.slice(3);
+  }
+  if (cleaned.startsWith('0')) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+function maskPhone(phone) {
+  const str = String(phone || '').trim();
+  if (str.length < 4) return '***';
+  return str.slice(0, 3) + '***' + str.slice(-4);
+}
+
+let tabaarakToken = null;
+let tokenExpiresAt = 0;
+
+async function getTabaarakToken() {
+  if (tabaarakToken && Date.now() < tokenExpiresAt) {
+    return tabaarakToken;
+  }
+
+  const username = process.env.TABARAAK_SMS_USER;
+  const password = process.env.TABARAAK_SMS_PASSWORD;
+
+  if (!username || !password || username === 'your_tabaarak_username') {
+    console.warn('[Tabaarak] SMS credentials are not configured or are placeholders. SMS will be simulated.');
+    return 'SIMULATED_TOKEN';
+  }
+
+  try {
+    const response = await fetch('https://sms.tabaarak.com/Auth/SMSLogin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Name: username, Password: password }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Tabaarak Authentication failed: ${response.status} - ${errText}`);
+    }
+
+    const resData = await response.json();
+    if (!resData.success || !resData.data || !resData.data.token) {
+      throw new Error(`Tabaarak Authentication failed: ${resData.message || 'Invalid response structure'}`);
+    }
+
+    tabaarakToken = resData.data.token;
+    tokenExpiresAt = Date.now() + 60 * 60 * 1000; // Cache for 1 hour
+    return tabaarakToken;
+  } catch (err) {
+    console.error('[Tabaarak] Token fetch error:', err.message);
+    throw err;
+  }
+}
+
+async function sendSms(phone, message) {
+  const normalized = normalizePhone(phone);
+  console.log(`[SMS] Sending message to ${normalized}: "${message}"`);
+
+  const token = await getTabaarakToken();
+  if (token === 'SIMULATED_TOKEN') {
+    console.log(`[SMS SIMULATION] Sent to ${normalized}: "${message}"`);
+    return { success: true, simulated: true };
+  }
+
+  const response = await fetch('https://sms.tabaarak.com/Sms/sendsms', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      smsMessage: message,
+      mobile: [normalized]
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Tabaarak Send SMS failed: ${response.status} - ${errText}`);
+  }
+
+  const resData = await response.json();
+  if (!resData.success) {
+    throw new Error(`Tabaarak Send SMS failed: ${resData.message || 'Unknown error'}`);
+  }
+
+  return resData;
+}
+
 async function lookupStudentForActivation(studentId) {
   const id = studentId.trim().toUpperCase();
 
   const { data: student, error } = await supabase
     .from('student_directory')
-    .select('student_id, status, full_name, phone_number, faculty')
+    .select('student_id, status, full_name, phone_number, faculty, email')
     .eq('student_id', id)
     .single();
 
@@ -55,6 +206,7 @@ async function lookupStudentForActivation(studentId) {
       fullName: student.full_name,
       phone: student.phone_number || '',
       faculty: student.faculty || '',
+      email: student.email || '',
     },
   };
 }
@@ -105,7 +257,7 @@ app.post('/api/validate-id', async (req, res) => {
 });
 
 /**
- * 2. Send 6-Digit OTP via Nodemailer
+ * 2. Send 6-Digit OTP via Tabaarak SMS API
  * POST /api/send-otp
  */
 app.post('/api/send-otp', async (req, res) => {
@@ -115,91 +267,55 @@ app.post('/api/send-otp', async (req, res) => {
     return res.status(400).json({ error: 'Student ID is required.' });
   }
 
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-    return res.status(400).json({ error: 'A valid email address is required.' });
-  }
-
-  const lookup = await lookupStudentForActivation(studentId);
-  if (lookup.error) {
-    return res.status(400).json({ error: lookup.error });
-  }
-
-  const { studentId: directoryId } = lookup.student;
-  const emailToSend = normalizedEmail;
-
-  // Generate 6-digit random code
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-  // Set expiration to 5 minutes from now
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-
-  // Save to memory store (keyed by the email the student entered)
-  otpStore[emailToSend] = {
-    otp: otpCode,
-    expiresAt,
-    studentId: directoryId,
-    verified: false,
-  };
-
-  // Configure Nodemailer Transporter
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_PASS
-    }
-  });
-
-  // Beautiful HTML template with Jazeera University branding
-  const mailOptions = {
-    from: `"Jazeera University LOFO" <${process.env.GMAIL_USER}>`,
-    to: emailToSend,
-    subject: 'JU LOFO Account Activation OTP Code',
-    html: `
-      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-        <div style="text-align: center; border-bottom: 2px solid #1E3A8A; padding-bottom: 15px;">
-          <h2 style="color: #1E3A8A; margin: 0; font-size: 24px;">JAZEERA UNIVERSITY</h2>
-          <p style="color: #64748B; margin: 5px 0 0 0; font-size: 12px; letter-spacing: 1px;">LOST AND FOUND SYSTEM</p>
-        </div>
-        
-        <div style="padding: 24px 10px;">
-          <h3 style="color: #0F172A; margin: 0 0 16px 0; font-size: 18px;">Account Activation Code</h3>
-          <p style="color: #475569; font-size: 14px; line-height: 20px;">
-            Hi there, <br/>
-            You requested to activate your Jazeera University LOFO account for Student ID: <strong>${directoryId}</strong>.
-          </p>
-          
-          <div style="background-color: #EFF6FF; border-left: 4px solid #1A56DB; padding: 16px; margin: 24px 0; text-align: center; border-radius: 8px;">
-            <p style="color: #1E3A8A; font-size: 11px; font-weight: bold; margin: 0 0 8px 0; letter-spacing: 0.5px; text-transform: uppercase;">YOUR 6-DIGIT OTP CODE</p>
-            <span style="font-size: 32px; font-weight: bold; color: #1E3A8A; letter-spacing: 4px;">${otpCode}</span>
-          </div>
-
-          <p style="color: #E29578; font-size: 12px; margin-top: 20px;">
-            * This OTP code is valid for <strong>5 minutes</strong>. Do not share this code with anyone.
-          </p>
-        </div>
-        
-        <div style="border-top: 1px solid #f1f5f9; padding-top: 15px; text-align: center;">
-          <p style="color: #94A3B8; font-size: 11px; margin: 0;">
-            JU LOFO Admin Hub © ${new Date().getFullYear()} - Mogadishu, Somalia
-          </p>
-        </div>
-      </div>
-    `
-  };
-
   try {
-    // Send the email
-    await transporter.sendMail(mailOptions);
-    console.log(`[OTP] Sent code ${otpCode} to ${emailToSend}`);
+    const lookup = await lookupStudentForActivation(studentId);
+    if (lookup.error) {
+      return res.status(400).json({ error: lookup.error });
+    }
+
+    const { studentId: directoryId, phone, fullName, faculty, email: directoryEmail } = lookup.student;
+    const studentEmail = directoryEmail || email || '';
+    const normalizedEmail = normalizeEmail(studentEmail);
+
+    if (!phone) {
+      return res.status(400).json({ error: 'No phone number on file for this Student ID. Please contact Jazeera University Admin.' });
+    }
+
+    // Generate 6-digit random code
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Set expiration to 5 minutes from now
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+
+    const record = {
+      otp: otpCode,
+      expiresAt,
+      studentId: directoryId,
+      phone: normalizePhone(phone),
+      email: normalizedEmail,
+      verified: false,
+    };
+
+    // Save to memory store under multiple keys for maximum compatibility
+    otpStore[directoryId] = record;
+    if (normalizedEmail) {
+      otpStore[normalizedEmail] = record;
+    }
+    otpStore[normalizePhone(phone)] = record;
+
+    // Send the SMS
+    const message = `JU LOFO: Code ${otpCode}. Valid 5 min. Do not share.`;
+    await sendSms(phone, message);
+
     res.json({
       success: true,
-      message: 'OTP verification code sent to your email.',
+      message: 'OTP verification code sent to your phone.',
+      phone: maskPhone(phone),
+      email: normalizedEmail,
     });
   } catch (err) {
-    console.error('Nodemailer Error:', err.message);
-    res.status(500).json({ error: 'Failed to send OTP email. Please verify backend configurations.' });
+    console.error('Send OTP Error:', err.message);
+    res.status(500).json({ error: 'Failed to send OTP SMS. Please try again.' });
   }
 });
 
@@ -208,20 +324,43 @@ app.post('/api/send-otp', async (req, res) => {
  * POST /api/verify-otp
  */
 app.post('/api/verify-otp', (req, res) => {
-  const { email, otp } = req.body;
+  const { email, studentId, phone, otp } = req.body;
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  if (!otp) {
+    return res.status(400).json({ error: 'OTP code is required.' });
   }
 
-  const record = otpStore[email.toLowerCase().trim()];
+  let record = null;
+
+  if (studentId) {
+    const key = studentId.trim().toUpperCase();
+    if (otpStore[key]) {
+      record = otpStore[key];
+    }
+  }
+
+  if (!record && email) {
+    const key = email.toLowerCase().trim();
+    if (otpStore[key]) {
+      record = otpStore[key];
+    }
+  }
+
+  if (!record && phone) {
+    const key = normalizePhone(phone);
+    if (otpStore[key]) {
+      record = otpStore[key];
+    }
+  }
 
   if (!record) {
     return res.status(400).json({ error: 'No active OTP verification session found.' });
   }
 
   if (Date.now() > record.expiresAt) {
-    delete otpStore[email.toLowerCase().trim()];
+    if (record.studentId) delete otpStore[record.studentId.toUpperCase()];
+    if (record.email) delete otpStore[record.email.toLowerCase().trim()];
+    if (record.phone) delete otpStore[record.phone];
     return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
   }
 
@@ -241,21 +380,30 @@ app.post('/api/verify-otp', (req, res) => {
 app.post('/api/activate-account', async (req, res) => {
   const { studentId, email, password, name, phone } = req.body;
 
-  if (!studentId || !email || !password || !name) {
+  if (!studentId || !password || !name) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
 
-  const record = otpStore[email.toLowerCase().trim()];
-
-  const normalizedEmail = normalizeEmail(email);
+  let record = null;
+  if (studentId) {
+    record = otpStore[studentId.trim().toUpperCase()];
+  }
+  if (!record && email) {
+    record = otpStore[email.toLowerCase().trim()];
+  }
+  if (!record && phone) {
+    record = otpStore[normalizePhone(phone)];
+  }
 
   if (!record || record.studentId !== studentId.trim().toUpperCase()) {
     return res.status(400).json({ error: 'Verification credentials mismatch. Please restart activation.' });
   }
 
   if (!record.verified) {
-    return res.status(400).json({ error: 'OTP not verified. Complete email verification first.' });
+    return res.status(400).json({ error: 'OTP not verified. Complete verification first.' });
   }
+
+  const normalizedEmail = normalizeEmail(email || record.email);
 
   try {
     // 1. Create student user profile in Supabase users table
@@ -266,7 +414,7 @@ app.post('/api/activate-account', async (req, res) => {
         email: normalizedEmail,
         password: password, // manual custom password stored
         name: name,
-        phone: phone || '',
+        phone: phone || record.phone || '',
         role: 'user',
         is_approved: true // Approved by default
       });
@@ -287,7 +435,9 @@ app.post('/api/activate-account', async (req, res) => {
     }
 
     // Remove OTP from memory store
-    delete otpStore[email.toLowerCase().trim()];
+    if (record.studentId) delete otpStore[record.studentId.toUpperCase()];
+    if (record.email) delete otpStore[record.email.toLowerCase().trim()];
+    if (record.phone) delete otpStore[record.phone];
 
     res.json({ success: true, message: 'Your account has been activated successfully!' });
   } catch (err) {
@@ -349,7 +499,7 @@ async function lookupUserForPasswordReset(studentId) {
 
   const { data: user, error } = await supabase
     .from('users')
-    .select('student_id, email, name')
+    .select('student_id, email, name, phone')
     .eq('student_id', id)
     .maybeSingle();
 
@@ -358,8 +508,19 @@ async function lookupUserForPasswordReset(studentId) {
   }
 
   const email = normalizeEmail(user.email);
-  if (!email || !isValidEmail(email)) {
-    return { error: 'No valid email on this account. Contact Admin.' };
+  let phone = user.phone || '';
+
+  // Fallback to student_directory if phone is missing in users table
+  if (!phone) {
+    const { data: directoryStudent } = await supabase
+      .from('student_directory')
+      .select('phone_number')
+      .eq('student_id', id)
+      .maybeSingle();
+
+    if (directoryStudent && directoryStudent.phone_number) {
+      phone = directoryStudent.phone_number;
+    }
   }
 
   return {
@@ -367,12 +528,13 @@ async function lookupUserForPasswordReset(studentId) {
       studentId: user.student_id,
       email,
       name: user.name,
+      phone: phone || '',
     },
   };
 }
 
 /**
- * Forgot password — send OTP to account email
+ * Forgot password — send OTP to account phone via Tabaarak SMS
  * POST /api/forgot-password/send-otp
  */
 app.post('/api/forgot-password/send-otp', async (req, res) => {
@@ -387,39 +549,45 @@ app.post('/api/forgot-password/send-otp', async (req, res) => {
     return res.status(400).json({ error: lookup.error });
   }
 
-  const { studentId: accountId, email, name } = lookup.user;
+  const { studentId: accountId, email, name, phone } = lookup.user;
+
+  if (!phone) {
+    return res.status(400).json({ error: 'No phone number on file for this account. Please contact Jazeera University Admin.' });
+  }
+
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = Date.now() + 5 * 60 * 1000;
 
-  resetOtpStore[email] = {
+  const record = {
     otp: otpCode,
     expiresAt,
     studentId: accountId,
+    phone: normalizePhone(phone),
+    email,
     verified: false,
   };
 
+  // Save under multiple keys for maximum compatibility
+  resetOtpStore[accountId] = record;
+  if (email) {
+    resetOtpStore[email] = record;
+  }
+  resetOtpStore[normalizePhone(phone)] = record;
+
   try {
-    await sendOtpEmail({
-      to: email,
-      subject: 'JU LOFO Password Reset OTP Code',
-      heading: 'Password Reset Code',
-      bodyHtml: `
-        <p style="color: #475569; font-size: 14px; line-height: 20px;">
-          Hi ${name || 'there'},<br/>
-          You requested to reset your password for Student ID: <strong>${accountId}</strong>.
-        </p>
-      `,
-      otpCode,
-    });
-    console.log(`[RESET OTP] Sent code ${otpCode} to ${email}`);
+    const message = `JU LOFO: Code ${otpCode}. Valid 5 min. Do not share.`;
+    await sendSms(phone, message);
+
+    console.log(`[RESET OTP] Sent code ${otpCode} to ${phone}`);
     res.json({
       success: true,
-      message: 'Password reset code sent to your email.',
+      message: 'Password reset code sent to your phone.',
       email,
+      phone: maskPhone(phone),
     });
   } catch (err) {
-    console.error('Reset OTP mail error:', err.message);
-    res.status(500).json({ error: 'Failed to send reset email. Check backend configuration.' });
+    console.error('Reset OTP SMS error:', err.message);
+    res.status(500).json({ error: 'Failed to send reset OTP SMS. Please try again.' });
   }
 });
 
@@ -428,21 +596,43 @@ app.post('/api/forgot-password/send-otp', async (req, res) => {
  * POST /api/forgot-password/verify-otp
  */
 app.post('/api/forgot-password/verify-otp', (req, res) => {
-  const { email, otp } = req.body;
+  const { email, studentId, phone, otp } = req.body;
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  if (!otp) {
+    return res.status(400).json({ error: 'OTP code is required.' });
   }
 
-  const key = normalizeEmail(email);
-  const record = resetOtpStore[key];
+  let record = null;
+
+  if (studentId) {
+    const key = studentId.trim().toUpperCase();
+    if (resetOtpStore[key]) {
+      record = resetOtpStore[key];
+    }
+  }
+
+  if (!record && email) {
+    const key = email.toLowerCase().trim();
+    if (resetOtpStore[key]) {
+      record = resetOtpStore[key];
+    }
+  }
+
+  if (!record && phone) {
+    const key = normalizePhone(phone);
+    if (resetOtpStore[key]) {
+      record = resetOtpStore[key];
+    }
+  }
 
   if (!record) {
     return res.status(400).json({ error: 'No active password reset session found.' });
   }
 
   if (Date.now() > record.expiresAt) {
-    delete resetOtpStore[key];
+    if (record.studentId) delete resetOtpStore[record.studentId.toUpperCase()];
+    if (record.email) delete resetOtpStore[record.email.toLowerCase().trim()];
+    if (record.phone) delete resetOtpStore[record.phone];
     return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
   }
 
@@ -459,18 +649,27 @@ app.post('/api/forgot-password/verify-otp', (req, res) => {
  * POST /api/forgot-password/reset
  */
 app.post('/api/forgot-password/reset', async (req, res) => {
-  const { studentId, email, password } = req.body;
+  const { studentId, email, phone, password } = req.body;
 
-  if (!studentId || !email || !password) {
-    return res.status(400).json({ error: 'Student ID, email, and new password are required.' });
+  if (!studentId || !password) {
+    return res.status(400).json({ error: 'Student ID and new password are required.' });
   }
 
   if (String(password).length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
 
-  const normalizedEmail = normalizeEmail(email);
-  const record = resetOtpStore[normalizedEmail];
+  let record = null;
+  if (studentId) {
+    record = resetOtpStore[studentId.trim().toUpperCase()];
+  }
+  if (!record && email) {
+    record = resetOtpStore[email.toLowerCase().trim()];
+  }
+  if (!record && phone) {
+    record = resetOtpStore[normalizePhone(phone)];
+  }
+
   const id = studentId.trim().toUpperCase();
 
   if (!record || record.studentId !== id) {
@@ -481,19 +680,26 @@ app.post('/api/forgot-password/reset', async (req, res) => {
     return res.status(400).json({ error: 'OTP not verified. Complete verification first.' });
   }
 
+  const targetEmail = email || record.email;
+
   try {
-    const { error } = await supabase
-      .from('users')
-      .update({ password })
-      .eq('student_id', id)
-      .eq('email', normalizedEmail);
+    let query = supabase.from('users').update({ password }).eq('student_id', id);
+    if (targetEmail) {
+      query = query.eq('email', normalizeEmail(targetEmail));
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error('Password reset update failed:', error);
       return res.status(500).json({ error: 'Failed to update password.' });
     }
 
-    delete resetOtpStore[normalizedEmail];
+    // Clean up reset OTP keys
+    if (record.studentId) delete resetOtpStore[record.studentId.toUpperCase()];
+    if (record.email) delete resetOtpStore[record.email.toLowerCase().trim()];
+    if (record.phone) delete resetOtpStore[record.phone];
+
     res.json({ success: true, message: 'Password updated successfully.' });
   } catch (err) {
     console.error('Password reset error:', err.message);
@@ -505,6 +711,31 @@ app.post('/api/forgot-password/reset', async (req, res) => {
  * Submit ownership request ("This is mine")
  * POST /api/claims/submit
  */
+function parseMissingColumn(error) {
+  if (!error || (error.code !== 'PGRST204' && error.code !== '42703')) return null;
+  const match = error.message?.match(/Could not find the '([^']+)' column|column "([^"]+)"/i);
+  return match?.[1] || match?.[2] || null;
+}
+
+async function insertClaimWithColumnFallback(payload) {
+  let current = { ...payload };
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { data, error } = await supabase.from('item_claims').insert(current).select().single();
+    if (!error) return data;
+
+    const missingCol = parseMissingColumn(error);
+    if (missingCol && Object.prototype.hasOwnProperty.call(current, missingCol)) {
+      delete current[missingCol];
+      continue;
+    }
+
+    throw error;
+  }
+
+  throw new Error('Claim insert failed after column fallbacks.');
+}
+
 app.post('/api/claims/submit', async (req, res) => {
   const { claim } = req.body;
 
@@ -537,15 +768,635 @@ app.post('/api/claims/submit', async (req, res) => {
   };
 
   try {
-    const { data, error } = await supabase.from('item_claims').insert(payload).select().single();
-    if (error) {
-      console.error('Claim insert failed:', error.message);
-      return res.status(500).json({ error: error.message });
-    }
+    const data = await insertClaimWithColumnFallback(payload);
     res.json({ success: true, row: data });
   } catch (err) {
     console.error('Claim submit error:', err.message);
-    res.status(500).json({ error: 'Failed to save claim.' });
+    res.status(500).json({ error: err.message || 'Failed to save claim.' });
+  }
+});
+
+/**
+ * Auth — login (students + admins)
+ * POST /api/auth/login
+ * Body: { identifier, password, adminOnly?: boolean }
+ * Uses service_role so clients never need SELECT on users.password
+ */
+const loginAttempts = new Map(); // key -> { count, resetAt }
+
+function checkLoginRateLimit(key) {
+  const now = Date.now();
+  const row = loginAttempts.get(key);
+  if (!row || now > row.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return null;
+  }
+  row.count += 1;
+  if (row.count > 20) {
+    return 'Too many login attempts. Try again in 15 minutes.';
+  }
+  return null;
+}
+
+app.post('/api/auth/login', async (req, res) => {
+  const identifier = String(req.body?.identifier || '').trim();
+  const password = String(req.body?.password || '');
+  const adminOnly = Boolean(req.body?.adminOnly);
+
+  if (!identifier || !password) {
+    return res.status(400).json({ error: 'ID and password are required.', code: 'MISSING_FIELDS' });
+  }
+
+  const rateKey = identifier.toLowerCase();
+  const limited = checkLoginRateLimit(rateKey);
+  if (limited) {
+    return res.status(429).json({ error: limited, code: 'RATE_LIMIT' });
+  }
+
+  try {
+    const id = identifier;
+    const { data: userData, error } = await supabase
+      .from('users')
+      .select('*')
+      .or(`student_id.eq.${id.toUpperCase()},student_id.eq.${id.toLowerCase()}`)
+      .limit(1);
+
+    if (error) {
+      console.error('Auth login lookup error:', error);
+      return res.status(500).json({ error: 'Login failed. Please try again.', code: 'SERVER_ERROR' });
+    }
+
+    if (!userData?.length) {
+      // Soft-deleted / banned check
+      let removedByAdmin = false;
+      try {
+        const upper = id.toUpperCase();
+        const lower = id.toLowerCase();
+        const { data: binRows } = await supabase
+          .from('admin_recycle_bin')
+          .select('payload, entity_type')
+          .eq('entity_type', 'user')
+          .order('deleted_at', { ascending: false })
+          .limit(40);
+        removedByAdmin = (binRows || []).some((entry) => {
+          const row = entry?.payload?.row || {};
+          const sid = String(row.student_id || row.studentId || '').trim();
+          return sid === upper || sid === lower || sid.toLowerCase() === lower;
+        });
+      } catch {
+        removedByAdmin = false;
+      }
+
+      if (removedByAdmin) {
+        return res.status(403).json({
+          error: 'Your account has been banned by an administrator. Please contact the JU Lost & Found office.',
+          code: 'ACCOUNT_BANNED',
+        });
+      }
+
+      return res.status(404).json({
+        error: 'No account was found for this ID. Please contact the JU Lost & Found office.',
+        code: 'ACCOUNT_NOT_FOUND',
+      });
+    }
+
+    const user = userData[0];
+
+    if (String(user.password || '') !== password) {
+      return res.status(401).json({
+        error: 'The password you entered is incorrect. Please try again.',
+        code: 'WRONG_PASSWORD',
+      });
+    }
+
+    if (adminOnly && user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Admin access only. Students should use the mobile app.',
+        code: 'ADMIN_ONLY',
+      });
+    }
+
+    if (user.role !== 'admin' && user.is_approved === false) {
+      return res.status(403).json({
+        error: 'Your account is not active. Please contact the JU Lost & Found office.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
+
+    // Enrich phone from directory if missing
+    let phone = user.phone || '';
+    if (!phone && user.student_id) {
+      const { data: dir } = await supabase
+        .from('student_directory')
+        .select('phone_number')
+        .eq('student_id', String(user.student_id).toUpperCase())
+        .maybeSingle();
+      phone = dir?.phone_number || '';
+    }
+
+    const session = {
+      email: (user.email || '').trim().toLowerCase(),
+      role: user.role,
+      isLoggedIn: true,
+      userName: user.name,
+      studentId: user.student_id,
+      phone: phone || '',
+      is_approved: user.is_approved !== false,
+    };
+
+    // Admin-only token for Phase 3A hardened mutations (service_role routes)
+    if (user.role === 'admin') {
+      session.adminToken = issueAdminToken({
+        email: session.email,
+        studentId: session.studentId,
+        userName: session.userName,
+      });
+    }
+
+    // Never return password to clients
+    res.json({ success: true, session });
+  } catch (err) {
+    console.error('Auth login error:', err.message);
+    res.status(500).json({ error: 'Login failed. Please try again.', code: 'SERVER_ERROR' });
+  }
+});
+
+/**
+ * Auth — change password (requires current password)
+ * POST /api/auth/change-password
+ */
+app.post('/api/auth/change-password', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const studentId = String(req.body?.studentId || '').trim();
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+
+  if ((!email && !studentId) || !currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'New password must be different from your current password.' });
+  }
+
+  try {
+    let user = null;
+    if (email) {
+      const { data, error } = await supabase.from('users').select('*').ilike('email', email).limit(1);
+      if (error) throw error;
+      user = data?.[0] || null;
+    }
+    if (!user && studentId) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`student_id.eq.${studentId.toUpperCase()},student_id.eq.${studentId.toLowerCase()}`)
+        .limit(1);
+      if (error) throw error;
+      user = data?.[0] || null;
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account was not found.' });
+    }
+    if (String(user.password || '') !== currentPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+
+    let updateQuery = supabase.from('users').update({ password: newPassword });
+    if (user.email) updateQuery = updateQuery.eq('email', user.email);
+    else if (user.student_id) updateQuery = updateQuery.eq('student_id', user.student_id);
+    else if (user.id != null) updateQuery = updateQuery.eq('id', user.id);
+
+    const { error: updateError } = await updateQuery;
+    if (updateError) throw updateError;
+
+    res.json({ success: true, message: 'Password updated successfully.' });
+  } catch (err) {
+    console.error('Change password error:', err.message);
+    res.status(500).json({ error: 'Failed to change password. Please try again.' });
+  }
+});
+
+// =============================================================================
+// Phase 3A — Admin APIs (service_role). Clients must send X-Admin-Token.
+// =============================================================================
+
+const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const adminSessions = new Map(); // token -> { email, studentId, userName, exp }
+
+function issueAdminToken(actor) {
+  const token = crypto.randomBytes(32).toString('hex');
+  adminSessions.set(token, {
+    email: normalizeEmail(actor.email),
+    studentId: actor.studentId || null,
+    userName: actor.userName || null,
+    exp: Date.now() + ADMIN_TOKEN_TTL_MS,
+  });
+  return token;
+}
+
+function requireAdminToken(req, res) {
+  const token = String(req.headers['x-admin-token'] || req.body?.adminToken || '').trim();
+  if (!token) {
+    res.status(401).json({ error: 'Admin session required. Please log in again.', code: 'ADMIN_TOKEN_MISSING' });
+    return null;
+  }
+  const row = adminSessions.get(token);
+  if (!row || Date.now() > row.exp) {
+    if (row) adminSessions.delete(token);
+    res.status(401).json({ error: 'Admin session expired. Please log in again.', code: 'ADMIN_TOKEN_EXPIRED' });
+    return null;
+  }
+  return row;
+}
+
+function isMissingRelationError(error) {
+  const msg = String(error?.message || '');
+  return (
+    error?.code === '42P01' ||
+    error?.code === 'PGRST205' ||
+    /relation .* does not exist|Could not find the table/i.test(msg)
+  );
+}
+
+async function snapshotToRecycleBin({ entityType, entityId, title, summary, payload, deletedBy }) {
+  const { error } = await supabase.from('admin_recycle_bin').insert({
+    entity_type: entityType,
+    entity_id: entityId != null ? String(entityId) : null,
+    title: title || entityType,
+    summary: summary || null,
+    payload,
+    deleted_by: deletedBy || null,
+    deleted_at: new Date().toISOString(),
+  });
+  if (error) {
+    if (isMissingRelationError(error)) {
+      console.warn('[recycle] admin_recycle_bin missing — skip snapshot');
+      return { success: true, skipped: true };
+    }
+    throw new Error(error.message || 'Could not save to recycle bin.');
+  }
+  return { success: true };
+}
+
+async function deleteRelatedItemClaims({ itemType, id }) {
+  const queries = [
+    supabase.from('item_claims').delete().eq('item_type', itemType).eq('item_id', id),
+    itemType === 'lost'
+      ? supabase.from('item_claims').delete().eq('lost_item_id', id)
+      : supabase.from('item_claims').delete().eq('found_item_id', id),
+  ];
+  for (const query of queries) {
+    const { error } = await query;
+    if (error && !/column|does not exist/i.test(error.message || '')) {
+      throw new Error(error.message || 'Could not remove linked ownership requests.');
+    }
+  }
+}
+
+async function restorePayloadRow(payload) {
+  const table = payload?.table;
+  const row = payload?.row;
+  if (!table || !row) throw new Error('Backup payload is incomplete.');
+
+  if (table === 'users') {
+    const email = normalizeEmail(row.email);
+    if (!email) throw new Error('User email missing from backup.');
+    const { data: existing } = await supabase.from('users').select('email').eq('email', email).maybeSingle();
+    if (existing) throw new Error('A user with this email already exists.');
+    const { id: _id, ...insertRow } = row;
+    const { error: insertError } = await supabase.from('users').insert(insertRow);
+    if (insertError) throw new Error(insertError.message || 'Could not restore user.');
+    return;
+  }
+
+  const { error: insertError } = await supabase.from(table).insert(row);
+  if (insertError) {
+    if (/duplicate|unique/i.test(insertError.message || '')) {
+      const { id: _id, ...withoutId } = row;
+      const retry = await supabase.from(table).insert(withoutId);
+      if (retry.error) throw new Error(retry.error.message || 'Could not restore item.');
+      return;
+    }
+    throw new Error(insertError.message || 'Could not restore item.');
+  }
+}
+
+app.post('/api/admin/users/set-approval', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const email = normalizeEmail(req.body?.email);
+  const isApproved = Boolean(req.body?.isApproved);
+  if (!email) return res.status(400).json({ error: 'User email is required.' });
+
+  try {
+    const { error } = await supabase.from('users').update({ is_approved: isApproved }).eq('email', email);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('set-approval error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to update user approval.' });
+  }
+});
+
+app.post('/api/admin/users/delete', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const email = normalizeEmail(req.body?.email);
+  const deletedBy = req.body?.deletedBy || actor.email || actor.userName || null;
+  if (!email) return res.status(400).json({ error: 'User email is required.' });
+
+  try {
+    const { data: user, error: fetchError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    await snapshotToRecycleBin({
+      entityType: 'user',
+      entityId: user.email || user.id,
+      title: user.name || user.email || 'User',
+      summary: user.role === 'admin' ? 'Admin account' : 'Student account',
+      payload: { table: 'users', row: user },
+      deletedBy,
+    });
+
+    const { error } = await supabase.from('users').delete().eq('email', email);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('admin delete user error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to delete user.' });
+  }
+});
+
+app.get('/api/admin/recycle-bin', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('admin_recycle_bin')
+      .select('*')
+      .order('deleted_at', { ascending: false });
+
+    if (error) {
+      if (isMissingRelationError(error)) {
+        return res.json({ success: true, available: true, backend: 'none', items: [] });
+      }
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      available: true,
+      backend: 'table',
+      items: data || [],
+    });
+  } catch (err) {
+    console.error('recycle-bin list error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not load recycle bin.' });
+  }
+});
+
+app.post('/api/admin/recycle-bin/restore', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const id = req.body?.id;
+  if (id == null) return res.status(400).json({ error: 'Recycle bin id is required.' });
+
+  try {
+    const { data: entry, error } = await supabase.from('admin_recycle_bin').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    if (!entry) return res.status(404).json({ error: 'Recycle bin entry not found.' });
+
+    await restorePayloadRow(entry.payload || {});
+    const { error: deleteError } = await supabase.from('admin_recycle_bin').delete().eq('id', id);
+    if (deleteError) throw new Error(deleteError.message || 'Restored, but could not clear recycle bin entry.');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('recycle-bin restore error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not restore entry.' });
+  }
+});
+
+app.post('/api/admin/recycle-bin/purge', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const id = req.body?.id;
+  if (id == null) return res.status(400).json({ error: 'Recycle bin id is required.' });
+
+  try {
+    const { error } = await supabase.from('admin_recycle_bin').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('recycle-bin purge error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not purge entry.' });
+  }
+});
+
+app.post('/api/admin/items/delete-to-recycle', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const itemType = req.body?.itemType === 'found' ? 'found' : req.body?.itemType === 'lost' ? 'lost' : null;
+  const itemId = req.body?.id;
+  const deletedBy = req.body?.deletedBy || actor.email || actor.userName || null;
+  if (!itemType || itemId == null) {
+    return res.status(400).json({ error: 'itemType and id are required.' });
+  }
+
+  try {
+    const table = itemType === 'found' ? 'found_items' : 'lost_items';
+    const { data: raw, error: fetchError } = await supabase.from(table).select('*').eq('id', itemId).maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!raw) return res.status(404).json({ error: 'Item not found or already deleted.' });
+
+    await snapshotToRecycleBin({
+      entityType: itemType === 'found' ? 'found_item' : 'lost_item',
+      entityId: itemId,
+      title: raw.itemName || raw.item_name || 'Item',
+      summary: `${itemType === 'found' ? 'Found' : 'Lost'} - ${raw.category || 'General'}`,
+      payload: { table, itemType, row: raw },
+      deletedBy,
+    });
+
+    await deleteRelatedItemClaims({ itemType, id: itemId });
+
+    const { error } = await supabase.from(table).delete().eq('id', itemId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('delete-to-recycle error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete this item.' });
+  }
+});
+
+app.get('/api/admin/archived', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('archived_items')
+      .select('*')
+      .order('archived_at', { ascending: false, nullsFirst: false });
+
+    if (error) {
+      if (isMissingRelationError(error)) {
+        return res.status(404).json({
+          error: 'Archived items table is missing. Run supabase/archived_items.sql in the Supabase SQL editor.',
+        });
+      }
+      // Fallback order
+      const fallback = await supabase.from('archived_items').select('*').order('id', { ascending: false });
+      if (fallback.error) throw fallback.error;
+      return res.json({ success: true, items: fallback.data || [] });
+    }
+
+    res.json({ success: true, items: data || [] });
+  } catch (err) {
+    console.error('archived list error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not load archived items.' });
+  }
+});
+
+app.post('/api/admin/archive-item', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const itemType = req.body?.itemType === 'found' ? 'found' : req.body?.itemType === 'lost' ? 'lost' : null;
+  const itemId = req.body?.id;
+  const archivedBy = req.body?.archivedBy || actor.email || actor.userName || null;
+  const reason = req.body?.reason || 'Unclaimed / stale item';
+
+  if (!itemType || itemId == null) {
+    return res.status(400).json({ error: 'itemType and id are required.' });
+  }
+
+  try {
+    const table = itemType === 'found' ? 'found_items' : 'lost_items';
+    const { data: raw, error: fetchError } = await supabase.from(table).select('*').eq('id', itemId).maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!raw) return res.status(404).json({ error: 'Item not found or already archived.' });
+
+    const typeLabel = itemType === 'found' ? 'FOUND' : 'LOST';
+    const archivedRow = {
+      item_name: raw.itemName || raw.item_name || 'Item',
+      category: raw.category || 'General',
+      description: raw.description || null,
+      location: raw.location || null,
+      imageuri: raw.imageURI || raw.imageuri || raw.image_url || null,
+      type: typeLabel,
+      original_reporter:
+        typeLabel === 'LOST'
+          ? raw.ownerName || raw.owner_name || 'Unknown'
+          : raw.finderName || raw.finder_name || 'Unknown',
+      reporter_email: raw.email || null,
+      source_table: table,
+      source_id: String(raw.id),
+      reason,
+      archived_by: archivedBy,
+      archived_at: new Date().toISOString(),
+      payload: { table, itemType, row: raw },
+    };
+
+    const { error: insertError } = await supabase.from('archived_items').insert(archivedRow);
+    if (insertError) {
+      if (isMissingRelationError(insertError)) {
+        return res.status(404).json({
+          error: 'Archived items table is missing. Run supabase/archived_items.sql in the Supabase SQL editor.',
+        });
+      }
+      throw new Error(insertError.message || 'Could not archive item.');
+    }
+
+    await deleteRelatedItemClaims({ itemType, id: itemId });
+
+    const { error: deleteError } = await supabase.from(table).delete().eq('id', itemId);
+    if (deleteError) {
+      throw new Error(
+        deleteError.message ||
+          'Item was archived, but could not be removed from live inventory. Check Archived Items.'
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('archive-item error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not archive item.' });
+  }
+});
+
+app.post('/api/admin/archived/restore', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const id = req.body?.id;
+  if (id == null) return res.status(400).json({ error: 'Archived item id is required.' });
+
+  try {
+    const { data: entry, error } = await supabase.from('archived_items').select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message || 'Could not load archived item.');
+    if (!entry) return res.status(404).json({ error: 'Archived item not found.' });
+
+    const payload = entry.payload || {};
+    const table = payload.table || (String(entry.type).toUpperCase() === 'FOUND' ? 'found_items' : 'lost_items');
+    const row = payload.row;
+    if (!row) throw new Error('Archive payload is incomplete; cannot restore.');
+
+    const { id: _id, ...withoutId } = row;
+    const { error: insertError } = await supabase.from(table).insert(withoutId);
+    if (insertError) {
+      if (/duplicate|unique/i.test(insertError.message || '')) {
+        const retry = await supabase.from(table).insert(row);
+        if (retry.error) throw new Error(retry.error.message || 'Could not restore item.');
+      } else {
+        throw new Error(insertError.message || 'Could not restore item.');
+      }
+    }
+
+    const { error: deleteError } = await supabase.from('archived_items').delete().eq('id', id);
+    if (deleteError) throw new Error(deleteError.message || 'Restored, but could not clear archive entry.');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('archived restore error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not restore archived item.' });
+  }
+});
+
+app.post('/api/admin/archived/purge', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const id = req.body?.id;
+  if (id == null) return res.status(400).json({ error: 'Archived item id is required.' });
+
+  try {
+    const { error } = await supabase.from('archived_items').delete().eq('id', id);
+    if (error) {
+      if (isMissingRelationError(error)) {
+        return res.status(404).json({
+          error: 'Archived items table is missing. Run supabase/archived_items.sql in the Supabase SQL editor.',
+        });
+      }
+      throw error;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('archived purge error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete archived item.' });
   }
 });
 

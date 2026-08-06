@@ -36,6 +36,7 @@ ALTER TABLE lost_items
 ALTER TABLE lost_items
   ADD CONSTRAINT lost_items_status_check
   CHECK (status IN (
+    'draft',
     'pending_review',
     'live',
     'matched',
@@ -49,6 +50,7 @@ ALTER TABLE found_items
 ALTER TABLE found_items
   ADD CONSTRAINT found_items_status_check
   CHECK (status IN (
+    'draft',
     'pending_review',
     'live',
     'matched',

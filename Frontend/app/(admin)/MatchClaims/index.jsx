@@ -17,9 +17,17 @@ import { Colors } from '../../../src/constants/colors';
 import AdminHeader from '../../../src/components/AdminHeader';
 import AdminPageHero from '../../../src/components/AdminPageHero';
 import {
-  getPendingItemClaims,
+  getAllItemClaims,
+  deleteItemClaim,
 } from '../../../src/services/supabase';
-import { showAppFailure } from '../../../src/utils/appAlert';
+import { showAppFailure, showAppConfirm } from '../../../src/utils/appAlert';
+
+const STATUS_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
+];
 
 export default function OwnershipRequestsScreen() {
   const router = useRouter();
@@ -27,13 +35,13 @@ export default function OwnershipRequestsScreen() {
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [rejectModal, setRejectModal] = useState({ visible: false, claim: null });
-  const [rejectNote, setRejectNote] = useState('');
+  const [statusTab, setStatusTab] = useState('all');
+  const [deletingId, setDeletingId] = useState(null);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const data = await getPendingItemClaims();
+      const data = await getAllItemClaims();
       setClaims(data || []);
     } catch (error) {
       console.error('Error fetching claims:', error);
@@ -49,7 +57,15 @@ export default function OwnershipRequestsScreen() {
     }, [])
   );
 
+  const counts = {
+    all: claims.length,
+    pending: claims.filter((c) => c.status === 'pending').length,
+    approved: claims.filter((c) => c.status === 'approved').length,
+    rejected: claims.filter((c) => c.status === 'rejected').length,
+  };
+
   const filtered = claims.filter((c) => {
+    if (statusTab !== 'all' && c.status !== statusTab) return false;
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
     return (
@@ -59,6 +75,23 @@ export default function OwnershipRequestsScreen() {
       c.targetItem?.itemName?.toLowerCase().includes(q)
     );
   });
+
+  const handleDeleteClaim = (claim) => {
+    showAppConfirm({
+      title: 'Delete request',
+      message: `Remove ownership request from ${claim.claimer_name || 'student'}?`,
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deleteItemClaim(claim.id);
+          setClaims((prev) => prev.filter((c) => c.id !== claim.id));
+        } catch (err) {
+          showAppFailure(err?.message || 'Could not delete request.', 'Delete failed');
+        }
+      },
+    });
+  };
 
   const openDetails = (claim) => {
     router.push({
@@ -78,9 +111,6 @@ export default function OwnershipRequestsScreen() {
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   };
-
-  const lostCount = claims.filter((c) => c.itemType === 'lost' || c.targetItem?.type === 'LOST').length;
-  const foundCount = claims.length - lostCount;
 
   return (
     <View style={styles.container}>
@@ -105,18 +135,37 @@ export default function OwnershipRequestsScreen() {
 
       <View style={styles.statsRow}>
         <View style={[styles.statChip, styles.statPending]}>
-          <Text style={styles.statNum}>{claims.length}</Text>
+          <Text style={styles.statNum}>{counts.pending}</Text>
           <Text style={styles.statLabel}>Pending</Text>
         </View>
         <View style={[styles.statChip, styles.statLost]}>
-          <Text style={styles.statNum}>{lostCount}</Text>
-          <Text style={styles.statLabel}>Lost reports</Text>
+          <Text style={styles.statNum}>{counts.approved}</Text>
+          <Text style={styles.statLabel}>Approved</Text>
         </View>
         <View style={[styles.statChip, styles.statFound]}>
-          <Text style={styles.statNum}>{foundCount}</Text>
-          <Text style={styles.statLabel}>Found reports</Text>
+          <Text style={styles.statNum}>{counts.rejected}</Text>
+          <Text style={styles.statLabel}>Rejected</Text>
         </View>
       </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statusTabs}>
+        {[
+          { id: 'pending', label: `Pending (${counts.pending})` },
+          { id: 'all', label: `All (${counts.all})` },
+          { id: 'approved', label: `Approved (${counts.approved})` },
+          { id: 'rejected', label: `Rejected (${counts.rejected})` },
+        ].map((tab) => (
+          <TouchableOpacity
+            key={tab.id}
+            style={[styles.statusTab, statusTab === tab.id && styles.statusTabActive]}
+            onPress={() => setStatusTab(tab.id)}
+          >
+            <Text style={[styles.statusTabText, statusTab === tab.id && styles.statusTabTextActive]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <View style={styles.searchWrap}>
         <Ionicons name="search-outline" size={18} color={Colors.slate400} />
@@ -137,8 +186,8 @@ export default function OwnershipRequestsScreen() {
       ) : filtered.length === 0 ? (
         <View style={styles.centered}>
           <Ionicons name="clipboard-outline" size={56} color={Colors.slate300} />
-          <Text style={styles.emptyTitle}>No pending requests</Text>
-          <Text style={styles.emptySub}>When a student taps “This is mine”, it appears here.</Text>
+          <Text style={styles.emptyTitle}>No requests</Text>
+          <Text style={styles.emptySub}>Try another status tab or search keyword.</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
@@ -159,10 +208,22 @@ export default function OwnershipRequestsScreen() {
                     </Text>
                   </View>
                   <View style={styles.cardTopRight}>
+                    <Text style={styles.statusChip}>{String(claim.status || 'pending').toUpperCase()}</Text>
                     <Text style={styles.timeText}>{formatDate(claim.created_at)}</Text>
-                    <View style={styles.infoBtn}>
-                      <Ionicons name="open-outline" size={16} color={Colors.primary} />
-                      <Text style={styles.infoBtnText}>Open</Text>
+                    <View style={styles.cardActions}>
+                      <View style={styles.infoBtn}>
+                        <Ionicons name="open-outline" size={16} color={Colors.primary} />
+                        <Text style={styles.infoBtnText}>Open</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.deleteBtn}
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          handleDeleteClaim(claim);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                      </TouchableOpacity>
                     </View>
                   </View>
                 </View>
@@ -265,6 +326,32 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.slate600,
   },
+  statusTabs: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  statusTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginRight: 8,
+  },
+  statusTabActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: '#93C5FD',
+  },
+  statusTabText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate500,
+  },
+  statusTabTextActive: {
+    color: Colors.primaryDark,
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -330,6 +417,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Inter_500Medium',
     color: Colors.slate400,
+  },
+  statusChip: {
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
+    color: Colors.primaryDark,
+    marginBottom: 2,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  deleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   infoBtn: {
     marginTop: 5,

@@ -28,6 +28,7 @@ export default function ForgotPasswordScreen() {
 
   const [studentId, setStudentId] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -53,7 +54,9 @@ export default function ForgotPasswordScreen() {
       }
 
       if (resData.email) setEmail(resData.email);
-      toastRef.current?.show('Reset code sent', 'Check the email on your account.', 'success');
+      if (resData.phone) setPhone(resData.phone);
+      const masked = resData.phone || 'your phone';
+      toastRef.current?.show('Reset code sent', `Check your phone ending in ${masked.slice(-4)}`, 'success');
       setStep(2);
     } catch (err) {
       const message =
@@ -76,7 +79,10 @@ export default function ForgotPasswordScreen() {
       });
       const resData = await response.json();
       if (!response.ok) throw new Error(resData.error || 'Could not resend code.');
-      toastRef.current?.show('Code resent', 'Check your email again.', 'success');
+      
+      if (resData.phone) setPhone(resData.phone);
+      const masked = resData.phone || phone || 'your phone';
+      toastRef.current?.show('Code resent', `Check your phone ending in ${masked.slice(-4)}`, 'success');
     } catch (err) {
       showAppError('Resend failed', err.message || 'Could not resend code.');
     } finally {
@@ -85,12 +91,8 @@ export default function ForgotPasswordScreen() {
   };
 
   const handleVerifyOtp = async () => {
-    if (!email.trim()) {
-      showAppValidation('Enter the email on your account.');
-      return;
-    }
     if (otp.trim().length < 6) {
-      showAppValidation('Enter the 6-digit code from your email.');
+      showAppValidation('Enter the 6-digit code from your SMS.');
       return;
     }
 
@@ -100,7 +102,9 @@ export default function ForgotPasswordScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          studentId: studentId.trim().toUpperCase(),
           email: email.trim().toLowerCase(),
+          phone: phone,
           otp: otp.trim(),
         }),
       });
@@ -137,6 +141,7 @@ export default function ForgotPasswordScreen() {
         body: JSON.stringify({
           studentId: studentId.trim().toUpperCase(),
           email: email.trim().toLowerCase(),
+          phone: phone,
           password,
         }),
       });
@@ -159,13 +164,14 @@ export default function ForgotPasswordScreen() {
   };
 
   const subtitles = {
-    1: 'Enter your Student ID. We will send a reset code to the email on your account.',
-    2: 'Enter the 6-digit code sent to your account email.',
+    1: 'Enter your Student ID. We will send a reset code to your registered phone via SMS.',
+    2: 'Enter the 6-digit code sent to your registered phone.',
     3: 'Choose a new password for your account.',
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => (step > 1 ? setStep(step - 1) : router.back())}
@@ -197,7 +203,7 @@ export default function ForgotPasswordScreen() {
       <Text style={styles.subtitle}>{subtitles[step]}</Text>
 
       <View style={styles.card}>
-        {step === 1 && (
+      {step === 1 && (
           <View>
             <Text style={styles.label}>STUDENT ID</Text>
             <View style={styles.inputContainer}>
@@ -300,9 +306,9 @@ export default function ForgotPasswordScreen() {
           <Text style={styles.backToLogin}>Back to Sign In</Text>
         </TouchableOpacity>
       </View>
-
       <SuccessToast ref={toastRef} />
     </ScrollView>
+    </View>
   );
 }
 
@@ -374,6 +380,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 30,
     elevation: 8,
+    marginBottom: 24,
   },
   label: {
     fontFamily: 'Inter_600SemiBold',
