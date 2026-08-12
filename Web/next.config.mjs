@@ -3,6 +3,7 @@ const nextConfig = {
   allowedDevOrigins: ['100.92.133.42'],
   images: {
     // Local assets (logo) only — remote item photos use native <img> via SafeRemoteImage
+    qualities: [75, 100],
     minimumCacheTTL: 60 * 60 * 24 * 7,
     remotePatterns: [
       {

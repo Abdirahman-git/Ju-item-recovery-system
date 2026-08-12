@@ -1,15 +1,21 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { getSession, clearSession } from '@/lib/session';
 
 const SessionContext = createContext(null);
 
+function hardNavigate(href) {
+  if (typeof window === 'undefined') return;
+  // Avoid Next App Router "action dispatched before initialization" races
+  // (auth gates should be a full navigation anyway).
+  window.location.assign(href);
+}
+
 export function SessionProvider({ children }) {
   const [session, setSessionState] = useState(() => getSession());
   const [ready, setReady] = useState(false);
-  const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -18,21 +24,31 @@ export function SessionProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !pathname) return;
 
-    const timer = window.setTimeout(() => {
-      const isLogin = pathname === '/login';
-      // Protect admin console — guests must sign in via /login
-      if (!session && pathname?.startsWith('/admin')) {
-        router.replace('/login');
-      } else if (session && isLogin) {
-        // /login always routes signed-in admins into the admin web
-        router.replace('/admin');
+    const isLogin = pathname === '/login';
+    const isAdmin = pathname.startsWith('/admin');
+
+    if (!session && isAdmin) {
+      hardNavigate('/login');
+      return;
+    }
+    if (session && isLogin) {
+      hardNavigate('/admin');
+    }
+  }, [ready, session, pathname]);
+
+  useEffect(() => {
+    const onExpired = () => {
+      clearSession();
+      setSessionState(null);
+      if (pathname?.startsWith('/admin')) {
+        hardNavigate('/login?reason=session');
       }
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [ready, session, pathname, router]);
+    };
+    window.addEventListener('ju-admin-session-expired', onExpired);
+    return () => window.removeEventListener('ju-admin-session-expired', onExpired);
+  }, [pathname]);
 
   const setSession = useCallback((next) => {
     setSessionState(next);
@@ -41,8 +57,8 @@ export function SessionProvider({ children }) {
   const logout = useCallback(() => {
     clearSession();
     setSessionState(null);
-    router.replace('/login');
-  }, [router]);
+    hardNavigate('/login');
+  }, []);
 
   return (
     <SessionContext.Provider value={{ session, setSession, logout, ready }}>

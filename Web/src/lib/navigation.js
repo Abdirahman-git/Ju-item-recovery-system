@@ -15,6 +15,13 @@ export const NAV_SECTIONS = [
       { href: '/admin/drafts', label: 'Drafts', icon: 'file-text' },
       { href: '/admin/returned', label: 'Returned Items', icon: 'gift' },
       { href: '/admin/archived', label: 'Archived Items', icon: 'archive', superAdminOnly: true },
+      {
+        href: '/admin/contact-messages',
+        label: 'Contact Messages',
+        icon: 'mail',
+        superAdminOnly: true,
+        badgeKey: 'contact',
+      },
     ],
   },
   {

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const dns = require('dns').promises;
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 const { createClient } = require('@supabase/supabase-js');
@@ -87,6 +88,46 @@ function normalizeEmail(email) {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function emailDomainLooksDeliverable(email) {
+  const domain = String(email || '')
+    .split('@')[1]
+    ?.trim()
+    .toLowerCase();
+  if (!domain || domain.length < 3) return false;
+  try {
+    const mx = await dns.resolveMx(domain);
+    if (Array.isArray(mx) && mx.length > 0) return true;
+  } catch {
+    /* try A record fallback */
+  }
+  try {
+    const a = await dns.resolve4(domain);
+    return Array.isArray(a) && a.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function createMailTransporter() {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+    throw new Error('Email is not configured. Set GMAIL_USER and GMAIL_PASS in Backend/.env.');
+  }
+  const fromEmail = normalizeEmail(process.env.GMAIL_USER);
+  if (!isValidEmail(fromEmail)) {
+    throw new Error('GMAIL_USER must be a valid admin mailbox email.');
+  }
+  return {
+    fromEmail,
+    transporter: nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS,
+      },
+    }),
+  };
 }
 
 function normalizePhone(phone) {
@@ -985,29 +1026,82 @@ app.post('/api/auth/change-password', async (req, res) => {
 // =============================================================================
 
 const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
-const adminSessions = new Map(); // token -> { email, studentId, userName, exp }
+const ADMIN_JWT_SECRET = String(
+  process.env.ADMIN_JWT_SECRET || process.env.SUPABASE_KEY || 'ju-lofo-admin-dev-secret'
+).trim();
+
+function toBase64Url(value) {
+  return Buffer.from(value)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function fromBase64Url(value) {
+  const padded = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+  return Buffer.from(padded + pad, 'base64').toString('utf8');
+}
 
 function issueAdminToken(actor) {
-  const token = crypto.randomBytes(32).toString('hex');
-  adminSessions.set(token, {
-    email: normalizeEmail(actor.email),
-    studentId: actor.studentId || null,
-    userName: actor.userName || null,
-    exp: Date.now() + ADMIN_TOKEN_TTL_MS,
-  });
-  return token;
+  const header = toBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = toBase64Url(
+    JSON.stringify({
+      email: normalizeEmail(actor.email),
+      studentId: actor.studentId || null,
+      userName: actor.userName || null,
+      role: 'admin',
+      exp: Date.now() + ADMIN_TOKEN_TTL_MS,
+    })
+  );
+  const data = `${header}.${payload}`;
+  const sig = crypto.createHmac('sha256', ADMIN_JWT_SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
+function verifyAdminToken(token) {
+  const raw = String(token || '').trim();
+  if (!raw) return null;
+  const parts = raw.split('.');
+  if (parts.length !== 3) return null;
+  const [header, payload, signature] = parts;
+  const data = `${header}.${payload}`;
+  const expected = crypto.createHmac('sha256', ADMIN_JWT_SECRET).update(data).digest('base64url');
+  const sigBuf = Buffer.from(String(signature));
+  const expBuf = Buffer.from(String(expected));
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+  try {
+    const claims = JSON.parse(fromBase64Url(payload));
+    if (!claims?.email || !claims?.exp || Date.now() > Number(claims.exp)) return null;
+    return {
+      email: normalizeEmail(claims.email),
+      studentId: claims.studentId || null,
+      userName: claims.userName || null,
+      exp: Number(claims.exp),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function requireAdminToken(req, res) {
   const token = String(req.headers['x-admin-token'] || req.body?.adminToken || '').trim();
   if (!token) {
-    res.status(401).json({ error: 'Admin session required. Please log in again.', code: 'ADMIN_TOKEN_MISSING' });
+    res.status(401).json({
+      error: 'Admin session expired. Please log in again.',
+      code: 'ADMIN_TOKEN_MISSING',
+    });
     return null;
   }
-  const row = adminSessions.get(token);
-  if (!row || Date.now() > row.exp) {
-    if (row) adminSessions.delete(token);
-    res.status(401).json({ error: 'Admin session expired. Please log in again.', code: 'ADMIN_TOKEN_EXPIRED' });
+  const row = verifyAdminToken(token);
+  if (!row) {
+    res.status(401).json({
+      error: 'Admin session expired. Please log in again.',
+      code: 'ADMIN_TOKEN_EXPIRED',
+    });
     return null;
   }
   return row;
@@ -1397,6 +1491,413 @@ app.post('/api/admin/archived/purge', async (req, res) => {
   } catch (err) {
     console.error('archived purge error:', err.message);
     res.status(500).json({ error: err.message || 'Could not delete archived item.' });
+  }
+});
+
+const SUPER_ADMIN_EMAIL = String(process.env.SUPER_ADMIN_EMAIL || 'admin2@ju.edu.so')
+  .trim()
+  .toLowerCase();
+
+function requireSuperAdmin(actor, res) {
+  const email = String(actor?.email || '').trim().toLowerCase();
+  if (email !== SUPER_ADMIN_EMAIL) {
+    res.status(403).json({ error: 'Super Admin access required.' });
+    return false;
+  }
+  return true;
+}
+
+async function notifyContactMessageEmail(row) {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) return;
+  const to = normalizeEmail(
+    process.env.CONTACT_INBOX_EMAIL || process.env.GMAIL_USER || SUPER_ADMIN_EMAIL
+  );
+  if (!isValidEmail(to)) return;
+  const { fromEmail, transporter } = createMailTransporter();
+  await transporter.sendMail({
+    from: `"JU LOFO Contact" <${fromEmail}>`,
+    to,
+    replyTo: row.email,
+    subject: `[Contact] ${row.subject}`,
+    text: [
+      `From: ${row.first_name} ${row.last_name}`,
+      `Email: ${row.email}`,
+      `Phone: ${row.phone || '—'}`,
+      '',
+      row.message,
+    ].join('\n'),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+        <p><strong>From:</strong> ${row.first_name} ${row.last_name}</p>
+        <p><strong>Email:</strong> ${row.email}</p>
+        <p><strong>Phone:</strong> ${row.phone || '—'}</p>
+        <p><strong>Subject:</strong> ${row.subject}</p>
+        <hr />
+        <p style="white-space:pre-wrap">${String(row.message || '').replace(/</g, '&lt;')}</p>
+      </div>
+    `,
+  });
+}
+
+/**
+ * Public contact form submit
+ * POST /api/contact/submit
+ */
+app.post('/api/contact/submit', async (req, res) => {
+  const body = req.body || {};
+  const firstName = String(body.firstName || body.first_name || '').trim();
+  const lastName = String(body.lastName || body.last_name || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  const phone = String(body.phone || '').trim();
+  const subject = String(body.subject || '').trim();
+  const message = String(body.message || '').trim();
+
+  if (!firstName || !lastName) {
+    return res.status(400).json({ error: 'First and last name are required.' });
+  }
+  if (!email || !isValidEmail(email)) {
+    return res.status(400).json({ error: 'A valid sender email is required.' });
+  }
+  const senderOk = await emailDomainLooksDeliverable(email);
+  if (!senderOk) {
+    return res.status(400).json({
+      error: 'Sender email domain does not look real. Please use a valid email address.',
+    });
+  }
+  if (!subject) {
+    return res.status(400).json({ error: 'Subject is required.' });
+  }
+  if (!message || message.length < 5) {
+    return res.status(400).json({ error: 'Please write a longer message.' });
+  }
+
+  const payload = {
+    first_name: firstName,
+    last_name: lastName,
+    email,
+    phone: phone || null,
+    subject,
+    message,
+    status: 'new',
+  };
+
+  try {
+    const { data, error } = await supabase.from('contact_messages').insert(payload).select().single();
+    if (error) {
+      if (isMissingRelationError(error)) {
+        return res.status(503).json({
+          error:
+            'Contact inbox is not set up yet. Run supabase/contact_messages.sql in the Supabase SQL editor.',
+        });
+      }
+      throw error;
+    }
+
+    try {
+      await notifyContactMessageEmail(data);
+    } catch (mailErr) {
+      console.warn('[contact] email notify failed:', mailErr.message);
+    }
+
+    res.json({ success: true, id: data.id });
+  } catch (err) {
+    console.error('Contact submit error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not send message.' });
+  }
+});
+
+/**
+ * Super Admin: list contact messages
+ * GET /api/admin/contact-messages
+ */
+app.get('/api/admin/contact-messages', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+  if (!requireSuperAdmin(actor, res)) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('contact_messages')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) {
+      if (isMissingRelationError(error)) {
+        return res.status(404).json({
+          error:
+            'Contact messages table is missing. Run supabase/contact_messages.sql in the Supabase SQL editor.',
+          items: [],
+        });
+      }
+      throw error;
+    }
+    res.json({ items: data || [] });
+  } catch (err) {
+    console.error('contact list error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not load contact messages.' });
+  }
+});
+
+/**
+ * Super Admin: which mailbox sends/receives contact replies
+ * GET /api/admin/contact-messages/mail-identity
+ */
+app.get('/api/admin/contact-messages/mail-identity', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+  if (!requireSuperAdmin(actor, res)) return;
+
+  const fromEmail = normalizeEmail(process.env.GMAIL_USER || '');
+  const replyTo = normalizeEmail(
+    process.env.CONTACT_REPLY_TO || process.env.CONTACT_INBOX_EMAIL || process.env.GMAIL_USER || ''
+  );
+  const configured = Boolean(process.env.GMAIL_USER && process.env.GMAIL_PASS);
+
+  res.json({
+    configured,
+    fromEmail: isValidEmail(fromEmail) ? fromEmail : '',
+    replyTo: isValidEmail(replyTo) ? replyTo : fromEmail,
+    adminLoginEmail: SUPER_ADMIN_EMAIL,
+    note: configured
+      ? 'Replies are sent from GMAIL_USER. admin login email is only for dashboard access.'
+      : 'Set GMAIL_USER and GMAIL_PASS in Backend/.env to a real Gmail with an App Password.',
+  });
+});
+
+/**
+ * Super Admin: reply to contact message by email
+ * POST /api/admin/contact-messages/reply
+ */
+app.post('/api/admin/contact-messages/reply', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+  if (!requireSuperAdmin(actor, res)) return;
+
+  const id = req.body?.id;
+  const replyBody = String(req.body?.replyBody || req.body?.message || '').trim();
+  if (id == null) return res.status(400).json({ error: 'Message id is required.' });
+  if (!replyBody || replyBody.length < 5) {
+    return res.status(400).json({ error: 'Please write a longer reply (at least 5 characters).' });
+  }
+
+  const adminLogin = normalizeEmail(actor.email || SUPER_ADMIN_EMAIL);
+  if (adminLogin !== SUPER_ADMIN_EMAIL) {
+    return res.status(403).json({ error: 'Only the Super Admin can send replies.' });
+  }
+
+  try {
+    const { data: row, error: fetchError } = await supabase
+      .from('contact_messages')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (fetchError) {
+      if (isMissingRelationError(fetchError)) {
+        return res.status(404).json({
+          error:
+            'Contact messages table is missing. Run supabase/contact_messages.sql in the Supabase SQL editor.',
+        });
+      }
+      throw fetchError;
+    }
+    if (!row) return res.status(404).json({ error: 'Message not found.' });
+
+    const senderEmail = normalizeEmail(row.email);
+    if (!isValidEmail(senderEmail)) {
+      return res.status(400).json({ error: 'Sender email on this message is invalid.' });
+    }
+    const senderOk = await emailDomainLooksDeliverable(senderEmail);
+    if (!senderOk) {
+      return res.status(400).json({
+        error: 'Sender email domain does not look deliverable. Cannot send reply.',
+      });
+    }
+
+    let fromEmail;
+    let transporter;
+    try {
+      ({ fromEmail, transporter } = createMailTransporter());
+    } catch (cfgErr) {
+      return res.status(503).json({ error: cfgErr.message });
+    }
+
+    const replyTo = normalizeEmail(
+      process.env.CONTACT_REPLY_TO || process.env.CONTACT_INBOX_EMAIL || fromEmail
+    );
+    if (!isValidEmail(replyTo)) {
+      return res.status(503).json({
+        error: 'CONTACT_REPLY_TO / GMAIL_USER must be a real deliverable email.',
+      });
+    }
+
+    const senderName = `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'there';
+    const subject = row.subject?.startsWith('Re:')
+      ? row.subject
+      : `Re: ${row.subject || 'JU LOFO contact'}`;
+
+    await transporter.sendMail({
+      from: `"JU LOFO Lost & Found" <${fromEmail}>`,
+      to: senderEmail,
+      replyTo,
+      subject,
+      text: [
+        `Hello ${senderName},`,
+        '',
+        replyBody,
+        '',
+        '—',
+        'JU LOFO Lost & Found Desk',
+        `Reply to: ${replyTo}`,
+        '',
+        '--- Original message ---',
+        row.message,
+      ].join('\n'),
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.55;color:#0f172a;max-width:560px">
+          <p>Hello ${senderName.replace(/</g, '&lt;')},</p>
+          <p style="white-space:pre-wrap">${replyBody.replace(/</g, '&lt;')}</p>
+          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
+          <p style="font-size:13px;color:#64748b;margin:0">
+            JU LOFO Lost & Found Desk<br/>
+            Reply to: ${replyTo}
+          </p>
+          <p style="font-size:12px;color:#94a3b8;margin-top:16px">Original message</p>
+          <p style="white-space:pre-wrap;font-size:13px;color:#475569;background:#f8fafc;padding:12px;border-radius:8px">${String(row.message || '').replace(/</g, '&lt;')}</p>
+        </div>
+      `,
+    });
+
+    const patch = {
+      reply_body: replyBody,
+      replied_at: new Date().toISOString(),
+      replied_by: fromEmail,
+      status: row.status === 'new' ? 'read' : row.status,
+      read_at: row.read_at || new Date().toISOString(),
+      read_by: row.read_by || adminLogin,
+    };
+
+    const { data: updated, error: updateError } = await supabase
+      .from('contact_messages')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) {
+      if (isMissingRelationError(updateError) || /reply_body|column/i.test(updateError.message || '')) {
+        return res.json({
+          success: true,
+          warning:
+            'Reply email sent, but reply columns are missing. Run supabase/contact_messages_reply.sql.',
+          sentTo: senderEmail,
+          sentFrom: fromEmail,
+          replyTo,
+          repliedBy: fromEmail,
+        });
+      }
+      throw updateError;
+    }
+
+    res.json({
+      success: true,
+      item: updated,
+      sentTo: senderEmail,
+      sentFrom: fromEmail,
+      replyTo,
+      repliedBy: fromEmail,
+    });
+  } catch (err) {
+    console.error('contact reply error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not send reply.' });
+  }
+});
+
+/**
+ * Super Admin: mark read / archive
+ * POST /api/admin/contact-messages/update-status
+ */
+app.post('/api/admin/contact-messages/update-status', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+  if (!requireSuperAdmin(actor, res)) return;
+
+  const id = req.body?.id;
+  const status = String(req.body?.status || '').trim().toLowerCase();
+  if (id == null) return res.status(400).json({ error: 'Message id is required.' });
+  if (!['new', 'read', 'archived'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+
+  const patch = { status };
+  if (status === 'read') {
+    patch.read_at = new Date().toISOString();
+    patch.read_by = actor.email || SUPER_ADMIN_EMAIL;
+  }
+
+  try {
+    const { error } = await supabase.from('contact_messages').update(patch).eq('id', id);
+    if (error) {
+      if (isMissingRelationError(error)) {
+        return res.status(404).json({
+          error:
+            'Contact messages table is missing. Run supabase/contact_messages.sql in the Supabase SQL editor.',
+        });
+      }
+      throw error;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('contact status error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not update message.' });
+  }
+});
+
+/**
+ * Super Admin: delete contact message
+ * POST /api/admin/contact-messages/delete
+ */
+app.post('/api/admin/contact-messages/delete', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+  if (!requireSuperAdmin(actor, res)) return;
+
+  const id = req.body?.id;
+  const deletedBy = req.body?.deletedBy || actor.email || actor.userName || null;
+  if (id == null) return res.status(400).json({ error: 'Message id is required.' });
+
+  try {
+    const { data: row, error: fetchError } = await supabase
+      .from('contact_messages')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (fetchError) {
+      if (isMissingRelationError(fetchError)) {
+        return res.status(404).json({
+          error:
+            'Contact messages table is missing. Run supabase/contact_messages.sql in the Supabase SQL editor.',
+        });
+      }
+      throw fetchError;
+    }
+    if (!row) return res.status(404).json({ error: 'Message not found or already deleted.' });
+
+    const fullName = `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email || 'Contact message';
+    await snapshotToRecycleBin({
+      entityType: 'contact_message',
+      entityId: id,
+      title: fullName,
+      summary: row.subject || 'LOFO contact message',
+      payload: { table: 'contact_messages', row },
+      deletedBy,
+    });
+
+    const { error } = await supabase.from('contact_messages').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('contact delete error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete message.' });
   }
 });
 

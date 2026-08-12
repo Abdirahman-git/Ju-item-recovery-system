@@ -25,9 +25,9 @@ export function isSecureFoundItem(item) {
 
 export function normalizeItemStatus(item) {
   if (!item) return ITEM_STATUS.PENDING_REVIEW;
-  const raw = item.status;
+  const raw = typeof item.status === 'string' ? item.status.trim().toLowerCase() : item.status;
   if (raw === 'matched' || raw === 'claim_pending') return ITEM_STATUS.LIVE;
-  if (raw && typeof raw === 'string') return raw.trim();
+  if (raw && typeof raw === 'string') return raw;
   if (item.is_approved === true) return ITEM_STATUS.LIVE;
   if (item.is_approved === false) return ITEM_STATUS.PENDING_REVIEW;
   return ITEM_STATUS.PENDING_REVIEW;

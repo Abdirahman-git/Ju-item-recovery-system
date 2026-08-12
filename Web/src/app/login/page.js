@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, IdCard, Lock } from 'lucide-react';
 import { loginUser } from '@/lib/supabase';
 import { saveSession } from '@/lib/session';
@@ -10,13 +10,20 @@ import { useSession } from '@/context/SessionProvider';
 import SiteFooter from '@/components/SiteFooter';
 
 export default function LoginPage() {
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const { setSession, ready } = useSession();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const sessionNotice = useMemo(() => {
+    if (searchParams.get('reason') === 'session') {
+      return 'Your session expired. Please sign in again to continue.';
+    }
+    return null;
+  }, [searchParams]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,7 +38,8 @@ export default function LoginPage() {
       const session = await loginUser(identifier, password);
       saveSession(session);
       setSession(session);
-      router.replace('/admin');
+      // Full navigation avoids App Router "before initialization" races
+      window.location.assign('/admin');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -66,6 +74,12 @@ export default function LoginPage() {
           <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-xl shadow-slate-200/60">
             <h2 className="text-center text-3xl font-bold text-slate-900">Welcome Back.</h2>
             <p className="mt-2 text-center text-sm text-slate-500">Sign in with your administrator credentials</p>
+
+            {sessionNotice ? (
+              <div className="mt-6 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                {sessionNotice}
+              </div>
+            ) : null}
 
             {error ? (
               <div className="mt-6 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">

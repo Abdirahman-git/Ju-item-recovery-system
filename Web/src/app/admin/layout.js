@@ -15,6 +15,24 @@ function AdminShell({ children, badgeCounts }) {
   const { open, close, collapsed } = useSidebar();
 
   useEffect(() => {
+    const root = document.documentElement;
+    const hadPublicDark = root.classList.contains('public-dark');
+    root.classList.remove('public-dark');
+    root.style.colorScheme = 'light';
+    return () => {
+      root.style.colorScheme = '';
+      if (hadPublicDark) {
+        try {
+          const saved = localStorage.getItem('ju-public-mode');
+          if (saved === 'dark') root.classList.add('public-dark');
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') close();
     };
@@ -30,7 +48,7 @@ function AdminShell({ children, badgeCounts }) {
   }, [open]);
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-transparent">
+    <div data-admin-shell className="relative flex h-screen overflow-hidden bg-transparent">
       <AdminNavProgress />
       {open ? (
         <button
@@ -60,7 +78,7 @@ function AdminShell({ children, badgeCounts }) {
 
 export default function AdminLayout({ children }) {
   const { session, ready } = useSession();
-  const [badgeCounts, setBadgeCounts] = useState({ pending: 0, claims: 0 });
+  const [badgeCounts, setBadgeCounts] = useState({ pending: 0, claims: 0, contact: 0 });
   const badgeApi = useMemo(() => {
     const helpers = createBadgeHelpers(setBadgeCounts);
     return {

@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 
 /**
- * iPhone-style frame with clear full-screen screenshot
- * (no Dynamic Island overlay — keeps Jazeera branding visible).
+ * 4K hero inside phone frame + orbit rings.
+ * Entrance, bob, screen shine, subtle live shot motion.
+ * No blue “shucaac” glow; normal system cursor (no custom cursor).
  */
 export default function HeroPhoneFrame({
-  src = '/phone.png',
+  src = '/hero.png',
   alt = 'JU LOFO mobile app',
 }) {
   const stageRef = useRef(null);
@@ -30,7 +31,7 @@ export default function HeroPhoneFrame({
     if (img?.complete && img.naturalWidth > 0) {
       setReady(true);
     }
-    const failSafe = window.setTimeout(() => setReady(true), 2200);
+    const failSafe = window.setTimeout(() => setReady(true), 2500);
     return () => window.clearTimeout(failSafe);
   }, []);
 
@@ -44,8 +45,8 @@ export default function HeroPhoneFrame({
       const px = (e.clientX - rect.left) / rect.width - 0.5;
       const py = (e.clientY - rect.top) / rect.height - 0.5;
       setTilt({
-        x: Math.max(-1, Math.min(1, py)) * -9,
-        y: Math.max(-1, Math.min(1, px)) * 12,
+        x: Math.max(-1, Math.min(1, py)) * -7,
+        y: Math.max(-1, Math.min(1, px)) * 9,
       });
     };
     const onLeave = () => setTilt({ x: 0, y: 0 });
@@ -61,7 +62,7 @@ export default function HeroPhoneFrame({
   return (
     <div
       ref={stageRef}
-      className={`public-phone-stage relative mx-auto w-[min(100%,292px)] sm:w-[310px] lg:ml-auto lg:mr-0 ${
+      className={`public-phone-stage relative mx-auto w-[min(100%,250px)] sm:w-[280px] lg:w-[290px] lg:ml-auto lg:mr-0 ${
         ready ? 'public-phone-stage--ready' : 'public-phone-stage--loading'
       }`}
     >
@@ -70,7 +71,8 @@ export default function HeroPhoneFrame({
           ready ? (reduced ? 'public-phone-float--static' : '') : 'public-phone-float--pending'
         }`}
       >
-        <div className="public-phone-glow" aria-hidden />
+        <div className="public-orbit public-orbit-a" aria-hidden />
+        <div className="public-orbit public-orbit-b" aria-hidden />
 
         <div className={ready && !reduced ? 'public-phone-bob' : undefined}>
           <div
@@ -88,21 +90,28 @@ export default function HeroPhoneFrame({
             <div className="public-device-btn public-device-btn--vol-down" aria-hidden />
             <div className="public-device-btn public-device-btn--power" aria-hidden />
 
-            <div className="public-device public-device--pro-max">
+            <div className="public-device public-device--pro-max public-device--hero-clean">
               <div className="public-device-shell">
                 <div className="public-device-bezel">
                   <div className="public-device-screen">
                     <Image
                       src={src}
                       alt={alt}
-                      width={2132}
-                      height={4610}
+                      width={853}
+                      height={1844}
                       priority
-                      className="public-device-shot"
-                      sizes="(max-width: 640px) 270px, 290px"
+                      quality={100}
+                      className={`public-device-shot${ready && !reduced ? ' public-device-shot--live' : ''}`}
+                      sizes="(max-width: 640px) 250px, (max-width: 1024px) 280px, 310px"
                       onLoad={() => setReady(true)}
                       onError={() => setReady(true)}
                     />
+                    {ready && !reduced ? (
+                      <>
+                        <span className="public-device-shine" aria-hidden />
+                        <span className="public-device-notif" aria-hidden />
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>

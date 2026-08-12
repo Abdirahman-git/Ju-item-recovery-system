@@ -25,6 +25,7 @@ import {
   BarChart3,
   HardDrive,
   Archive,
+  Mail,
 } from 'lucide-react';
 import { NAV_SECTIONS } from '@/lib/navigation';
 import { useSession } from '@/context/SessionProvider';
@@ -48,6 +49,7 @@ const ICONS = {
   'bar-chart': BarChart3,
   'hard-drive': HardDrive,
   archive: Archive,
+  mail: Mail,
 };
 
 export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose = false, onClose }) {

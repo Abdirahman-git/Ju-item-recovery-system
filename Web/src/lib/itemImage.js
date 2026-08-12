@@ -115,6 +115,11 @@ export function mapInventoryItem(item, itemType) {
     inventoryRef: `#INV-${String(item.id).padStart(4, '0')}`,
     listing_mode: item.listing_mode || item.listingMode || null,
     listingMode: item.listing_mode || item.listingMode || null,
+    public_notice: item.public_notice || item.publicNotice || null,
+    publicNotice: item.public_notice || item.publicNotice || null,
+    public_category: item.public_category || item.publicCategory || null,
+    publicCategory: item.public_category || item.publicCategory || null,
+    security_location: item.security_location || item.securityLocation || null,
     displayLocation: isSecure
       ? item.security_location || item.securityLocation || item.location || 'Campus Security Office'
       : item.location || item.place || 'Campus grounds',

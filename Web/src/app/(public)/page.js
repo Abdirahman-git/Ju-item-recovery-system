@@ -6,6 +6,7 @@ import CtaBand from '@/components/public/CtaBand';
 import RevealOnScroll from '@/components/public/RevealOnScroll';
 import HeroPhoneFrame from '@/components/public/HeroPhoneFrame';
 import HowItWorksFlow from '@/components/public/HowItWorksFlow';
+import ContactSection from '@/components/public/ContactSection';
 import { fetchPublicLiveItems, toPublicItemCard } from '@/lib/publicItems';
 
 export const revalidate = 15;
@@ -127,6 +128,8 @@ export default async function HomePage() {
       </section>
 
       <HowItWorksFlow />
+
+      <ContactSection />
 
       <CtaBand />
     </>

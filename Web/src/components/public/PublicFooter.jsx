@@ -12,7 +12,8 @@ const EXPLORE = [
 const GET_STARTED = [
   { href: '/browse', label: 'Browse live board' },
   { href: '/how-it-works', label: 'How it works' },
-  { href: '#get-app', label: 'Get the app' },
+  { href: '/#contact', label: 'Contact us' },
+  { href: '/#get-app', label: 'Get the app' },
 ];
 
 export default function PublicFooter() {
@@ -26,32 +27,34 @@ export default function PublicFooter() {
         <div className="grid gap-10 lg:grid-cols-[1.35fr_1fr_1fr]">
           {/* Brand */}
           <div>
-            <Link href="/" className="group inline-flex cursor-pointer items-center gap-3">
+            <Link href="/" className="group inline-flex cursor-pointer items-center gap-2.5 sm:gap-3">
               <Image
                 src="/jazeera_logo.png"
                 alt="Jazeera University"
-                width={44}
-                height={44}
-                className="h-11 w-11 rounded-xl shadow-sm ring-1 ring-slate-200/80 transition group-hover:scale-[1.03]"
+                width={52}
+                height={52}
+                className="public-brand-logo h-10 w-10 shrink-0 object-contain transition group-hover:scale-[1.03] sm:h-11 sm:w-11"
               />
-              <div>
-                <p className="text-lg font-black tracking-tight text-[#0F172A]">
-                  JU <span className="text-[#1A56DB]">LOFO</span>
-                </p>
-                <p className="text-xs font-semibold text-slate-500">Jazeera University Lost & Found</p>
-              </div>
+              <span className="min-w-0 leading-tight">
+                <span className="block text-[15px] font-black tracking-tight text-[#0F172A] sm:text-base">
+                  JU <span className="text-[#1A56DB]">Lost</span>
+                </span>
+                <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-[#1A56DB]">
+                  Item Recovery
+                </span>
+              </span>
             </Link>
 
             <p className="mt-4 max-w-sm text-sm font-medium leading-relaxed text-slate-600">
-              The official campus recovery board — approved listings only, built for students and staff at Jazeera University.
+              Helps Jazeera University students report, search, and recover lost belongings through one trusted campus system.
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold text-emerald-700">
+              <span className="public-footer-pill public-footer-pill--ok inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold">
                 <ShieldCheck size={13} />
                 Admin verified
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200/80 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-[#1A56DB]">
+              <span className="public-footer-pill public-footer-pill--campus inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold">
                 <MapPin size={13} />
                 Campus only
               </span>
@@ -100,7 +103,7 @@ export default function PublicFooter() {
             </ul>
 
             <a
-              href="#get-app"
+              href="/#get-app"
               className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#1A56DB] px-4 py-2.5 text-xs font-black text-white shadow-[0_10px_24px_rgba(26,86,219,0.25)] transition hover:bg-[#1E40AF] hover:scale-[1.02] active:scale-[0.98]"
             >
               <Smartphone size={14} />

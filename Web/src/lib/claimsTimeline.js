@@ -173,6 +173,20 @@ function getSourceSeriesConfig(sourceId) {
         secondaryColor: '#F97316',
         footerNote: (rows) => `${rows.length} deleted entries`,
       };
+    case 'contact':
+      return {
+        title: 'Contact Messages',
+        primaryLabel: 'New',
+        secondaryLabel: 'Read',
+        primaryColor: '#1A56DB',
+        secondaryColor: '#059669',
+        footerNote: (rows) => {
+          const neu = rows.filter((r) => String(r.status).toLowerCase() === 'new').length;
+          const read = rows.filter((r) => String(r.status).toLowerCase() === 'read').length;
+          const archived = rows.filter((r) => String(r.status).toLowerCase() === 'archived').length;
+          return `${neu} new · ${read} read · ${archived} archived · ${rows.length} total`;
+        },
+      };
     case 'claims':
       return {
         title: 'Ownership Requests',
@@ -215,6 +229,15 @@ function classifyRow(row, sourceId) {
         status === 'approved' || status === 'rejected' ? row.reviewedDateKey || null : null,
       countPrimary: true,
       countSecondary: status === 'approved' || status === 'rejected',
+    };
+  }
+
+  if (sourceId === 'contact') {
+    return {
+      primaryKey: status === 'new' ? row.dateKey : null,
+      secondaryKey: status === 'read' ? row.dateKey : null,
+      countPrimary: status === 'new',
+      countSecondary: status === 'read',
     };
   }
 

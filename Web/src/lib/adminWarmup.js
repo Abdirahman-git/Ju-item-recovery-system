@@ -1,6 +1,7 @@
 import { setAdminCache } from '@/lib/adminDataCache';
 import {
   fetchAdminUsers,
+  fetchContactMessages,
   fetchDashboardData,
   fetchDraftInventoryItems,
   fetchPendingItemClaims,
@@ -13,9 +14,22 @@ import {
 /** Prefetch main admin pages into memory so navigation is instant. */
 export function warmupAdminData(onBadges, { includePrivilegedSources = false } = {}) {
   fetchDashboardData()
-    .then((result) => {
+    .then(async (result) => {
       setAdminCache('admin:dashboard', result);
-      onBadges?.(result.badgeCounts);
+      let contactNew = 0;
+      if (includePrivilegedSources) {
+        try {
+          const messages = await fetchContactMessages();
+          setAdminCache('admin:contact-messages', messages);
+          contactNew = messages.filter((m) => m.status === 'new').length;
+        } catch {
+          contactNew = 0;
+        }
+      }
+      onBadges?.({
+        ...(result.badgeCounts || { pending: 0, claims: 0 }),
+        contact: contactNew,
+      });
     })
     .catch(() => {});
 
@@ -67,5 +81,5 @@ export const EMPTY_DASHBOARD = {
   ],
   recentActivity: [],
   trendRows: [],
-  badgeCounts: { pending: 0, claims: 0 },
+  badgeCounts: { pending: 0, claims: 0, contact: 0 },
 };

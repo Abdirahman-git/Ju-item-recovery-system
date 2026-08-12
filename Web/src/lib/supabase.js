@@ -82,11 +82,21 @@ function getAdminTokenFromSession() {
   }
 }
 
+function notifyAdminSessionExpired() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('ju-admin-session-expired'));
+  } catch {
+    /* ignore */
+  }
+}
+
 async function adminApi(path, { method = 'GET', body } = {}) {
   const token = getAdminTokenFromSession();
   if (!token) {
     const err = new Error('Admin session expired. Please log in again.');
     err.code = 'ADMIN_TOKEN_MISSING';
+    notifyAdminSessionExpired();
     throw err;
   }
   const response = await fetch(`${BACKEND_URL}${path}`, {
@@ -104,8 +114,16 @@ async function adminApi(path, { method = 'GET', body } = {}) {
     payload = null;
   }
   if (!response.ok) {
+    const code = payload?.code || 'ADMIN_API_ERROR';
     const err = new Error(payload?.error || `Request failed (${response.status})`);
-    err.code = payload?.code || 'ADMIN_API_ERROR';
+    err.code = code;
+    if (
+      response.status === 401 ||
+      code === 'ADMIN_TOKEN_MISSING' ||
+      code === 'ADMIN_TOKEN_EXPIRED'
+    ) {
+      notifyAdminSessionExpired();
+    }
     throw err;
   }
   return payload;
@@ -872,6 +890,7 @@ export async function fetchDashboardData() {
     badgeCounts: {
       pending: pendingReports,
       claims: claimsResult,
+      contact: 0,
     },
   };
 }
@@ -1434,6 +1453,93 @@ export async function purgeArchivedItem(archived) {
   return { success: true };
 }
 
+/** Public contact form → Backend (saved for Super Admin inbox). */
+export async function submitContactMessage(form) {
+  const response = await fetch(`${BACKEND_URL}/api/contact/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      firstName: form.firstName,
+      lastName: form.lastName,
+      email: form.email,
+      phone: form.phone,
+      subject: form.subject,
+      message: form.message,
+    }),
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    throw new Error(payload?.error || `Could not send message (${response.status})`);
+  }
+  return payload;
+}
+
+function normalizeContactMessage(row) {
+  const createdAt = row.created_at || null;
+  const createdMs = createdAt ? new Date(createdAt).getTime() : 0;
+  return {
+    ...row,
+    id: row.id,
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
+    fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown',
+    email: row.email || '',
+    phone: row.phone || '',
+    subject: row.subject || '',
+    message: row.message || '',
+    status: row.status || 'new',
+    replyBody: row.reply_body || '',
+    repliedAt: row.replied_at || null,
+    repliedBy: row.replied_by || '',
+    createdAt,
+    sortKey: Number.isFinite(createdMs) ? createdMs : Number(row.id) || 0,
+    refId: `MSG-${String(row.id).padStart(4, '0')}`,
+  };
+}
+
+export async function fetchContactMessages() {
+  const payload = await adminApi('/api/admin/contact-messages');
+  return (payload.items || []).map(normalizeContactMessage);
+}
+
+export async function updateContactMessageStatus(id, status) {
+  if (id == null) throw new Error('Invalid message.');
+  await adminApi('/api/admin/contact-messages/update-status', {
+    method: 'POST',
+    body: { id, status },
+  });
+  return { success: true };
+}
+
+export async function fetchContactMailIdentity() {
+  return adminApi('/api/admin/contact-messages/mail-identity');
+}
+
+export async function replyContactMessage(id, replyBody) {
+  if (id == null) throw new Error('Invalid message.');
+  const text = String(replyBody || '').trim();
+  if (text.length < 5) throw new Error('Please write a longer reply.');
+  const payload = await adminApi('/api/admin/contact-messages/reply', {
+    method: 'POST',
+    body: { id, replyBody: text },
+  });
+  return {
+    ...payload,
+    item: payload.item ? normalizeContactMessage(payload.item) : null,
+  };
+}
+
+export async function deleteContactMessage(id) {
+  if (id == null) throw new Error('Invalid message.');
+  await adminApi('/api/admin/contact-messages/delete', { method: 'POST', body: { id } });
+  return { success: true };
+}
+
 function inferSubmittedAtFromImage(item) {
   const raw =
     item?.imageUrl ||
@@ -1571,7 +1677,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     fetchActiveSecureFoundItems(),
   ];
 
-  const [users, items, returnedItems, claims, pendingData, secureItems, recycleRes, archivedItems] =
+  const [users, items, returnedItems, claims, pendingData, secureItems, recycleRes, archivedItems, contactMessages] =
     await withTimeout(
       Promise.all([
         ...baseFetches,
@@ -1579,12 +1685,17 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
           ? fetchRecycleBinItems().catch(() => ({ items: [] }))
           : Promise.resolve({ items: [] }),
         includePrivilegedSources ? fetchArchivedItems().catch(() => []) : Promise.resolve([]),
+        includePrivilegedSources ? fetchContactMessages().catch(() => []) : Promise.resolve([]),
       ]),
       'System reports'
     );
 
   const recycleItems = includePrivilegedSources ? recycleRes?.items || [] : [];
   const archived = includePrivilegedSources && Array.isArray(archivedItems) ? archivedItems : [];
+  const contacts = includePrivilegedSources && Array.isArray(contactMessages) ? contactMessages : [];
+  const contactNew = contacts.filter((m) => m.status === 'new').length;
+  const contactRead = contacts.filter((m) => m.status === 'read').length;
+  const contactArchived = contacts.filter((m) => m.status === 'archived').length;
   const archivedLost = archived.filter((item) => String(item.displayType || item.type || '').toUpperCase() === 'LOST');
   const archivedFound = archived.filter((item) => String(item.displayType || item.type || '').toUpperCase() === 'FOUND');
 
@@ -1711,6 +1822,14 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
         href: '/admin/archived',
         count: archived.length,
         meta: `${archivedLost.length} lost · ${archivedFound.length} found`,
+      },
+      {
+        id: 'contact',
+        label: 'Contact Messages',
+        description: 'Public LOFO desk form submissions and follow-ups',
+        href: '/admin/contact-messages',
+        count: contacts.length,
+        meta: `${contactNew} new · ${contactRead} read · ${contactArchived} archived`,
       }
     );
   }
@@ -1730,6 +1849,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
   if (includePrivilegedSources) {
     records.recycle = mapSystemReportRecycle(recycleItems);
     records.archived = mapSystemReportArchived(archived);
+    records.contact = mapSystemReportContact(contacts);
   }
 
   return {
@@ -1748,6 +1868,10 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       secureItems: secureItems.length,
       recycleItems: includePrivilegedSources ? recycleItems.length : 0,
       archivedItems: includePrivilegedSources ? archived.length : 0,
+      contactMessages: includePrivilegedSources ? contacts.length : 0,
+      contactNew: includePrivilegedSources ? contactNew : 0,
+      contactRead: includePrivilegedSources ? contactRead : 0,
+      contactArchived: includePrivilegedSources ? contactArchived : 0,
       totalClaims: claims.length,
       pendingClaims: pendingClaims.length,
       approvedClaims: approvedClaims.length,
@@ -1885,6 +2009,40 @@ function mapSystemReportArchived(items = []) {
       archivedBy: item.displayArchivedBy || item.archived_by || '—',
       reportedAt: formatReportDate(item.archivedAt || item.archived_at),
       dateKey: toReportDateKey(item.archivedAt || item.archived_at),
+    };
+  });
+}
+
+function parseContactMessageExtras(message) {
+  const raw = String(message || '');
+  const marker = '— Lost & Found details —';
+  const idx = raw.indexOf(marker);
+  const body = idx === -1 ? raw.trim() : raw.slice(0, idx).trim();
+  const details = idx === -1 ? '' : raw.slice(idx + marker.length);
+  return {
+    body,
+    itemName: details.match(/Item:\s*(.+)/i)?.[1]?.trim() || '',
+    place: details.match(/Campus place:\s*(.+)/i)?.[1]?.trim() || '',
+    studentId: details.match(/Student ID:\s*(.+)/i)?.[1]?.trim() || '',
+  };
+}
+
+function mapSystemReportContact(messages = []) {
+  return messages.map((row) => {
+    const extras = parseContactMessageExtras(row.message);
+    return {
+      id: String(row.id),
+      name: row.fullName || 'Unknown',
+      email: row.email || '—',
+      phone: row.phone || '—',
+      studentId: extras.studentId || '—',
+      subject: row.subject || 'LOFO contact',
+      item: extras.itemName || '—',
+      place: extras.place || '—',
+      message: extras.body || row.message || '—',
+      status: row.status || 'new',
+      submittedAt: formatReportDate(row.createdAt || row.created_at),
+      dateKey: toReportDateKey(row.createdAt || row.created_at),
     };
   });
 }

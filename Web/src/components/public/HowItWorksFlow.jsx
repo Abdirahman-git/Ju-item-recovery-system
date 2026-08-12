@@ -33,7 +33,7 @@ const STEPS = [
 export default function HowItWorksFlow() {
   return (
     <section className="public-how relative mx-auto max-w-7xl px-4 py-10 sm:px-6 xl:px-8">
-      <div className="public-how-panel relative overflow-hidden rounded-[28px] border border-slate-200/80 px-5 py-12 sm:px-8 sm:py-14 lg:px-12">
+      <div className="public-how-panel relative overflow-visible rounded-[28px] border border-slate-200/80 px-5 py-12 sm:px-8 sm:py-14 lg:px-12">
         <div className="public-how-glow" aria-hidden />
         <div className="public-how-grid" aria-hidden />
 
@@ -48,17 +48,9 @@ export default function HowItWorksFlow() {
         <ol className="public-how-track relative mt-12 grid gap-5 md:grid-cols-3 md:gap-0">
           {STEPS.map((step, i) => {
             const Icon = step.icon;
-            const isLast = i === STEPS.length - 1;
             return (
               <RevealOnScroll key={step.title} delay={i * 90} className="relative">
                 <li className={`public-how-step public-how-step--${step.tone} group relative h-full`}>
-                  {!isLast ? (
-                    <div className="public-how-connector" aria-hidden>
-                      <span className="public-how-connector-line" />
-                      <ArrowRight className="public-how-connector-arrow" size={16} />
-                    </div>
-                  ) : null}
-
                   <Link
                     href="/how-it-works"
                     className="public-how-card relative flex h-full cursor-pointer flex-col rounded-2xl border border-white/70 bg-white/90 p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-sm sm:p-7"

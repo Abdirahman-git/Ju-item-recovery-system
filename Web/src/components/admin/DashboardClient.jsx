@@ -25,7 +25,11 @@ export default function DashboardClient() {
 
   const onSuccess = useCallback(
     (result) => {
-      setBadgeCounts?.(result.badgeCounts);
+      setBadgeCounts?.((prev) => ({
+        ...(prev || {}),
+        ...(result.badgeCounts || {}),
+        contact: prev?.contact ?? result.badgeCounts?.contact ?? 0,
+      }));
       setSparkPlayKey((k) => k + 1);
     },
     [setBadgeCounts]

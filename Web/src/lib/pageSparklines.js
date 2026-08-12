@@ -70,6 +70,16 @@ export function buildUsersPageSparklines(users = []) {
   };
 }
 
+export function buildContactMessagesSparklines(messages = []) {
+  const getCreated = (m) => m.createdAt || m.created_at;
+  return {
+    inbox: seriesFromItems(messages, getCreated),
+    new: seriesFromItems(messages, getCreated, (m) => m.status === 'new'),
+    read: seriesFromItems(messages, getCreated, (m) => m.status === 'read'),
+    archived: seriesFromItems(messages, getCreated, (m) => m.status === 'archived'),
+  };
+}
+
 export function buildReturnedPageSparklines(items = []) {
   const getReturned = (item) => item.returnedAt || item.returned_at || item.created_at;
   return {
@@ -108,6 +118,7 @@ export function buildRecyclePageSparklines(items = []) {
       getDeleted,
       (item) => item.entityType === 'lost_item' || item.entityType === 'found_item'
     ),
+    contact: seriesFromItems(items, getDeleted, (item) => item.entityType === 'contact_message'),
   };
 }
 

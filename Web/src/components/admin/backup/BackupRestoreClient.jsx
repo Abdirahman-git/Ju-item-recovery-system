@@ -8,6 +8,7 @@ import {
   ChevronDown,
   HardDrive,
   Loader2,
+  Mail,
   RefreshCw,
   RotateCcw,
   Search,
@@ -36,6 +37,7 @@ const FILTER_TABS = [
   { id: 'user', label: 'Users' },
   { id: 'lost_item', label: 'Lost' },
   { id: 'found_item', label: 'Found' },
+  { id: 'contact_message', label: 'Contact' },
 ];
 
 const ENTITY_LABEL = {
@@ -44,6 +46,7 @@ const ENTITY_LABEL = {
   found_item: 'Found item',
   claim: 'Claim',
   returned_item: 'Returned',
+  contact_message: 'Contact message',
 };
 
 function formatWhen(value) {
@@ -166,6 +169,7 @@ function RecycleDetailModal({ item, busy, onClose, onRestore, onPurge }) {
   const imageUrl = getRecycleImageUrl(item);
   const itemType = getRecycleItemType(item);
   const isUser = item.entityType === 'user';
+  const isContact = item.entityType === 'contact_message';
 
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/40 px-4 py-5 backdrop-blur-md">
@@ -199,6 +203,11 @@ function RecycleDetailModal({ item, busy, onClose, onRestore, onPurge }) {
                 <UserRound size={48} strokeWidth={1.5} />
                 <p className="text-sm font-semibold">User account</p>
               </div>
+            ) : isContact ? (
+              <div className="flex h-full min-h-[280px] flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-slate-50 text-slate-400">
+                <Mail size={48} strokeWidth={1.5} />
+                <p className="text-sm font-semibold">Contact message</p>
+              </div>
             ) : (
               <DetailPhotoPanel
                 src={imageUrl}
@@ -223,6 +232,18 @@ function RecycleDetailModal({ item, busy, onClose, onRestore, onPurge }) {
                 <DetailField label="Role" value={row?.role} />
                 <DetailField label="Phone" value={row?.phone || row?.phnum} />
                 <DetailField label="Student ID" value={row?.student_id || row?.studentId || row?.id_number} />
+              </>
+            ) : isContact ? (
+              <>
+                <DetailField
+                  label="Sender"
+                  value={`${row?.first_name || ''} ${row?.last_name || ''}`.trim() || item.title}
+                />
+                <DetailField label="Email" value={row?.email} />
+                <DetailField label="Phone" value={row?.phone} />
+                <DetailField label="Subject" value={row?.subject || item.summary} />
+                <DetailField label="Message" value={row?.message} />
+                <DetailField label="Status" value={row?.status} />
               </>
             ) : (
               <>
@@ -448,7 +469,7 @@ export default function BackupRestoreClient() {
   }, [setActions, clearActions, loadBin, isSuperAdmin]);
 
   const counts = useMemo(() => {
-    const c = { all: items.length, user: 0, lost_item: 0, found_item: 0 };
+    const c = { all: items.length, user: 0, lost_item: 0, found_item: 0, contact_message: 0 };
     items.forEach((item) => {
       if (c[item.entityType] != null) c[item.entityType] += 1;
     });
@@ -474,7 +495,14 @@ export default function BackupRestoreClient() {
       setItems((prev) => prev.filter((row) => row.id !== id));
       setSparkPlayKey((k) => k + 1);
       setDetailItem(null);
-      invalidateAdminCaches('admin:users', 'admin:items', 'admin:dashboard', 'admin:reports', 'admin:drafts');
+      invalidateAdminCaches(
+        'admin:users',
+        'admin:items',
+        'admin:dashboard',
+        'admin:reports',
+        'admin:drafts',
+        'admin:contact-messages'
+      );
       setBanner({ type: 'success', title: 'Restored', message: 'The record is back in the live system.' });
     } catch (error) {
       setBanner({ type: 'error', title: 'Restore failed', message: error?.message || 'Could not restore.' });
@@ -513,7 +541,7 @@ export default function BackupRestoreClient() {
       <ResultBanner state={banner} onClose={() => setBanner(null)} />
 
       <section className="space-y-4">
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               compact
               playKey={sparkPlayKey}
@@ -522,7 +550,7 @@ export default function BackupRestoreClient() {
               value={counts.all}
               label="Total Deleted"
               trendLabel={`${itemCount} items`}
-              subLabel={`${counts.user} users`}
+              subLabel={`${counts.user} users · ${counts.contact_message} contact`}
               sparkData={sparklines.total}
             />
             <StatCard
@@ -546,6 +574,17 @@ export default function BackupRestoreClient() {
               trendLabel="Lost & found"
               subLabel="Can be restored"
               sparkData={sparklines.inventory}
+            />
+            <StatCard
+              compact
+              playKey={sparkPlayKey}
+              sparkIndex={3}
+              icon="clock"
+              value={counts.contact_message}
+              label="Contact Messages"
+              trendLabel="LOFO desk inbox"
+              subLabel="Can be restored"
+              sparkData={sparklines.contact}
             />
           </div>
 
@@ -648,13 +687,17 @@ export default function BackupRestoreClient() {
               <div className="px-5 py-16 text-center">
                 <HardDrive size={36} className="mx-auto text-slate-300" />
                 <p className="mt-3 text-sm font-bold text-slate-700">No deleted records</p>
-                <p className="mt-1 text-sm text-slate-500">Deleted users and items will appear here.</p>
+                <p className="mt-1 text-sm text-slate-500">Deleted users, items, and contact messages will appear here.</p>
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="px-5 py-16 text-center">
                 <Search size={36} className="mx-auto text-slate-300" />
                 <p className="mt-3 text-sm font-bold text-slate-700">No matching entries</p>
-                <p className="mt-1 text-sm text-slate-500">Try another search or clear filters.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {entityFilter === 'contact_message'
+                    ? 'Delete a message from Contact Messages to see it here. Then refresh this page.'
+                    : 'Try another search or clear filters.'}
+                </p>
               </div>
             ) : (
               <ul className="divide-y divide-slate-100">
@@ -662,6 +705,7 @@ export default function BackupRestoreClient() {
                   const imageUrl = getRecycleImageUrl(item);
                   const itemType = getRecycleItemType(item);
                   const isUser = item.entityType === 'user';
+                  const isContact = item.entityType === 'contact_message';
 
                   return (
                     <li
@@ -676,6 +720,10 @@ export default function BackupRestoreClient() {
                         {isUser ? (
                           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
                             <UserRound size={18} />
+                          </div>
+                        ) : isContact ? (
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#1A56DB]/10 text-[#1A56DB]">
+                            <Mail size={18} />
                           </div>
                         ) : (
                           <ItemThumbnail src={imageUrl} alt={item.title} itemType={itemType} />

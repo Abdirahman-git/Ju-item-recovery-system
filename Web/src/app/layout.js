@@ -1,7 +1,8 @@
 import { Inter } from 'next/font/google';
-import Script from 'next/script';
+import { cookies, headers } from 'next/headers';
 import './globals.css';
 import { SessionProvider } from '@/context/SessionProvider';
+import ExtensionErrorGuard from '@/components/ExtensionErrorGuard';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -10,10 +11,10 @@ const inter = Inter({
 
 export const metadata = {
   title: {
-    default: 'JU LOFO — Jazeera University Lost & Found',
+    default: 'JU LOFO · Jazeera University Lost & Found',
     template: '%s · JU LOFO',
   },
-  description: 'Jazeera University Lost & Found — public browse and admin console.',
+  description: 'Jazeera University Lost & Found. Public browse and admin console.',
   icons: {
     icon: [{ url: '/jazeera_logo.png', type: 'image/png' }],
     shortcut: [{ url: '/jazeera_logo.png', type: 'image/png' }],
@@ -21,50 +22,26 @@ export const metadata = {
   },
 };
 
-const extensionErrorGuard = `
-(() => {
-  const METAMASK_EXTENSION_ID = 'nkbihfbeogaeaoehlefnkodbefgpgknn';
+function isAdminOrLoginPath(pathname = '') {
+  return pathname.startsWith('/admin') || pathname.startsWith('/login');
+}
 
-  function isMetaMaskConnectionError(value, source) {
-    const message = value && value.message ? value.message : String(value || '');
-    const stack = value && value.stack ? value.stack : '';
-    const location = source || '';
+export default async function RootLayout({ children }) {
+  const jar = await cookies();
+  const hdrs = await headers();
+  const pathname = hdrs.get('x-pathname') || '';
+  const mode = jar.get('ju-public-mode')?.value;
+  // Public dark mode must never paint admin/login — keep console light.
+  const dark = mode === 'dark' && !isAdminOrLoginPath(pathname);
 
-    return (
-      message.includes('Failed to connect to MetaMask') &&
-      (
-        stack.includes(METAMASK_EXTENSION_ID) ||
-        location.includes(METAMASK_EXTENSION_ID) ||
-        stack.includes('MetaMask') ||
-        location.includes('metamask')
-      )
-    );
-  }
-
-  window.addEventListener('unhandledrejection', (event) => {
-    if (isMetaMaskConnectionError(event.reason)) {
-      event.preventDefault();
-    }
-  }, true);
-
-  window.addEventListener('error', (event) => {
-    if (
-      isMetaMaskConnectionError(event.error, event.filename) ||
-      isMetaMaskConnectionError(event.message, event.filename)
-    ) {
-      event.preventDefault();
-    }
-  }, true);
-})();
-`;
-
-export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${inter.variable} h-full`}>
-      <body className="min-h-full antialiased">
-        <Script id="extension-error-guard" strategy="beforeInteractive">
-          {extensionErrorGuard}
-        </Script>
+    <html
+      lang="en"
+      className={`${inter.variable} h-full antialiased${dark ? ' public-dark' : ''}`}
+      suppressHydrationWarning
+    >
+      <body className="min-h-full antialiased [-webkit-font-smoothing:antialiased] [-moz-osx-font-smoothing:grayscale]">
+        <ExtensionErrorGuard />
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>

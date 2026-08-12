@@ -3,7 +3,7 @@
 import { createContext, useContext } from 'react';
 
 export const BadgeContext = createContext({
-  badgeCounts: { pending: 0, claims: 0 },
+  badgeCounts: { pending: 0, claims: 0, contact: 0 },
   setBadgeCounts: () => {},
   bumpBadge: () => {},
 });
@@ -16,7 +16,7 @@ export function useAdminBadges() {
 export function createBadgeHelpers(setBadgeCounts) {
   const bumpBadge = (key, delta = -1) => {
     setBadgeCounts((prev) => {
-      const current = prev || { pending: 0, claims: 0 };
+      const current = prev || { pending: 0, claims: 0, contact: 0 };
       const nextValue = Math.max(0, (Number(current[key]) || 0) + delta);
       if (current[key] === nextValue) return current;
       return { ...current, [key]: nextValue };

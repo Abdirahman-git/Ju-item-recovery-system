@@ -10,6 +10,7 @@ import {
   FileText,
   Gift,
   Hourglass,
+  Mail,
   RefreshCw,
   RotateCcw,
   Shield,
@@ -124,6 +125,9 @@ function buildStatusOptions(rows = []) {
     rejected: 'Rejected',
     active: 'Active',
     admin: 'Admin',
+    new: 'New',
+    read: 'Read',
+    archived: 'Archived',
   };
 
   return [
@@ -174,6 +178,7 @@ const SOURCE_ICONS = {
   secure: Shield,
   recycle: Database,
   archived: Archive,
+  contact: Mail,
 };
 
 const REPORT_COLUMNS = {
@@ -268,6 +273,17 @@ const REPORT_COLUMNS = {
     { key: 'archivedBy', label: 'Archived By' },
     { key: 'reportedAt', label: 'Archived' },
   ],
+  contact: [
+    { key: 'name', label: 'Sender' },
+    { key: 'email', label: 'Email' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'studentId', label: 'Student ID' },
+    { key: 'subject', label: 'Subject' },
+    { key: 'item', label: 'Item' },
+    { key: 'place', label: 'Campus place' },
+    { key: 'status', label: 'Status' },
+    { key: 'submittedAt', label: 'Submitted' },
+  ],
 };
 
 function formatGeneratedAt(value) {
@@ -298,20 +314,28 @@ function formatStatusLabel(value) {
   if (normalized === 'rejected') return 'Rejected';
   if (normalized === 'active') return 'Active';
   if (normalized === 'admin') return 'Admin';
+  if (normalized === 'new') return 'New';
+  if (normalized === 'read') return 'Read';
   return value || '—';
 }
 
 function statusTone(value) {
   const normalized = String(value || '').toLowerCase();
-  if (normalized === 'active' || normalized === 'approved' || normalized === 'live') {
+  if (normalized === 'active' || normalized === 'approved' || normalized === 'live' || normalized === 'read') {
     return 'bg-emerald-50 text-emerald-700';
   }
-  if (normalized === 'pending' || normalized === 'pending_review' || normalized === 'draft') {
+  if (
+    normalized === 'pending' ||
+    normalized === 'pending_review' ||
+    normalized === 'draft' ||
+    normalized === 'new'
+  ) {
     return 'bg-amber-50 text-amber-700';
   }
   if (normalized === 'rejected') return 'bg-red-50 text-red-600';
   if (normalized === 'deleted') return 'bg-red-50 text-red-600';
   if (normalized === 'admin') return 'bg-violet-50 text-violet-700';
+  if (normalized === 'archived') return 'bg-slate-100 text-slate-600';
   return 'bg-slate-100 text-slate-600';
 }
 
@@ -350,6 +374,10 @@ function exportReportsCsv(view) {
     ['Pending Reports', view.summary.pendingReports],
     ['Ownership Claims', view.summary.totalClaims],
     ['Recovery Rate %', view.summary.recoveryRate],
+    ['Contact Messages', view.summary.contactMessages ?? 0],
+    ['Contact New', view.summary.contactNew ?? 0],
+    ['Contact Read', view.summary.contactRead ?? 0],
+    ['Contact Archived', view.summary.contactArchived ?? 0],
   ];
 
   const csv = rows
@@ -617,7 +645,7 @@ export default function SystemReportsClient() {
   );
 
   const filteredCategories = useMemo(() => {
-    if (!filteredRows.length || filters.sourceId === 'users' || filters.sourceId === 'claims') {
+    if (!filteredRows.length || filters.sourceId === 'users' || filters.sourceId === 'claims' || filters.sourceId === 'contact') {
       return categories.slice(0, 8);
     }
     const map = {};

@@ -61,6 +61,10 @@ const CUSTOM_META = {
     title: 'Archived Items',
     subtitle: 'Stale unclaimed items removed from the student app feed (Super Admin only).',
   },
+  '/admin/contact-messages': {
+    title: 'Contact Messages',
+    subtitle: 'Inbox of public contact form submissions from the JU LOFO website.',
+  },
 };
 
 function metaFromNav(pathname) {

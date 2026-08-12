@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, MapPin, Package, Smartphone, Tag } from 'lucide-react';
+import { ArrowLeft, MapPin, Package, ShieldAlert, Smartphone, Tag } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import {
   fetchPublicLiveItemById,
@@ -22,7 +22,9 @@ export async function generateMetadata({ params }) {
     if (!item) return { title: 'Item not found' };
     return {
       title: item.title,
-      description: `${item.itemType === 'found' ? 'Found' : 'Lost'} on campus — ${item.category}`,
+      description: item.isSecure
+        ? `Secure campus hold · ${item.category}`
+        : `${item.itemType === 'found' ? 'Found' : 'Lost'} on campus, ${item.category}`,
     };
   } catch {
     return { title: 'Item' };
@@ -45,76 +47,106 @@ export default async function PublicItemDetailPage({ params }) {
   if (!item) notFound();
 
   const isFound = item.itemType === 'found';
+  const isSecure = Boolean(item.isSecure);
 
   return (
-    <section className="mx-auto max-w-4xl px-4 pb-20 pt-10 sm:px-6 sm:pt-14">
+    <section className="mx-auto max-w-2xl px-4 pb-14 pt-8 sm:px-6 sm:pt-10">
       <Link
         href="/browse"
-        className="inline-flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-600 transition hover:text-[#1A56DB]"
+        className="public-press inline-flex min-h-10 cursor-pointer items-center gap-1.5 text-sm font-bold text-slate-600 transition-[transform,color] duration-200 hover:text-[#1A56DB]"
       >
-        <ArrowLeft size={16} />
+        <ArrowLeft size={15} />
         Back to Browse
       </Link>
 
-      <article className="mt-6 overflow-hidden rounded-[28px] border border-slate-200/90 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.06)] animate-fade-in">
-        <div className="relative aspect-[16/10] bg-slate-100 sm:aspect-[2/1]">
-          {item.imageUrl ? (
-            <SafeRemoteImage
-              src={item.imageUrl}
-              alt={item.title}
-              fill
-              className="object-cover"
-              sizes="(max-width: 896px) 100vw, 896px"
-              priority
-            />
-          ) : (
+      <article className="public-detail-card relative z-[1] mt-4 overflow-hidden rounded-[24px] bg-white animate-fade-in">
+        <div className="relative overflow-hidden bg-slate-100">
+          {isSecure || !item.imageUrl ? (
             <div
-              className={`flex h-full w-full items-center justify-center ${
-                isFound ? 'bg-blue-50 text-[#1A56DB]' : 'bg-amber-50 text-amber-600'
+              className={`relative flex aspect-[4/3] w-full items-center justify-center ${
+                isSecure
+                  ? 'bg-amber-50 text-amber-700'
+                  : isFound
+                    ? 'bg-blue-50 text-[#1A56DB]'
+                    : 'bg-amber-50 text-amber-600'
               }`}
             >
-              <Package size={56} strokeWidth={1.25} />
+              {isSecure ? (
+                <span className="relative inline-flex">
+                  <ShieldAlert size={56} strokeWidth={1.35} />
+                  <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
+                    !
+                  </span>
+                </span>
+              ) : (
+                <Package size={48} strokeWidth={1.25} />
+              )}
+            </div>
+          ) : (
+            <div className="relative aspect-[4/3] w-full">
+              <SafeRemoteImage
+                src={item.imageUrl}
+                alt={item.title}
+                fill
+                className="object-cover object-center"
+                sizes="(max-width: 672px) 100vw, 672px"
+                priority
+              />
             </div>
           )}
           <span
-            className={`absolute left-4 top-4 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow ${
-              isFound ? 'bg-[#1A56DB]' : 'bg-amber-500'
+            className={`absolute left-3 top-3 z-[2] rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.18)] ${
+              isSecure ? 'bg-amber-600' : isFound ? 'bg-[#1A56DB]' : 'bg-amber-500'
             }`}
           >
-            {isFound ? 'Found' : 'Lost'}
+            {isSecure ? 'Secure' : isFound ? 'Found' : 'Lost'}
           </span>
         </div>
 
-        <div className="p-6 sm:p-8">
-          <h1 className="text-3xl font-black tracking-tight text-[#0F172A] sm:text-4xl">{item.title}</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-400">{formatPublicDate(item.reportedAt)}</p>
+        <div className="p-5 sm:p-6">
+          <h1 className="text-balance text-2xl font-black tracking-tight text-[#0F172A] sm:text-3xl">
+            {item.title}
+          </h1>
+          <p className="mt-1.5 text-sm font-semibold tabular-nums text-slate-400">
+            {formatPublicDate(item.reportedAt)}
+          </p>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">
-              <Tag size={13} />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+              <Tag size={12} />
               {item.category}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-[#1A56DB]">
-              <MapPin size={13} />
+            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#1A56DB]">
+              <MapPin size={12} />
               {item.location}
             </span>
           </div>
 
-          <div className="mt-8">
-            <h2 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">Description</h2>
-            <p className="mt-2 text-base font-medium leading-relaxed text-slate-700">
+          <div className="mt-5">
+            <h2 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+              {isSecure ? 'Public notice' : 'Description'}
+            </h2>
+            <p className="mt-1.5 text-pretty text-sm font-medium leading-relaxed text-slate-600">
               {item.description || 'No additional description provided.'}
             </p>
           </div>
 
-          <div className="mt-10 rounded-2xl border border-[#1A56DB]/15 bg-[#1A56DB]/5 p-5 sm:p-6">
-            <h3 className="text-lg font-black text-[#0F172A]">Is this yours?</h3>
-            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">
-              Contact details are hidden on the public site for safety. Open the JU LOFO mobile app to claim this item or follow the verified ownership flow.
+          <div
+            className={`public-detail-claim mt-6 rounded-[16px] p-4 ${
+              isSecure ? 'bg-amber-50' : 'bg-[rgba(26,86,219,0.06)]'
+            }`}
+          >
+            <h3 className="text-base font-black text-[#0F172A]">
+              {isSecure ? 'Held at campus security' : 'Is this yours?'}
+            </h3>
+            <p className="mt-1.5 text-pretty text-sm font-medium leading-relaxed text-slate-600">
+              {isSecure
+                ? 'Photos stay private for safety. Open the JU LOFO app to follow up with the Lost & Found desk.'
+                : 'Contact details stay private for safety. Open the JU LOFO mobile app to claim this item.'}
             </p>
             <a
-              href="#get-app"
-              className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#1A56DB] px-5 py-3 text-sm font-black text-white shadow-md shadow-blue-500/25 transition hover:bg-[#1E40AF] active:scale-[0.98]"
+              href="/#get-app"
+              className="public-press mt-4 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full bg-[#1A56DB] pl-5 pr-4 text-sm font-black text-white shadow-[0_1px_0_rgba(255,255,255,0.18)_inset,0_10px_24px_rgba(26,86,219,0.28)] transition-[transform,background-color,box-shadow] duration-200 hover:bg-[#1E40AF]"
             >
               <Smartphone size={16} />
               Open in app to claim / contact

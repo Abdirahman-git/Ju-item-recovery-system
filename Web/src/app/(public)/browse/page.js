@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Package, Search } from 'lucide-react';
 import ItemCard, { ItemCardSkeleton } from '@/components/public/ItemCard';
-import SectionHeading from '@/components/public/SectionHeading';
+import CategorySelect from '@/components/public/CategorySelect';
+import RevealOnScroll from '@/components/public/RevealOnScroll';
 import { fetchPublicLiveItems, toPublicItemCard } from '@/lib/publicItems';
 import { PUBLIC_CATEGORIES, collectCategoriesFromItems, mergeCategoryLists } from '@/lib/categories';
 
@@ -68,78 +69,103 @@ export default function BrowsePage() {
 
   const shown = filtered.slice(0, visible);
   const canLoadMore = visible < filtered.length;
+  const hasActiveFilters =
+    typeFilter !== 'all' || category !== 'all' || Boolean(debouncedQuery);
+
+  const clearFilters = () => {
+    setQuery('');
+    setTypeFilter('all');
+    setCategory('all');
+  };
 
   return (
-    <section className="mx-auto max-w-6xl px-4 pb-20 pt-12 sm:px-6 sm:pt-16">
-      <SectionHeading
-        align="left"
-        eyebrow="Browse"
-        title="Campus lost & found board"
-        subtitle="Search approved LIVE listings from the same database as the JU LOFO mobile app."
-        className="!mx-0 max-w-3xl"
-      />
-
-      <div className="mt-8 space-y-4">
-        <label className="relative block">
-          <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, category, or place…"
-            className="w-full cursor-text rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm font-medium text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-[#1A56DB] focus:ring-4 focus:ring-[#1A56DB]/15"
-          />
-        </label>
-
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Type filter">
-          {TYPE_FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setTypeFilter(f.id)}
-              className={`cursor-pointer rounded-full px-4 py-2 text-sm font-bold transition active:scale-[0.98] ${
-                typeFilter === f.id
-                  ? 'bg-[#1A56DB] text-white shadow-md shadow-blue-500/25'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-[#1A56DB]'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+    <section className="mx-auto max-w-7xl px-4 pb-20 pt-12 sm:px-6 sm:pt-16 xl:px-8">
+      <RevealOnScroll>
+        <div className="max-w-3xl">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#1A56DB]">
+            Browse
+          </p>
+          <h1 className="mt-2.5 text-balance text-3xl font-extrabold tracking-tight text-[#0F172A] sm:text-4xl sm:leading-tight">
+            Campus lost & found board
+          </h1>
+          <p className="mt-3 max-w-2xl text-pretty text-base font-medium leading-relaxed text-slate-600">
+            Search approved LIVE listings from the same database as the JU LOFO mobile app.
+          </p>
         </div>
+      </RevealOnScroll>
 
-        <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Category filter">
-          <button
-            type="button"
-            onClick={() => setCategory('all')}
-            className={`shrink-0 cursor-pointer rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
-              category === 'all'
-                ? 'bg-slate-900 text-white'
-                : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-            }`}
-          >
-            All categories
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setCategory(cat)}
-              className={`shrink-0 cursor-pointer rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
-                category === cat
-                  ? 'bg-slate-900 text-white'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+      <RevealOnScroll delay={70} className="relative z-20">
+        <div className="public-browse-toolbar mt-8 overflow-visible rounded-[20px] border border-slate-200/80 bg-white p-4 shadow-[0_1px_1px_rgba(15,23,42,0.03),0_12px_32px_rgba(15,23,42,0.05)] sm:p-5">
+          <label className="relative block">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              Search
+            </span>
+            <span className="relative block">
+              <Search
+                size={18}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name, category, or place…"
+                className="w-full cursor-text rounded-xl border border-slate-200 bg-slate-50/80 py-3 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#1A56DB] focus:bg-white focus:ring-4 focus:ring-[#1A56DB]/12"
+              />
+            </span>
+          </label>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_minmax(14rem,18rem)] sm:items-end">
+            <div>
+              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Type
+              </span>
+              <div
+                className="inline-flex w-full rounded-xl border border-slate-200 bg-slate-50/80 p-1 sm:w-auto"
+                role="group"
+                aria-label="Type filter"
+              >
+                {TYPE_FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setTypeFilter(f.id)}
+                    className={`public-press min-h-10 flex-1 cursor-pointer rounded-[10px] px-4 text-sm font-bold transition-[background-color,color,box-shadow,transform] duration-200 sm:flex-none ${
+                      typeFilter === f.id
+                        ? 'bg-[#1A56DB] text-white shadow-[0_6px_16px_rgba(26,86,219,0.28)]'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-[#1A56DB]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <CategorySelect
+              value={category}
+              options={categories}
+              onChange={setCategory}
+            />
+          </div>
+
+          {hasActiveFilters ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="public-press cursor-pointer text-xs font-bold text-[#1A56DB] transition-opacity hover:opacity-80"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : null}
         </div>
-      </div>
+      </RevealOnScroll>
 
       <div className="mt-10">
         {loading ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <ItemCardSkeleton key={i} />
             ))}
@@ -147,13 +173,13 @@ export default function BrowsePage() {
         ) : null}
 
         {!loading && error ? (
-          <div className="rounded-2xl border border-red-100 bg-red-50 px-6 py-12 text-center">
+          <div className="rounded-[20px] border border-red-100 bg-red-50 px-6 py-12 text-center">
             <p className="text-base font-bold text-red-700">Something went wrong</p>
             <p className="mt-2 text-sm font-medium text-red-600/80">{error}</p>
             <button
               type="button"
               onClick={load}
-              className="mt-5 cursor-pointer rounded-full bg-red-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-red-700"
+              className="public-press mt-5 cursor-pointer rounded-full bg-red-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-red-700"
             >
               Try again
             </button>
@@ -161,24 +187,37 @@ export default function BrowsePage() {
         ) : null}
 
         {!loading && !error && filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center">
+          <div className="rounded-[20px] border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
               <Package size={28} />
             </div>
             <p className="mt-4 text-base font-bold text-slate-700">No matching items</p>
             <p className="mt-2 text-sm font-medium text-slate-500">
-              Try another search or clear filters. Only approved LIVE items appear here.
+              Try another search or clear filters. Only approved LIVE items appear in this board.
             </p>
+            {hasActiveFilters ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="public-press mt-5 cursor-pointer rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-[#1A56DB]"
+              >
+                Clear filters
+              </button>
+            ) : null}
           </div>
         ) : null}
 
         {!loading && !error && shown.length > 0 ? (
           <>
-            <p className="mb-4 text-sm font-semibold text-slate-500">
-              Showing <span className="tabular-nums text-slate-800">{shown.length}</span> of{' '}
-              <span className="tabular-nums text-slate-800">{filtered.length}</span> items
-            </p>
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-500">
+                Showing{' '}
+                <span className="tabular-nums text-slate-800">{shown.length}</span> of{' '}
+                <span className="tabular-nums text-slate-800">{filtered.length}</span> items
+              </p>
+            </div>
+            {/* ItemCard left unchanged */}
+            <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
               {shown.map((item, i) => (
                 <ItemCard key={item.slug} item={item} index={i} />
               ))}
@@ -188,7 +227,7 @@ export default function BrowsePage() {
                 <button
                   type="button"
                   onClick={() => setVisible((v) => v + PAGE_SIZE)}
-                  className="cursor-pointer rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-bold text-[#1A56DB] shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 active:scale-[0.98]"
+                  className="public-press cursor-pointer rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-bold text-[#1A56DB] shadow-[0_1px_1px_rgba(15,23,42,0.04),0_8px_20px_rgba(15,23,42,0.05)] transition-[transform,border-color,box-shadow] duration-200 hover:border-blue-200 hover:shadow-[0_12px_28px_rgba(26,86,219,0.12)]"
                 >
                   Load more
                 </button>

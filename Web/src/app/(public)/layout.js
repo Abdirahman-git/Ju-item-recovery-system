@@ -1,9 +1,11 @@
 import PublicNavbar from '@/components/public/PublicNavbar';
 import PublicFooter from '@/components/public/PublicFooter';
+import ParticleField from '@/components/public/ParticleField';
+import SmoothScrollAnchors from '@/components/public/SmoothScrollAnchors';
 
 export const metadata = {
   title: {
-    default: 'JU LOFO — Jazeera University Lost & Found',
+    default: 'JU LOFO · Jazeera University Lost & Found',
     template: '%s · JU LOFO',
   },
   description:
@@ -13,14 +15,11 @@ export const metadata = {
 export default function PublicLayout({ children }) {
   return (
     <div className="public-shell">
-      <div className="public-atmosphere" aria-hidden>
-        <div className="public-orb public-orb-a" />
-        <div className="public-orb public-orb-b" />
-        <div className="public-orb public-orb-c" />
-      </div>
+      <ParticleField />
+      <SmoothScrollAnchors />
       <PublicNavbar />
-      <main className="relative z-[1] pt-[72px]">{children}</main>
-      <div className="relative z-[1]">
+      <main className="public-main relative z-[1] bg-transparent">{children}</main>
+      <div className="relative z-[1] bg-transparent">
         <PublicFooter />
       </div>
     </div>
