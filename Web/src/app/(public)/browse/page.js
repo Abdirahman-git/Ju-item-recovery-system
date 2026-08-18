@@ -79,7 +79,7 @@ export default function BrowsePage() {
   };
 
   return (
-    <section className="mx-auto max-w-7xl px-4 pb-20 pt-12 sm:px-6 sm:pt-16 xl:px-8">
+    <section className="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6 sm:pb-20 sm:pt-16 xl:px-8">
       <RevealOnScroll>
         <div className="max-w-3xl">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#1A56DB]">
@@ -95,7 +95,7 @@ export default function BrowsePage() {
       </RevealOnScroll>
 
       <RevealOnScroll delay={70} className="relative z-20">
-        <div className="public-browse-toolbar mt-8 overflow-visible rounded-[20px] border border-slate-200/80 bg-white p-4 shadow-[0_1px_1px_rgba(15,23,42,0.03),0_12px_32px_rgba(15,23,42,0.05)] sm:p-5">
+        <div className="public-browse-toolbar mt-5 overflow-visible rounded-[18px] border border-slate-200/80 bg-white p-3 shadow-[0_1px_1px_rgba(15,23,42,0.03),0_12px_32px_rgba(15,23,42,0.05)] sm:mt-8 sm:rounded-[20px] sm:p-5">
           <label className="relative block">
             <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
               Search
@@ -165,7 +165,7 @@ export default function BrowsePage() {
 
       <div className="mt-10">
         {loading ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <ItemCardSkeleton key={i} />
             ))}
@@ -217,7 +217,7 @@ export default function BrowsePage() {
               </p>
             </div>
             {/* ItemCard left unchanged */}
-            <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
               {shown.map((item, i) => (
                 <ItemCard key={item.slug} item={item} index={i} />
               ))}

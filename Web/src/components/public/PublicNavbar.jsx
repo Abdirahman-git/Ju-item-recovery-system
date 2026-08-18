@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, ChevronRight, Home, Info, MapPin, Mail, Menu, Moon, Phone, Search, Smartphone, Sun, Workflow, X } from 'lucide-react';
+import { ChevronDown, Home, Info, MapPin, Mail, Menu, Moon, Phone, Search, Smartphone, Sun, Workflow, X } from 'lucide-react';
 
 const LINKS = [
   { href: '/', labelEn: 'Home', labelSo: 'Hoyga', exact: true, icon: Home },
@@ -35,16 +35,15 @@ function isActive(pathname, href, exact) {
 }
 
 function readStoredDark() {
-  if (typeof document === 'undefined') return false;
-  if (document.documentElement.classList.contains('public-dark')) return true;
+  if (typeof document === 'undefined') return true;
   try {
     const saved = localStorage.getItem('ju-public-mode');
-    if (saved === 'dark') return true;
     if (saved === 'light') return false;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark') return true;
   } catch {
-    return false;
+    /* ignore */
   }
+  return true;
 }
 
 function syncShellDark(isDark) {
@@ -58,7 +57,7 @@ export default function PublicNavbar() {
   const [open, setOpen] = useState(false);
   const [lang, setLang] = useState('en');
   const [langOpen, setLangOpen] = useState(false);
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(true);
   const [modeReady, setModeReady] = useState(false);
 
   const applyMode = (isDark) => {
@@ -127,7 +126,7 @@ export default function PublicNavbar() {
   return (
     <>
       <header
-        className={`public-nav fixed inset-x-0 top-0 z-50 px-3 pb-2 pt-2 sm:px-5 sm:pb-2.5 sm:pt-2.5 xl:px-8 ${
+        className={`public-nav fixed inset-x-0 top-0 z-[70] px-3 pb-2 pt-2 sm:px-5 sm:pb-2.5 sm:pt-2.5 xl:px-8 ${
           scrolled ? 'public-nav--scrolled' : ''
         }`}
       >
@@ -299,84 +298,8 @@ export default function PublicNavbar() {
             aria-label="Close menu overlay"
             onClick={() => setOpen(false)}
           />
-          <div className="public-mobile-drawer relative z-10 mx-3 mt-[max(0.75rem,env(safe-area-inset-top))] max-h-[min(100dvh-1.25rem,44rem)] overflow-y-auto sm:mx-4">
-            <div className="public-mobile-drawer-glow" aria-hidden />
-
-            <div className="public-mobile-drawer-head">
-              <div className="flex min-w-0 items-center gap-3">
-                <Image
-                  src="/jazeera_logo.png"
-                  alt=""
-                  width={40}
-                  height={40}
-                  className="public-brand-logo h-10 w-10 shrink-0 object-contain"
-                />
-                <div className="min-w-0">
-                  <p className="truncate text-[15px] font-black tracking-tight text-[#0F172A]">
-                    JU <span className="text-[#1A56DB]">Lost</span>
-                  </p>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#1A56DB]">
-                    {so ? 'Liiska menu' : 'Campus menu'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="public-mobile-close"
-                aria-label="Close menu"
-                onClick={() => setOpen(false)}
-              >
-                <X size={18} strokeWidth={2.3} />
-              </button>
-            </div>
-
-            <div className="public-mobile-meta">
-              <a href="https://maps.google.com/?q=Jazeera+University+Mogadishu" className="public-mobile-meta-row">
-                <span className="public-mobile-meta-icon">
-                  <MapPin size={14} strokeWidth={2.3} />
-                </span>
-                <span>Mogadishu, Somalia</span>
-              </a>
-              <a href="mailto:support@jazeerauniversity.edu.so" className="public-mobile-meta-row">
-                <span className="public-mobile-meta-icon">
-                  <Mail size={14} strokeWidth={2.3} />
-                </span>
-                <span className="truncate">support@jazeerauniversity.edu.so</span>
-              </a>
-
-              <div className="public-mobile-controls">
-                <div className="public-lang-seg" role="group" aria-label="Language">
-                  {LANGS.map((item) => {
-                    const active = lang === item.code;
-                    return (
-                      <button
-                        key={item.code}
-                        type="button"
-                        className={`public-lang-seg-btn ${active ? 'public-lang-seg-btn--active' : ''}`}
-                        onClick={() => setLang(item.code)}
-                      >
-                        <LangFlag
-                          src={item.flagSrc}
-                          alt={item.flagAlt}
-                          className={active ? 'ring-white/35' : ''}
-                        />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  type="button"
-                  onClick={toggleMode}
-                  className={`public-mode-btn ${dark ? 'public-mode-btn--dark' : ''}`}
-                  aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-                >
-                  {dark ? <Sun size={18} strokeWidth={2.2} /> : <Moon size={18} strokeWidth={2.2} />}
-                </button>
-              </div>
-            </div>
-
-            <nav className="public-mobile-nav" aria-label="Mobile">
+          <div className="public-mobile-drawer relative z-10">
+            <nav className="public-mobile-grid" aria-label="Mobile">
               {LINKS.map((link, i) => {
                 const active = isActive(pathname, link.href, link.exact);
                 const Icon = link.icon;
@@ -384,37 +307,61 @@ export default function PublicNavbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    style={{ animationDelay: `${70 + i * 55}ms` }}
+                    style={{ animationDelay: `${40 + i * 70}ms` }}
                     onClick={() => setOpen(false)}
                     className={`public-drawer-link ${active ? 'public-drawer-link--active' : ''}`}
                   >
                     <span className="public-drawer-link-icon">
-                      <Icon size={17} strokeWidth={2.2} />
+                      <Icon size={18} strokeWidth={2.15} />
                     </span>
-                    <span className="flex-1">{so ? link.labelSo : link.labelEn}</span>
-                    <ChevronRight
-                      size={16}
-                      className={`public-drawer-chevron ${active ? 'opacity-100' : ''}`}
-                      strokeWidth={2.2}
-                    />
+                    <span className="public-drawer-link-label">{so ? link.labelSo : link.labelEn}</span>
                   </Link>
                 );
               })}
             </nav>
 
-            <div className="public-mobile-cta-wrap">
-              <a
-                href="/#get-app"
-                onClick={() => setOpen(false)}
-                className="public-mobile-cta public-press"
+            <div className="public-mobile-toolbar">
+              <div className="public-lang-seg" role="group" aria-label="Language">
+                {LANGS.map((item) => {
+                  const active = lang === item.code;
+                  return (
+                    <button
+                      key={item.code}
+                      type="button"
+                      className={`public-lang-seg-btn ${active ? 'public-lang-seg-btn--active' : ''}`}
+                      onClick={() => setLang(item.code)}
+                    >
+                      <LangFlag
+                        src={item.flagSrc}
+                        alt={item.flagAlt}
+                        className={active ? 'ring-white/35' : ''}
+                      />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={toggleMode}
+                className={`public-mode-btn ${dark ? 'public-mode-btn--dark' : ''}`}
+                aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
               >
-                <Smartphone size={17} strokeWidth={2.2} />
-                {so ? 'Soo deg app' : 'Get the App'}
-              </a>
-              <p className="public-mobile-cta-note">
-                {so ? 'Free · Ardayda & shaqaalaha JU' : 'Free · Students & staff only'}
-              </p>
+                {dark ? <Sun size={18} strokeWidth={2.2} /> : <Moon size={18} strokeWidth={2.2} />}
+              </button>
             </div>
+
+            <a href="/#get-app" onClick={() => setOpen(false)} className="public-mobile-cta public-press">
+              <Smartphone size={16} strokeWidth={2.2} />
+              {so ? 'Soo deg app' : 'Get the App'}
+            </a>
+
+            <p className="public-mobile-foot">
+              <MapPin size={11} strokeWidth={2.4} />
+              Mogadishu
+              <span aria-hidden>·</span>
+              <a href="mailto:support@jazeerauniversity.edu.so">support@jazeerauniversity.edu.so</a>
+            </p>
           </div>
         </div>
       ) : null}

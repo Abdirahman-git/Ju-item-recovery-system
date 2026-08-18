@@ -2,7 +2,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   ArrowRight,
+  BookOpen,
+  Building2,
   CalendarClock,
+  GraduationCap,
   Images,
   MapPin,
   Search,
@@ -16,7 +19,7 @@ import RevealOnScroll from '@/components/public/RevealOnScroll';
 export const metadata = {
   title: 'About',
   description:
-    'About JU Item Recovery (LOFO): Jazeera University’s secure mobile lost & found for reporting, searching, and recovering campus belongings.',
+    'About Jazeera University and JU LOFO, the official campus lost & found for students in Mogadishu.',
 };
 
 const FEATURES = [
@@ -52,10 +55,40 @@ const FEATURES = [
   },
 ];
 
-const PILLARS = [
-  { icon: ShieldCheck, label: 'Admin verified', hint: 'Every listing reviewed' },
-  { icon: MapPin, label: 'Campus only', hint: 'Jazeera University' },
-  { icon: Users, label: 'Privacy first', hint: 'Contact stays in-app' },
+const MISSION_POINTS = [
+  {
+    icon: Smartphone,
+    title: 'Report & search',
+    text: 'Lost or found items from the student app.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Verified accounts',
+    text: 'University directory and OTP before anything goes live.',
+  },
+  {
+    icon: Users,
+    title: 'Fair admin review',
+    text: 'Claims handled through a structured campus process.',
+  },
+];
+
+const UNI_FACTS = [
+  { icon: Building2, label: 'Founded', value: '2010' },
+  { icon: MapPin, label: 'Campus', value: 'Hodon, Mogadishu' },
+  { icon: GraduationCap, label: 'Type', value: 'Private university' },
+];
+
+const FACULTIES = [
+  'Medicine & Surgery',
+  'Health Sciences',
+  'Engineering & Technology',
+  'Computer Science & IT',
+  'Agricultural Science',
+  'Veterinary Science',
+  'Economics & Management',
+  'Education',
+  'Sharia',
 ];
 
 export default function AboutPage() {
@@ -93,8 +126,8 @@ export default function AboutPage() {
               </span>
             </h1>
             <p className="mt-3.5 max-w-xl text-pretty text-base font-medium leading-relaxed text-white/95 sm:text-lg">
-              A secure mobile platform for Jazeera University students to report, search, and
-              recover lost belongings on campus.
+              Jazeera University’s official campus lost & found for students, staff, and daily
+              life on the Mogadishu main campus.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <a
@@ -120,10 +153,87 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {/* About the university */}
+      <section className="relative mx-auto max-w-7xl px-4 pt-14 sm:px-6 sm:pt-16 xl:px-8">
+        <RevealOnScroll>
+          <article className="public-about-uni relative overflow-hidden rounded-[1.85rem]">
+            <div className="public-about-uni-glow" aria-hidden />
+
+            <div className="relative z-[1] px-6 py-10 sm:px-9 sm:py-12 lg:px-12 lg:py-14">
+              <div className="grid gap-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-start lg:gap-14">
+                <div>
+                  <p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[#1A56DB]">
+                    <span className="public-about-mission-dot" aria-hidden />
+                    The university
+                  </p>
+                  <h2 className="mt-4 max-w-xl text-balance text-[1.9rem] font-black tracking-tight text-[#0F172A] sm:text-[2.55rem] sm:leading-[1.08]">
+                    Jazeera University, Mogadishu
+                  </h2>
+                  <p className="public-about-uni-copy mt-4 max-w-xl text-[15px] font-medium leading-relaxed text-slate-600 sm:text-base">
+                    Jazeera University is a private university in Mogadishu, Somalia. The main
+                    campus sits in Hodon District: classrooms, labs, library, and student life
+                    on one busy site.
+                  </p>
+                  <p className="public-about-uni-copy mt-3 max-w-xl text-[15px] font-medium leading-relaxed text-slate-600 sm:text-base">
+                    Students move between faculties all day: medicine, engineering, computing,
+                    business, education, and more. Phones, IDs, bags, and keys get left behind.
+                    JU LOFO is the campus system for reporting and recovering those items.
+                    University staff review them before anything goes public.
+                  </p>
+                  <a
+                    href="https://jazeerauniversity.edu.so/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="public-about-uni-link public-press mt-6 inline-flex min-h-11 items-center gap-2"
+                  >
+                    Visit jazeerauniversity.edu.so
+                    <ArrowRight size={15} />
+                  </a>
+                </div>
+
+                <aside className="public-about-uni-aside">
+                  <p className="public-about-mission-aside-label">Campus snapshot</p>
+                  <ul className="mt-4 grid gap-3">
+                    {UNI_FACTS.map((fact) => {
+                      const Icon = fact.icon;
+                      return (
+                        <li key={fact.label} className="public-about-uni-fact">
+                          <span className="public-about-uni-fact-icon">
+                            <Icon size={18} strokeWidth={2.15} />
+                          </span>
+                          <span>
+                            <span className="public-about-uni-fact-label">{fact.label}</span>
+                            <span className="public-about-uni-fact-value">{fact.value}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </aside>
+              </div>
+
+              <div className="public-about-uni-divider mt-10 pt-8">
+                <p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#1A56DB]">
+                  <BookOpen size={13} strokeWidth={2.4} />
+                  Faculties
+                </p>
+                <ul className="public-about-uni-faculties mt-4">
+                  {FACULTIES.map((name) => (
+                    <li key={name} className="public-about-uni-faculty">
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </article>
+        </RevealOnScroll>
+      </section>
+
       {/* Mission — cool showcase panel */}
       <section className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-16 xl:px-8">
         <RevealOnScroll>
-          <article className="public-about-mission relative overflow-hidden rounded-[1.85rem]">
+          <article className="public-about-mission relative overflow-visible rounded-[1.85rem]">
             <div className="public-about-mission-glow" aria-hidden />
             <div className="public-about-mission-mesh" aria-hidden />
             <div className="public-about-mission-accent" aria-hidden />
@@ -146,15 +256,16 @@ export default function AboutPage() {
                       </span>
                     </div>
                     <p className="mt-4 max-w-lg text-pretty text-[15px] font-medium leading-relaxed text-slate-600 sm:text-base">
-                      JU LOFO replaces scattered paper notices and informal posts with one secure
-                      mobile system for Jazeera University students.
+                      JU LOFO is Jazeera University’s campus lost & found. It replaces scattered
+                      paper notices and informal posts with one secure mobile system for students
+                      on the Mogadishu campus.
                     </p>
                   </div>
 
                   <div className="public-about-mission-aside">
                     <p className="public-about-mission-aside-label">Why it matters</p>
                     <p className="public-about-mission-aside-text">
-                      Every listing is verified before it goes live — so browsing stays safe, fair,
+                      Every listing is verified before it goes live, so browsing stays safe, fair,
                       and useful for the whole campus.
                     </p>
                     <Link
@@ -167,77 +278,36 @@ export default function AboutPage() {
                   </div>
                 </div>
 
-                <ul className="public-about-mission-points grid gap-4 sm:grid-cols-3 sm:gap-5">
-                  <li className="public-about-mission-point group">
-                    <span className="public-about-mission-point-icon">
-                      <Smartphone size={18} strokeWidth={2.15} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-extrabold tracking-tight text-[#0F172A]">
-                        Report & search
-                      </p>
-                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500">
-                        Lost or found items from the student app
-                      </p>
-                      <span className="public-about-mission-point-btn">App first</span>
-                    </div>
-                  </li>
-                  <li className="public-about-mission-point group">
-                    <span className="public-about-mission-point-icon">
-                      <ShieldCheck size={18} strokeWidth={2.15} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-extrabold tracking-tight text-[#0F172A]">
-                        Verified accounts
-                      </p>
-                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500">
-                        University directory and OTP before anything goes live
-                      </p>
-                      <span className="public-about-mission-point-btn">OTP secure</span>
-                    </div>
-                  </li>
-                  <li className="public-about-mission-point group">
-                    <span className="public-about-mission-point-icon">
-                      <Users size={18} strokeWidth={2.15} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-extrabold tracking-tight text-[#0F172A]">
-                        Fair admin review
-                      </p>
-                      <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500">
-                        Claims handled through a structured campus process
-                      </p>
-                      <span className="public-about-mission-point-btn">Staff checked</span>
-                    </div>
-                  </li>
+                <ul className="public-about-mission-points">
+                  {MISSION_POINTS.map((item, i) => {
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.title} className="public-about-feature group h-full">
+                        <span className="public-about-feature-clip" aria-hidden>
+                          <span className="public-about-feature-accent" />
+                          <span className="public-about-feature-sheen" />
+                        </span>
+                        <div className="relative z-[1] flex items-start justify-between gap-3">
+                          <span className="public-about-feature-icon inline-flex h-12 w-12 items-center justify-center rounded-2xl text-[#1A56DB]">
+                            <Icon size={22} strokeWidth={2.05} />
+                          </span>
+                          <span className="public-about-feature-index tabular-nums">
+                            {String(i + 1).padStart(2, '0')}
+                          </span>
+                        </div>
+                        <h3 className="relative z-[1] mt-5 text-balance text-base font-extrabold tracking-tight text-[#0F172A] sm:text-[1.05rem]">
+                          {item.title}
+                        </h3>
+                        <p className="relative z-[1] mt-2 text-pretty text-sm font-medium leading-relaxed text-slate-600">
+                          {item.text}
+                        </p>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             </div>
           </article>
-        </RevealOnScroll>
-
-        <RevealOnScroll delay={90}>
-          <ul className="public-about-pillars mt-7 grid gap-4 sm:mt-8 sm:grid-cols-3 sm:gap-5">
-            {PILLARS.map((item, i) => {
-              const Icon = item.icon;
-              return (
-                <li key={item.label} className="public-about-pillar group">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="public-about-pillar-icon">
-                      <Icon size={22} strokeWidth={2.1} />
-                    </span>
-                    <span className="public-about-pillar-num tabular-nums">0{i + 1}</span>
-                  </div>
-                  <p className="mt-5 text-base font-extrabold tracking-tight text-[#0F172A]">
-                    {item.label}
-                  </p>
-                  <p className="mt-1.5 text-sm font-medium leading-relaxed text-slate-500">
-                    {item.hint}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
         </RevealOnScroll>
       </section>
 
@@ -258,7 +328,7 @@ export default function AboutPage() {
             </div>
             <Link
               href="/how-it-works"
-              className="public-press inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 self-start rounded-full border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-[transform,color,border-color] duration-200 hover:border-blue-200 hover:text-[#1A56DB] lg:self-auto"
+              className="public-about-how-btn public-press inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 self-start lg:self-auto"
             >
               See how it works
               <ArrowRight size={15} className="translate-x-px" />
@@ -269,13 +339,14 @@ export default function AboutPage() {
         <ul className="public-about-feature-grid mt-10">
           {FEATURES.map((item, i) => {
             const Icon = item.icon;
-            const featured = i === 0;
             return (
-              <RevealOnScroll key={item.title} delay={i * 50} className="h-full">
-                <li
-                  className={`public-about-feature group h-full ${featured ? 'public-about-feature--featured' : ''}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
+              <RevealOnScroll key={item.title} delay={i * 50} className="h-full overflow-visible">
+                <li className="public-about-feature group h-full">
+                  <span className="public-about-feature-clip" aria-hidden>
+                    <span className="public-about-feature-accent" />
+                    <span className="public-about-feature-sheen" />
+                  </span>
+                  <div className="relative z-[1] flex items-start justify-between gap-3">
                     <span className="public-about-feature-icon inline-flex h-12 w-12 items-center justify-center rounded-2xl text-[#1A56DB]">
                       <Icon size={22} strokeWidth={2.05} />
                     </span>
@@ -283,10 +354,10 @@ export default function AboutPage() {
                       {String(i + 1).padStart(2, '0')}
                     </span>
                   </div>
-                  <h3 className="mt-5 text-base font-extrabold tracking-tight text-[#0F172A] sm:text-[1.05rem]">
+                  <h3 className="relative z-[1] mt-5 text-balance text-base font-extrabold tracking-tight text-[#0F172A] sm:text-[1.05rem]">
                     {item.title}
                   </h3>
-                  <p className="mt-2 text-pretty text-sm font-medium leading-relaxed text-slate-600">
+                  <p className="relative z-[1] mt-2 text-pretty text-sm font-medium leading-relaxed text-slate-600">
                     {item.text}
                   </p>
                 </li>

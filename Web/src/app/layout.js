@@ -31,8 +31,8 @@ export default async function RootLayout({ children }) {
   const hdrs = await headers();
   const pathname = hdrs.get('x-pathname') || '';
   const mode = jar.get('ju-public-mode')?.value;
-  // Public dark mode must never paint admin/login — keep console light.
-  const dark = mode === 'dark' && !isAdminOrLoginPath(pathname);
+  // Public site defaults to dark. Admin/login stay light.
+  const dark = mode !== 'light' && !isAdminOrLoginPath(pathname);
 
   return (
     <html

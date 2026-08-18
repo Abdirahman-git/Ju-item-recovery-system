@@ -24,9 +24,9 @@ function AdminShell({ children, badgeCounts }) {
       if (hadPublicDark) {
         try {
           const saved = localStorage.getItem('ju-public-mode');
-          if (saved === 'dark') root.classList.add('public-dark');
+          if (saved !== 'light') root.classList.add('public-dark');
         } catch {
-          /* ignore */
+          root.classList.add('public-dark');
         }
       }
     };

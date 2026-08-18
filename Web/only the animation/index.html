@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Abdirahman — Portfolio</title>
+  <meta name="description" content="Personal portfolio of Abdirahman — Computer Science student, full-stack developer, and ML enthusiast from Mogadishu, Somalia." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Particle Canvas -->
+  <canvas id="particles"></canvas>
+
+  <!-- Custom Cursor -->
+  <div class="cursor" id="cursor"></div>
+  <div class="cursor-follower" id="cursorFollower"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-container">
+      <a href="#hero" class="nav-logo">&lt;Abdirahman /&gt;</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#hero" class="nav-link active">Home</a></li>
+        <li><a href="#about" class="nav-link">About</a></li>
+        <li><a href="#skills" class="nav-link">Skills</a></li>
+        <li><a href="#projects" class="nav-link">Projects</a></li>
+        <li><a href="#projects-completed" class="nav-link">Projects Completed</a></li>
+        <li><a href="#blog" class="nav-link">Blog</a></li>
+        <li><a href="#experience" class="nav-link">Experience</a></li>
+        <li><a href="#contact" class="nav-link">Contact</a></li>
+        <li>
+          <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+            <i class="fas fa-sun"></i>
+            <i class="fas fa-moon"></i>
+          </button>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero" id="hero">
+    <div class="hero-content">
+      <p class="hero-greeting fade-in">Hello, I'm</p>
+      <h1 class="hero-name fade-in">Abdirahman</h1>
+      <div class="hero-title-wrapper fade-in">
+        <span class="hero-title-prefix">I'm a&nbsp;</span>
+        <span class="hero-typed" id="typed"></span>
+        <span class="hero-cursor">|</span>
+      </div>
+      <p class="hero-description fade-in">
+        Building tech solutions that matter — from Mogadishu to the world.
+      </p>
+      <div class="hero-cta fade-in">
+        <a href="#contact" class="btn btn-primary">
+          <i class="fas fa-envelope"></i> Get in Touch
+        </a>
+        <a href="#projects" class="btn btn-outline">
+          <i class="fas fa-code"></i> View Projects
+        </a>
+        <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" class="btn btn-outline">
+          <i class="fab fa-github"></i> GitHub
+        </a>
+        <a href="#" class="btn btn-ghost" id="resumeBtn">
+          <i class="fas fa-download"></i> Resume
+        </a>
+      </div>
+      <div class="hero-scroll fade-in">
+        <a href="#about" class="scroll-indicator">
+          <span class="scroll-text">Scroll Down</span>
+          <span class="scroll-arrow"><i class="fas fa-chevron-down"></i></span>
+        </a>
+      </div>
+    </div>
+    <div class="hero-visual fade-in">
+      <div class="hero-avatar">
+        <div class="avatar-ring"></div>
+        <div class="avatar-placeholder">
+          <i class="fas fa-user-astronaut"></i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- About Section -->
+  <section class="section about" id="about">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">01.</span> About Me
+        <span class="section-line"></span>
+      </h2>
+      <div class="about-grid">
+        <div class="about-text fade-in">
+          <p>
+            I'm a final-year <strong>Computer Science</strong> student at <strong>Jazeera University</strong>,
+            Mogadishu, Somalia. I'm passionate about building technology solutions that address real challenges
+            in the Somali and broader African context.
+          </p>
+          <p>
+            My focus spans <strong>software development</strong>, <strong>web &amp; mobile development</strong>,
+            <strong>data analysis</strong>, <strong>digital marketing</strong>, and <strong>machine learning</strong>.
+            I thrive on turning ideas into functional, impactful products.
+          </p>
+          <p>
+            I'm actively seeking <strong>internships</strong> and <strong>collaboration</strong> opportunities
+            with like-minded teams and organizations. Let's build something great together.
+          </p>
+          <div class="about-quick-facts">
+            <div class="fact">
+              <i class="fas fa-map-marker-alt"></i>
+              <div>
+                <span class="fact-label">Location</span>
+                <span class="fact-value">Mogadishu, Somalia</span>
+              </div>
+            </div>
+            <div class="fact">
+              <i class="fas fa-graduation-cap"></i>
+              <div>
+                <span class="fact-label">University</span>
+                <span class="fact-value">Jazeera University</span>
+              </div>
+            </div>
+            <div class="fact">
+              <i class="fas fa-rocket"></i>
+              <div>
+                <span class="fact-label">Status</span>
+                <span class="fact-value">Open to opportunities</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="about-visual fade-in">
+          <div class="about-image-wrapper">
+            <div class="about-image-placeholder">
+              <i class="fas fa-laptop-code"></i>
+            </div>
+            <div class="about-image-decoration"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Skills Section -->
+  <section class="section skills" id="skills">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">02.</span> Skills
+        <span class="section-line"></span>
+      </h2>
+      <div class="skills-grid">
+        <!-- Web Development -->
+        <div class="skill-card glass fade-in" data-category="web">
+          <div class="skill-icon"><i class="fas fa-globe"></i></div>
+          <h3>Web Development</h3>
+          <div class="skill-tags">
+            <span class="skill-tag">HTML5</span>
+            <span class="skill-tag">CSS3</span>
+            <span class="skill-tag">JavaScript</span>
+            <span class="skill-tag">React</span>
+            <span class="skill-tag">Node.js</span>
+            <span class="skill-tag">Tailwind</span>
+          </div>
+          <div class="skill-bars">
+            <div class="skill-bar-item">
+              <span>Frontend</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="85"></div></div>
+            </div>
+            <div class="skill-bar-item">
+              <span>Backend</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="70"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile Development -->
+        <div class="skill-card glass fade-in" data-category="mobile">
+          <div class="skill-icon"><i class="fas fa-mobile-alt"></i></div>
+          <h3>Mobile Development</h3>
+          <div class="skill-tags">
+            <span class="skill-tag">Flutter</span>
+            <span class="skill-tag">Dart</span>
+            <span class="skill-tag">React Native</span>
+            <span class="skill-tag">Firebase</span>
+          </div>
+          <div class="skill-bars">
+            <div class="skill-bar-item">
+              <span>Flutter</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="75"></div></div>
+            </div>
+            <div class="skill-bar-item">
+              <span>React Native</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="65"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Data Analysis -->
+        <div class="skill-card glass fade-in" data-category="data">
+          <div class="skill-icon"><i class="fas fa-chart-bar"></i></div>
+          <h3>Data Analysis</h3>
+          <div class="skill-tags">
+            <span class="skill-tag">Python</span>
+            <span class="skill-tag">Pandas</span>
+            <span class="skill-tag">NumPy</span>
+            <span class="skill-tag">Matplotlib</span>
+            <span class="skill-tag">SQL</span>
+          </div>
+          <div class="skill-bars">
+            <div class="skill-bar-item">
+              <span>Python</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="80"></div></div>
+            </div>
+            <div class="skill-bar-item">
+              <span>SQL</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="70"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Machine Learning -->
+        <div class="skill-card glass fade-in" data-category="ml">
+          <div class="skill-icon"><i class="fas fa-brain"></i></div>
+          <h3>Machine Learning</h3>
+          <div class="skill-tags">
+            <span class="skill-tag">TensorFlow</span>
+            <span class="skill-tag">Scikit-learn</span>
+            <span class="skill-tag">Keras</span>
+            <span class="skill-tag">NLP</span>
+          </div>
+          <div class="skill-bars">
+            <div class="skill-bar-item">
+              <span>Models</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="65"></div></div>
+            </div>
+            <div class="skill-bar-item">
+              <span>NLP</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="55"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Digital Marketing -->
+        <div class="skill-card glass fade-in" data-category="marketing">
+          <div class="skill-icon"><i class="fas fa-bullhorn"></i></div>
+          <h3>Digital Marketing</h3>
+          <div class="skill-tags">
+            <span class="skill-tag">SEO</span>
+            <span class="skill-tag">Google Analytics</span>
+            <span class="skill-tag">Social Media</span>
+            <span class="skill-tag">Content</span>
+          </div>
+          <div class="skill-bars">
+            <div class="skill-bar-item">
+              <span>SEO</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="70"></div></div>
+            </div>
+            <div class="skill-bar-item">
+              <span>Analytics</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="65"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tools & Others -->
+        <div class="skill-card glass fade-in" data-category="tools">
+          <div class="skill-icon"><i class="fas fa-tools"></i></div>
+          <h3>Tools & DevOps</h3>
+          <div class="skill-tags">
+            <span class="skill-tag">Git</span>
+            <span class="skill-tag">Docker</span>
+            <span class="skill-tag">Linux</span>
+            <span class="skill-tag">Figma</span>
+            <span class="skill-tag">VS Code</span>
+          </div>
+          <div class="skill-bars">
+            <div class="skill-bar-item">
+              <span>Git</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="80"></div></div>
+            </div>
+            <div class="skill-bar-item">
+              <span>Docker</span>
+              <div class="skill-bar"><div class="skill-fill" data-level="60"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Projects Section -->
+  <section class="section projects" id="projects">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">03.</span> Projects
+        <span class="section-line"></span>
+      </h2>
+      <div class="project-filters fade-in">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="web">Web</button>
+        <button class="filter-btn" data-filter="mobile">Mobile</button>
+        <button class="filter-btn" data-filter="ml">ML</button>
+        <button class="filter-btn" data-filter="data">Data</button>
+      </div>
+      <div class="projects-grid">
+
+        <div class="project-card glass fade-in" data-tags="web">
+          <div class="project-card-front">
+            <div class="project-header">
+              <i class="fas fa-folder-open project-folder"></i>
+              <div class="project-links">
+                <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+                <a href="#" aria-label="Live demo"><i class="fas fa-external-link-alt"></i></a>
+              </div>
+            </div>
+            <h3 class="project-title">E-Commerce Platform</h3>
+            <p class="project-desc">Full-stack online marketplace with product listings, cart, and payment integration.</p>
+            <div class="project-tech">
+              <span>React</span><span>Node.js</span><span>MongoDB</span><span>Stripe</span>
+            </div>
+            <span class="project-expand-hint">Click for more</span>
+          </div>
+          <div class="project-card-back">
+            <h3>E-Commerce Platform</h3>
+            <p>Built a responsive e-commerce platform with user authentication, product management, shopping cart, and Stripe payment processing. Features admin dashboard for inventory management.</p>
+            <div class="project-tech">
+              <span>React</span><span>Node.js</span><span>MongoDB</span><span>Stripe</span>
+            </div>
+            <a href="https://github.com/Abdirahman-git" target="_blank" class="btn btn-sm">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="project-card glass fade-in" data-tags="mobile">
+          <div class="project-card-front">
+            <div class="project-header">
+              <i class="fas fa-folder-open project-folder"></i>
+              <div class="project-links">
+                <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+              </div>
+            </div>
+            <h3 class="project-title">Somali Market App</h3>
+            <p class="project-desc">Mobile marketplace connecting local vendors with customers across Somali cities.</p>
+            <div class="project-tech">
+              <span>Flutter</span><span>Firebase</span><span>Dart</span>
+            </div>
+            <span class="project-expand-hint">Click for more</span>
+          </div>
+          <div class="project-card-back">
+            <h3>Somali Market App</h3>
+            <p>Cross-platform mobile app enabling local market vendors to list products, manage orders, and communicate with customers. Supports offline mode for low-connectivity areas.</p>
+            <div class="project-tech">
+              <span>Flutter</span><span>Firebase</span><span>Dart</span>
+            </div>
+            <a href="https://github.com/Abdirahman-git" target="_blank" class="btn btn-sm">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="project-card glass fade-in" data-tags="ml">
+          <div class="project-card-front">
+            <div class="project-header">
+              <i class="fas fa-folder-open project-folder"></i>
+              <div class="project-links">
+                <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+              </div>
+            </div>
+            <h3 class="project-title">Crop Disease Detector</h3>
+            <p class="project-desc">ML model that identifies crop diseases from photos to help Somali farmers.</p>
+            <div class="project-tech">
+              <span>Python</span><span>TensorFlow</span><span>Flask</span><span>CNN</span>
+            </div>
+            <span class="project-expand-hint">Click for more</span>
+          </div>
+          <div class="project-card-back">
+            <h3>Crop Disease Detector</h3>
+            <p>Trained a CNN model on plant disease datasets and deployed it via a Flask API. Farmers can upload crop images and receive instant diagnosis with treatment recommendations.</p>
+            <div class="project-tech">
+              <span>Python</span><span>TensorFlow</span><span>Flask</span><span>CNN</span>
+            </div>
+            <a href="https://github.com/Abdirahman-git" target="_blank" class="btn btn-sm">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="project-card glass fade-in" data-tags="data web">
+          <div class="project-card-front">
+            <div class="project-header">
+              <i class="fas fa-folder-open project-folder"></i>
+              <div class="project-links">
+                <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+                <a href="#" aria-label="Live demo"><i class="fas fa-external-link-alt"></i></a>
+              </div>
+            </div>
+            <h3 class="project-title">Somalia Data Dashboard</h3>
+            <p class="project-desc">Interactive data dashboard visualizing economic and demographic data for Somalia.</p>
+            <div class="project-tech">
+              <span>Python</span><span>Pandas</span><span>Plotly</span><span>Dash</span>
+            </div>
+            <span class="project-expand-hint">Click for more</span>
+          </div>
+          <div class="project-card-back">
+            <h3>Somalia Data Dashboard</h3>
+            <p>Interactive web dashboard built with Plotly Dash, visualizing Somalia's economic indicators, population stats, and development metrics with real-time data updates.</p>
+            <div class="project-tech">
+              <span>Python</span><span>Pandas</span><span>Plotly</span><span>Dash</span>
+            </div>
+            <a href="https://github.com/Abdirahman-git" target="_blank" class="btn btn-sm">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="project-card glass fade-in" data-tags="web">
+          <div class="project-card-front">
+            <div class="project-header">
+              <i class="fas fa-folder-open project-folder"></i>
+              <div class="project-links">
+                <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+              </div>
+            </div>
+            <h3 class="project-title">University Portal</h3>
+            <p class="project-desc">Student management system with course registration, grades, and notifications.</p>
+            <div class="project-tech">
+              <span>React</span><span>Express</span><span>PostgreSQL</span>
+            </div>
+            <span class="project-expand-hint">Click for more</span>
+          </div>
+          <div class="project-card-back">
+            <h3>University Portal</h3>
+            <p>A comprehensive student portal for course registration, grade tracking, schedule management, and real-time notifications. Built for Jazeera University's student body.</p>
+            <div class="project-tech">
+              <span>React</span><span>Express</span><span>PostgreSQL</span>
+            </div>
+            <a href="https://github.com/Abdirahman-git" target="_blank" class="btn btn-sm">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="project-card glass fade-in" data-tags="mobile ml">
+          <div class="project-card-front">
+            <div class="project-header">
+              <i class="fas fa-folder-open project-folder"></i>
+              <div class="project-links">
+                <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+              </div>
+            </div>
+            <h3 class="project-title">Somali NLP Chatbot</h3>
+            <p class="project-desc">AI chatbot supporting Somali language for customer service and FAQ automation.</p>
+            <div class="project-tech">
+              <span>Python</span><span>NLP</span><span>Transformers</span><span>Flask</span>
+            </div>
+            <span class="project-expand-hint">Click for more</span>
+          </div>
+          <div class="project-card-back">
+            <h3>Somali NLP Chatbot</h3>
+            <p>An NLP-powered chatbot that understands and responds in Somali, designed for business customer support and common FAQ automation. Fine-tuned on Somali-language datasets.</p>
+            <div class="project-tech">
+              <span>Python</span><span>NLP</span><span>Transformers</span><span>Flask</span>
+            </div>
+            <a href="https://github.com/Abdirahman-git" target="_blank" class="btn btn-sm">View on GitHub</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Projects Completed Section -->
+  <section class="section projects-completed" id="projects-completed">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">04.</span> Projects Completed
+        <span class="section-line"></span>
+      </h2>
+      <div class="stats-grid">
+        <div class="stat-card glass fade-in">
+          <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+          <div class="stat-number" data-target="6">0</div>
+          <div class="stat-label">Projects Delivered</div>
+        </div>
+        <div class="stat-card glass fade-in">
+          <div class="stat-icon"><i class="fas fa-code-branch"></i></div>
+          <div class="stat-number" data-target="15">0</div>
+          <div class="stat-label">GitHub Repositories</div>
+        </div>
+        <div class="stat-card glass fade-in">
+          <div class="stat-icon"><i class="fas fa-users"></i></div>
+          <div class="stat-number" data-target="12">0</div>
+          <div class="stat-label">Happy Clients</div>
+        </div>
+        <div class="stat-card glass fade-in">
+          <div class="stat-icon"><i class="fas fa-coffee"></i></div>
+          <div class="stat-number" data-target="500">0</div>
+          <div class="stat-label">Cups of Coffee</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Blog Section -->
+  <section class="section blog" id="blog">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">05.</span> Blog
+        <span class="section-line"></span>
+      </h2>
+      <div class="blog-grid">
+        <article class="blog-card glass fade-in">
+          <div class="blog-card-header">
+            <i class="fas fa-newspaper blog-icon"></i>
+            <span class="blog-date">Jan 15, 2026</span>
+          </div>
+          <h3 class="blog-title">Getting Started with Machine Learning in Somalia</h3>
+          <p class="blog-excerpt">Exploring how machine learning can solve real problems in agriculture and healthcare across the Horn of Africa.</p>
+          <div class="blog-tags">
+            <span>ML</span><span>Python</span><span>Agriculture</span>
+          </div>
+          <a href="#" class="blog-read-more">Read More <i class="fas fa-arrow-right"></i></a>
+        </article>
+
+        <article class="blog-card glass fade-in">
+          <div class="blog-card-header">
+            <i class="fas fa-newspaper blog-icon"></i>
+            <span class="blog-date">Feb 22, 2026</span>
+          </div>
+          <h3 class="blog-title">Building Mobile Apps for Low-Connectivity Areas</h3>
+          <p class="blog-excerpt">Techniques and patterns for building Flutter apps that work offline-first in regions with limited internet access.</p>
+          <div class="blog-tags">
+            <span>Flutter</span><span>Mobile</span><span>Offline</span>
+          </div>
+          <a href="#" class="blog-read-more">Read More <i class="fas fa-arrow-right"></i></a>
+        </article>
+
+        <article class="blog-card glass fade-in">
+          <div class="blog-card-header">
+            <i class="fas fa-newspaper blog-icon"></i>
+            <span class="blog-date">Mar 10, 2026</span>
+          </div>
+          <h3 class="blog-title">The Future of Somali Tech: Opportunities & Challenges</h3>
+          <p class="blog-excerpt">A deep dive into Somalia's growing tech ecosystem and how developers can contribute to its development.</p>
+          <div class="blog-tags">
+            <span>Community</span><span>Startup</span><span>Somalia</span>
+          </div>
+          <a href="#" class="blog-read-more">Read More <i class="fas fa-arrow-right"></i></a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Experience / Education Section -->
+  <section class="section experience" id="experience">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">06.</span> Experience & Education
+        <span class="section-line"></span>
+      </h2>
+      <div class="timeline">
+        <div class="timeline-item fade-in">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content glass">
+            <div class="timeline-date">2022 — Present</div>
+            <h3>B.Sc. Computer Science</h3>
+            <h4>Jazeera University, Mogadishu</h4>
+            <p>Final-year student specializing in software engineering and AI. Relevant coursework: Data Structures, Algorithms, Database Systems, Machine Learning, Software Engineering, Web Development.</p>
+            <div class="timeline-tags">
+              <span>GPA: In Progress</span>
+              <span>Honors</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-item fade-in">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content glass">
+            <div class="timeline-date">2024 — 2025</div>
+            <h3>Freelance Developer</h3>
+            <h4>Self-Employed</h4>
+            <p>Developed web and mobile applications for local businesses. Built e-commerce solutions, management systems, and data dashboards for clients across Somalia.</p>
+            <div class="timeline-tags">
+              <span>Web Dev</span>
+              <span>Mobile</span>
+              <span>Data</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-item fade-in">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content glass">
+            <div class="timeline-date">2023</div>
+            <h3>Open Source Contributor</h3>
+            <h4>GitHub Community</h4>
+            <p>Contributed to open-source projects focused on African tech solutions. Built tools and libraries for Somali language processing and local data visualization.</p>
+            <div class="timeline-tags">
+              <span>Open Source</span>
+              <span>NLP</span>
+              <span>Python</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-item fade-in">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content glass">
+            <div class="timeline-date">2023</div>
+            <h3>Digital Marketing Intern</h3>
+            <h4>Marketing Agency</h4>
+            <p>Managed social media campaigns, analyzed performance metrics, and created content strategies for local brands. Gained hands-on experience with SEO and Google Analytics.</p>
+            <div class="timeline-tags">
+              <span>SEO</span>
+              <span>Analytics</span>
+              <span>Content</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-item fade-in">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content glass">
+            <div class="timeline-date">2022</div>
+            <h3>Programming Bootcamp</h3>
+            <h4>Self-Directed Learning</h4>
+            <p>Completed intensive self-study in web development, Python, and data science through online platforms including freeCodeCamp, Coursera, and YouTube.</p>
+            <div class="timeline-tags">
+              <span>Web Dev</span>
+              <span>Python</span>
+              <span>Self-taught</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact Section -->
+  <section class="section contact" id="contact">
+    <div class="container">
+      <h2 class="section-title fade-in">
+        <span class="section-number">07.</span> Contact
+        <span class="section-line"></span>
+      </h2>
+      <div class="contact-grid">
+        <div class="contact-info fade-in">
+          <h3>Let's Work Together</h3>
+          <p>I'm always open to discussing new projects, creative ideas, or opportunities to be part of something amazing. Whether you have a question or just want to say hi — my inbox is open!</p>
+          <div class="contact-links">
+            <a href="mailto:abdirahman@example.com" class="contact-link glass">
+              <i class="fas fa-envelope"></i>
+              <div>
+                <span class="contact-link-label">Email</span>
+                <span class="contact-link-value">abdirahman@example.com</span>
+              </div>
+            </a>
+            <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" class="contact-link glass">
+              <i class="fab fa-github"></i>
+              <div>
+                <span class="contact-link-label">GitHub</span>
+                <span class="contact-link-value">Abdirahman-git</span>
+              </div>
+            </a>
+            <a href="#" class="contact-link glass" id="linkedinLink">
+              <i class="fab fa-linkedin"></i>
+              <div>
+                <span class="contact-link-label">LinkedIn</span>
+                <span class="contact-link-value">Abdirahman</span>
+              </div>
+            </a>
+          </div>
+        </div>
+        <form class="contact-form glass fade-in" id="contactForm" novalidate>
+          <div class="form-group">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" placeholder="Your name" required />
+            <span class="form-error" id="nameError"></span>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="your@email.com" required />
+            <span class="form-error" id="emailError"></span>
+          </div>
+          <div class="form-group">
+            <label for="subject">Subject</label>
+            <input type="text" id="subject" name="subject" placeholder="Project inquiry" required />
+            <span class="form-error" id="subjectError"></span>
+          </div>
+          <div class="form-group">
+            <label for="message">Message</label>
+            <textarea id="message" name="message" rows="5" placeholder="Tell me about your project..." required></textarea>
+            <span class="form-error" id="messageError"></span>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">
+            <span class="btn-text">Send Message</span>
+            <span class="btn-loading"><i class="fas fa-spinner fa-spin"></i> Sending...</span>
+            <span class="btn-success"><i class="fas fa-check"></i> Sent!</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-content">
+        <p class="footer-text">
+          Designed &amp; Built by <strong>Abdirahman</strong>
+        </p>
+        <div class="footer-socials">
+          <a href="https://github.com/Abdirahman-git" target="_blank" rel="noopener" aria-label="GitHub"><i class="fab fa-github"></i></a>
+          <a href="#" aria-label="LinkedIn" id="footerLinkedin"><i class="fab fa-linkedin"></i></a>
+          <a href="mailto:abdirahman@example.com" aria-label="Email"><i class="fas fa-envelope"></i></a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

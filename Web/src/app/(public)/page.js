@@ -13,7 +13,7 @@ export const revalidate = 15;
 
 const TRUST = [
   { icon: ShieldCheck, label: 'Admin verified' },
-  { icon: MapPin, label: 'Campus only' },
+  { icon: MapPin, label: 'Main Campus' },
   { icon: Users, label: 'Free for students and staff' },
 ];
 
@@ -75,7 +75,7 @@ export default async function HomePage() {
           <div className="flex justify-center lg:justify-end">
             <HeroPhoneFrame
               src="/phone.png"
-              alt="JU LOFO mobile app — campus lost and found feed"
+              alt="JU LOFO mobile app: campus lost and found feed"
             />
           </div>
         </div>
@@ -86,7 +86,7 @@ export default async function HomePage() {
           <SectionHeading
             eyebrow="Live on campus"
             title="Latest recovered items"
-            subtitle="Only admin-approved listings appear here — the same LIVE feed students see in the app."
+            subtitle="Only admin-approved listings appear here. The same LIVE feed students see in the app."
           />
         </RevealOnScroll>
 
@@ -107,7 +107,7 @@ export default async function HomePage() {
             </div>
           </RevealOnScroll>
         ) : (
-          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-8 grid grid-cols-1 gap-3 sm:mt-10 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {preview.map((item, i) => (
               <ItemCard key={item.slug} item={item} index={i} />
             ))}

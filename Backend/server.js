@@ -81,6 +81,7 @@ app.use(express.json());
 // Key: email -> Value: { otp, expiresAt, studentId, verified }
 const otpStore = {};
 const resetOtpStore = {};
+const OTP_TTL_MS = 10 * 60 * 1000;
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -325,8 +326,8 @@ app.post('/api/send-otp', async (req, res) => {
     // Generate 6-digit random code
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Set expiration to 5 minutes from now
-    const expiresAt = Date.now() + 5 * 60 * 1000;
+    // Set expiration to 10 minutes from now
+    const expiresAt = Date.now() + OTP_TTL_MS;
 
     const record = {
       otp: otpCode,
@@ -345,7 +346,7 @@ app.post('/api/send-otp', async (req, res) => {
     otpStore[normalizePhone(phone)] = record;
 
     // Send the SMS
-    const message = `JU LOFO: Code ${otpCode}. Valid 5 min. Do not share.`;
+    const message = `JU LOFO: Code ${otpCode}. Valid 10 min. Do not share.`;
     await sendSms(phone, message);
 
     res.json({
@@ -504,7 +505,7 @@ function buildOtpMail({ subject, heading, bodyHtml, otpCode }) {
             <span style="font-size: 32px; font-weight: bold; color: #1E3A8A; letter-spacing: 4px;">${otpCode}</span>
           </div>
           <p style="color: #E29578; font-size: 12px; margin-top: 20px;">
-            * This OTP code is valid for <strong>5 minutes</strong>. Do not share this code with anyone.
+            * This OTP code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.
           </p>
         </div>
         <div style="border-top: 1px solid #f1f5f9; padding-top: 15px; text-align: center;">
@@ -597,7 +598,7 @@ app.post('/api/forgot-password/send-otp', async (req, res) => {
   }
 
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = Date.now() + 5 * 60 * 1000;
+  const expiresAt = Date.now() + OTP_TTL_MS;
 
   const record = {
     otp: otpCode,
@@ -616,7 +617,7 @@ app.post('/api/forgot-password/send-otp', async (req, res) => {
   resetOtpStore[normalizePhone(phone)] = record;
 
   try {
-    const message = `JU LOFO: Code ${otpCode}. Valid 5 min. Do not share.`;
+    const message = `JU LOFO: Code ${otpCode}. Valid 10 min. Do not share.`;
     await sendSms(phone, message);
 
     console.log(`[RESET OTP] Sent code ${otpCode} to ${phone}`);
