@@ -1,0 +1,12 @@
+# Monorepo: build Express API from Backend/ when Railway root is the repo (not Backend/).
+# Prefer: Railway → Settings → Root Directory = Backend
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+dependsOn = ["setup"]
+cmds = ["cd Backend && npm install"]
+
+[start]
+cmd = "cd Backend && npm start"

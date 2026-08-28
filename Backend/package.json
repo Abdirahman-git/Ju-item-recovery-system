@@ -5,7 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "railway:login": "railway login",
+    "railway:link": "railway link",
+    "railway:up": "railway up",
+    "railway:logs": "railway logs",
+    "railway:open": "railway open",
+    "railway:status": "railway status"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.8",
@@ -15,6 +21,7 @@
     "nodemailer": "^6.9.13"
   },
   "devDependencies": {
+    "@railway/cli": "^4.10.0",
     "nodemon": "^3.1.0"
   }
 }
