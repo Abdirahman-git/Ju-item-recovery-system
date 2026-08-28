@@ -1489,30 +1489,75 @@ export async function purgeArchivedItem(archived) {
   return { success: true };
 }
 
-/** Public contact form → Backend (saved for Super Admin inbox). */
+/** Public contact form → Supabase direct (fast), API fallback if RLS not applied yet. */
 export async function submitContactMessage(form) {
-  const response = await fetch(`${BACKEND_URL}/api/contact/submit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      firstName: form.firstName,
-      lastName: form.lastName,
-      email: form.email,
-      phone: form.phone,
-      subject: form.subject,
-      message: form.message,
-    }),
-  });
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
+  const firstName = String(form.firstName || '').trim();
+  const lastName = String(form.lastName || '').trim();
+  const email = String(form.email || '').trim().toLowerCase();
+  const phone = String(form.phone || '').trim() || null;
+  const subject = String(form.subject || '').trim();
+  const message = String(form.message || '').trim();
+
+  if (!firstName || !lastName) {
+    throw new Error('First and last name are required.');
   }
-  if (!response.ok) {
-    throw new Error(payload?.error || `Could not send message (${response.status})`);
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('A valid email address is required.');
   }
-  return payload;
+  if (!subject) {
+    throw new Error('Subject is required.');
+  }
+  if (!message || message.length < 5) {
+    throw new Error('Please write a longer message.');
+  }
+
+  const row = {
+    first_name: firstName,
+    last_name: lastName,
+    email,
+    phone,
+    subject,
+    message,
+    status: 'new',
+  };
+
+  const { data, error } = await supabase.from('contact_messages').insert(row).select('id').single();
+
+  if (!error) {
+    return { success: true, id: data?.id };
+  }
+
+  const permissionDenied =
+    error.code === '42501' ||
+    error.code === 'PGRST301' ||
+    /permission|policy|denied/i.test(String(error.message || ''));
+
+  if (permissionDenied) {
+    const response = await fetch('/api/contact/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstName,
+        lastName,
+        email,
+        phone,
+        subject,
+        message,
+      }),
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      throw new Error(payload?.error || `Could not send message (${response.status})`);
+    }
+    return payload;
+  }
+
+  throw new Error(error.message || 'Could not send message.');
 }
 
 function normalizeContactMessage(row) {

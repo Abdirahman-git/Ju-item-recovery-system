@@ -132,6 +132,9 @@ export default function ContactSection() {
       .filter(Boolean)
       .join('\n');
 
+    let succeeded = false;
+    let errorText = null;
+
     try {
       await submitContactMessage({
         firstName: form.firstName,
@@ -141,26 +144,35 @@ export default function ContactSection() {
         subject,
         message: messageBody,
       });
+      succeeded = true;
       setForm(EMPTY);
       setSubmitFeedback({
         type: 'success',
         text: 'Your message has been sent. The JU Lost & Found desk will review it soon.',
       });
-      await showSuccess(
+    } catch (err) {
+      errorText = err?.message || 'Please try again in a moment.';
+      setSubmitFeedback({
+        type: 'error',
+        text: errorText,
+      });
+    } finally {
+      setSending(false);
+    }
+
+    if (succeeded) {
+      requestAnimationFrame(() => {
+        document.getElementById('contact-submit-feedback')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      });
+      void showSuccess(
         'Message sent',
         'Your message has been sent. The JU Lost & Found desk will review it soon.'
       );
-    } catch (err) {
-      setSubmitFeedback({
-        type: 'error',
-        text: err?.message || 'Please try again in a moment.',
-      });
-      await showError(
-        'Could not send',
-        err?.message || 'Please try again in a moment.'
-      );
-    } finally {
-      setSending(false);
+    } else if (errorText) {
+      void showError('Could not send', errorText);
     }
   };
 
@@ -205,6 +217,7 @@ export default function ContactSection() {
           >
             {submitFeedback ? (
               <div
+                id="contact-submit-feedback"
                 role="status"
                 className={`mb-4 rounded-2xl border px-4 py-3 text-sm font-semibold ${
                   submitFeedback.type === 'success'
@@ -293,10 +306,11 @@ export default function ContactSection() {
               </label>
               <label className="block text-xs font-bold text-slate-600">
                 Campus place
-                <span className="relative mt-1.5 block">
+                <span className="public-contact-field-icon mt-1.5 block">
                   <MapPin
-                    size={14}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    size={15}
+                    aria-hidden
+                    className="public-contact-field-icon-svg text-slate-400"
                   />
                   <input
                     name="place"
@@ -304,7 +318,7 @@ export default function ContactSection() {
                     onChange={onChange}
                     placeholder="Library, Block A, cafeteria…"
                     disabled={sending}
-                    className={`${inputClass} !mt-0 pl-9`}
+                    className={`${inputClass} public-contact-input--icon !mt-0`}
                   />
                 </span>
               </label>

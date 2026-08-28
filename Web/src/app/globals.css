@@ -4296,6 +4296,23 @@ html.public-dark .public-wf-snake-copy .public-wf-title,
   opacity: 0.6;
 }
 
+.public-contact-field-icon {
+  position: relative;
+}
+
+.public-contact-field-icon-svg {
+  position: absolute;
+  left: 0.875rem;
+  top: 50%;
+  z-index: 1;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.public-contact-input--icon {
+  padding-left: 2.75rem !important;
+}
+
 .public-contact-form input:-webkit-autofill,
 .public-contact-form textarea:-webkit-autofill,
 .public-contact-form input:-webkit-autofill:hover,
