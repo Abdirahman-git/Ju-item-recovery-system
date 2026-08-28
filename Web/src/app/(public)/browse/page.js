@@ -5,8 +5,8 @@ import { Package, Search } from 'lucide-react';
 import ItemCard, { ItemCardSkeleton } from '@/components/public/ItemCard';
 import CategorySelect from '@/components/public/CategorySelect';
 import RevealOnScroll from '@/components/public/RevealOnScroll';
-import { fetchPublicLiveItems, toPublicItemCard } from '@/lib/publicItems';
 import { PUBLIC_CATEGORIES, collectCategoriesFromItems, mergeCategoryLists } from '@/lib/categories';
+import { toPublicItemCard } from '@/lib/publicItems';
 
 const PAGE_SIZE = 12;
 const TYPE_FILTERS = [
@@ -34,8 +34,9 @@ export default function BrowsePage() {
     setLoading(true);
     setError(null);
     try {
-      const live = await fetchPublicLiveItems();
-      setItems(live.map(toPublicItemCard).filter(Boolean));
+      const response = await fetch('/api/public/items?limit=48', { cache: 'no-store' });
+      const live = response.ok ? await response.json() : [];
+      setItems((Array.isArray(live) ? live : []).map(toPublicItemCard).filter(Boolean));
     } catch (err) {
       setError(err?.message || 'Could not load campus items.');
       setItems([]);

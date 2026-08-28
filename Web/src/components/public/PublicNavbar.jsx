@@ -7,10 +7,10 @@ import { usePathname } from 'next/navigation';
 import { ChevronDown, Home, Info, MapPin, Mail, Menu, Moon, Phone, Search, Smartphone, Sun, Workflow, X } from 'lucide-react';
 
 const LINKS = [
-  { href: '/', labelEn: 'Home', labelSo: 'Hoyga', exact: true, icon: Home },
-  { href: '/about', labelEn: 'About', labelSo: 'Nagu saabsan', icon: Info },
-  { href: '/browse', labelEn: 'Browse', labelSo: 'Baadh', icon: Search },
-  { href: '/how-it-works', labelEn: 'How it works', labelSo: 'Sida ay u shaqeyso', icon: Workflow },
+  { href: '/', labelEn: 'Home', labelSo: 'Hoyga', exact: true, icon: Home, hintEn: 'Campus lost & found', hintSo: 'Alaabta campus-ka' },
+  { href: '/about', labelEn: 'About', labelSo: 'Nagu saabsan', icon: Info, hintEn: 'University & mission', hintSo: 'Jaamacadda iyo himilada' },
+  { href: '/browse', labelEn: 'Browse', labelSo: 'Baadh', icon: Search, hintEn: 'Search live items', hintSo: 'Raadi alaabta nool' },
+  { href: '/how-it-works', labelEn: 'How it works', labelSo: 'Sida ay u shaqeyso', icon: Workflow, hintEn: 'Report, claim, recover', hintSo: 'Sheeg, dalbo, soo ceshado' },
 ];
 
 const LANGS = [
@@ -59,6 +59,8 @@ export default function PublicNavbar() {
   const [langOpen, setLangOpen] = useState(false);
   const [dark, setDark] = useState(true);
   const [modeReady, setModeReady] = useState(false);
+  const [sheetMounted, setSheetMounted] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const applyMode = (isDark) => {
     syncShellDark(isDark);
@@ -110,6 +112,19 @@ export default function PublicNavbar() {
     return () => {
       document.body.style.overflow = '';
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      setSheetMounted(true);
+      const id = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setSheetOpen(true));
+      });
+      return () => cancelAnimationFrame(id);
+    }
+    setSheetOpen(false);
+    const t = window.setTimeout(() => setSheetMounted(false), 280);
+    return () => window.clearTimeout(t);
   }, [open]);
 
   useEffect(() => {
@@ -284,14 +299,29 @@ export default function PublicNavbar() {
               aria-expanded={open}
               onClick={() => setOpen((v) => !v)}
             >
-              {open ? <X size={20} strokeWidth={2.2} /> : <Menu size={20} strokeWidth={2.2} />}
+              <span className="public-menu-icon" aria-hidden>
+                <Menu
+                  size={20}
+                  strokeWidth={2.2}
+                  className={`public-menu-icon-el ${open ? 'is-out' : 'is-in'}`}
+                />
+                <X
+                  size={20}
+                  strokeWidth={2.2}
+                  className={`public-menu-icon-el public-menu-icon-el--abs ${open ? 'is-in' : 'is-out'}`}
+                />
+              </span>
             </button>
           </div>
         </div>
       </header>
 
-      {open ? (
-        <div className="public-mobile-sheet fixed inset-0 z-[60] lg:hidden" role="dialog" aria-modal="true">
+      {sheetMounted ? (
+        <div
+          className={`public-mobile-sheet fixed inset-0 z-[60] lg:hidden ${sheetOpen ? 'is-open' : 'is-closing'}`}
+          role="dialog"
+          aria-modal="true"
+        >
           <button
             type="button"
             className="public-mobile-backdrop absolute inset-0 z-0 cursor-pointer"
@@ -299,7 +329,15 @@ export default function PublicNavbar() {
             onClick={() => setOpen(false)}
           />
           <div className="public-mobile-drawer relative z-10">
-            <nav className="public-mobile-grid" aria-label="Mobile">
+            <span className="public-mobile-accent" aria-hidden />
+            <span className="public-mobile-orb" aria-hidden />
+
+            <div className="public-mobile-head" style={{ animationDelay: '40ms' }}>
+              <p className="public-mobile-kicker">{so ? 'Liiska' : 'Menu'}</p>
+              <p className="public-mobile-head-title">{so ? 'Xaggee aad rabtaa?' : 'Where to next?'}</p>
+            </div>
+
+            <nav className="public-mobile-list" aria-label="Mobile">
               {LINKS.map((link, i) => {
                 const active = isActive(pathname, link.href, link.exact);
                 const Icon = link.icon;
@@ -307,20 +345,39 @@ export default function PublicNavbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    style={{ animationDelay: `${40 + i * 70}ms` }}
+                    style={{ animationDelay: `${90 + i * 70}ms` }}
                     onClick={() => setOpen(false)}
-                    className={`public-drawer-link ${active ? 'public-drawer-link--active' : ''}`}
+                    className={`public-drawer-row ${active ? 'public-drawer-row--active' : ''}`}
                   >
-                    <span className="public-drawer-link-icon">
+                    <span className="public-drawer-row-icon">
                       <Icon size={18} strokeWidth={2.15} />
                     </span>
-                    <span className="public-drawer-link-label">{so ? link.labelSo : link.labelEn}</span>
+                    <span className="public-drawer-row-copy">
+                      <span className="public-drawer-row-label">{so ? link.labelSo : link.labelEn}</span>
+                      <span className="public-drawer-row-hint">{so ? link.hintSo : link.hintEn}</span>
+                    </span>
+                    <svg
+                      viewBox="0 0 16 16"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      aria-hidden
+                      className="public-drawer-row-chevron"
+                    >
+                      <path
+                        d="M6 3.5 11 8 6 12.5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </Link>
                 );
               })}
             </nav>
 
-            <div className="public-mobile-toolbar">
+            <div className="public-mobile-toolbar" style={{ animationDelay: '380ms' }}>
               <div className="public-lang-seg" role="group" aria-label="Language">
                 {LANGS.map((item) => {
                   const active = lang === item.code;
@@ -344,19 +401,35 @@ export default function PublicNavbar() {
               <button
                 type="button"
                 onClick={toggleMode}
-                className={`public-mode-btn ${dark ? 'public-mode-btn--dark' : ''}`}
+                className={`public-mode-btn public-mobile-mode ${dark ? 'public-mode-btn--dark' : ''}`}
                 aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
               >
-                {dark ? <Sun size={18} strokeWidth={2.2} /> : <Moon size={18} strokeWidth={2.2} />}
+                <span className="public-menu-icon" aria-hidden>
+                  <Sun
+                    size={18}
+                    strokeWidth={2.2}
+                    className={`public-menu-icon-el ${dark ? 'is-in' : 'is-out'}`}
+                  />
+                  <Moon
+                    size={18}
+                    strokeWidth={2.2}
+                    className={`public-menu-icon-el public-menu-icon-el--abs ${dark ? 'is-out' : 'is-in'}`}
+                  />
+                </span>
               </button>
             </div>
 
-            <a href="/#get-app" onClick={() => setOpen(false)} className="public-mobile-cta public-press">
+            <a
+              href="/#get-app"
+              onClick={() => setOpen(false)}
+              className="public-mobile-cta public-press"
+              style={{ animationDelay: '450ms' }}
+            >
               <Smartphone size={16} strokeWidth={2.2} />
               {so ? 'Soo deg app' : 'Get the App'}
             </a>
 
-            <p className="public-mobile-foot">
+            <p className="public-mobile-foot" style={{ animationDelay: '520ms' }}>
               <MapPin size={11} strokeWidth={2.4} />
               Mogadishu
               <span aria-hidden>·</span>

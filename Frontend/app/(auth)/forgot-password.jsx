@@ -210,7 +210,7 @@ export default function ForgotPasswordScreen() {
               <Ionicons name="id-card-outline" size={20} color={Colors.slate400} style={styles.icon} />
               <TextInput
                 style={styles.input}
-                placeholder="CS1300661"
+                placeholder="CS1300648"
                 placeholderTextColor={Colors.slate400}
                 value={studentId}
                 onChangeText={setStudentId}

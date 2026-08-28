@@ -238,7 +238,7 @@ export default function ContactSection() {
                 name="studentId"
                 value={form.studentId}
                 onChange={onChange}
-                placeholder="e.g. JU2024…"
+                placeholder="CS13..."
                 disabled={sending}
                 className={inputClass}
               />

@@ -64,26 +64,27 @@ const FOUND_COLUMNS_NO_APPROVED_AT = [
   'security_location',
 ].join(',');
 
-// Fast in-memory cache to prevent database pounding under high traffic
 let publicItemsCache = {
   data: null,
   limit: 0,
   timestamp: 0,
 };
-const CACHE_TTL_MS = 15000; // 15 seconds
-// Supabase public feed can be slower on first cold start / network variability.
-// Prevent empty landing-page preview from timing out too aggressively.
-const PUBLIC_FETCH_TIMEOUT_MS = 15000;
+let inflightRequest = null;
+let inflightLimit = 0;
 
-async function withTimeout(promise, label = 'Public feed') {
+const CACHE_TTL_MS = 45_000;
+const DEFAULT_FETCH_TIMEOUT_MS = 12_000;
+const PREVIEW_FETCH_TIMEOUT_MS = 8_000;
+
+async function withTimeout(promise, label = 'Public feed', timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
   let timer;
   try {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error(`${label} timed out after ${PUBLIC_FETCH_TIMEOUT_MS}ms`)),
-          PUBLIC_FETCH_TIMEOUT_MS
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs
         );
       }),
     ]);
@@ -107,37 +108,56 @@ function mapPublicFeedRows(lostData = [], foundData = []) {
   return [...mappedLost, ...mappedFound].sort((a, b) => b.sortKey - a.sortKey);
 }
 
-async function queryPublicFeed({ lostColumns, foundColumns, limit }) {
-  const [lostRes, foundRes] = await withTimeout(
-    Promise.all([
-      supabase
-        .from('lost_items')
-        .select(lostColumns)
-        .or('status.in.(live,matched,claim_pending),is_approved.eq.true')
-        .order('id', { ascending: false })
-        .limit(limit),
-      supabase
-        .from('found_items')
-        .select(foundColumns)
-        .or('status.in.(live,matched,claim_pending),is_approved.eq.true')
-        .order('id', { ascending: false })
-        .limit(limit),
-    ]),
-    'Public feed query'
-  );
-
-  if (lostRes.error) throw lostRes.error;
-  if (foundRes.error) throw foundRes.error;
-
-  return mapPublicFeedRows(lostRes.data || [], foundRes.data || []);
+function liveFeedQuery(table, columns, limit) {
+  return supabase
+    .from(table)
+    .select(columns)
+    .or('status.in.(live,matched,claim_pending),is_approved.eq.true')
+    .order('id', { ascending: false })
+    .limit(limit);
 }
 
-/**
- * Public feed: LIVE lost/found + secure holds (mobile parity).
- * Secure cards never expose photos or private contact fields.
- */
-export async function fetchPublicLiveItems({ limit = 48 } = {}) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 48, 6), 100);
+async function queryPublicTable(table, columns, limit, timeoutMs) {
+  const result = await withTimeout(liveFeedQuery(table, columns, limit), `${table} feed`, timeoutMs);
+  if (result.error) throw result.error;
+  return result.data || [];
+}
+
+async function queryPublicFeed({ lostColumns, foundColumns, limit, timeoutMs }) {
+  const perTableLimit = Math.min(Math.max(Number(limit) || 6, 1), 100);
+  const [lostSettled, foundSettled] = await Promise.allSettled([
+    queryPublicTable('lost_items', lostColumns, perTableLimit, timeoutMs),
+    queryPublicTable('found_items', foundColumns, perTableLimit, timeoutMs),
+  ]);
+
+  const lostData = lostSettled.status === 'fulfilled' ? lostSettled.value : [];
+  const foundData = foundSettled.status === 'fulfilled' ? foundSettled.value : [];
+
+  if (lostSettled.status === 'rejected') {
+    console.warn('Public lost_items feed failed:', lostSettled.reason?.message || lostSettled.reason);
+  }
+  if (foundSettled.status === 'rejected') {
+    console.warn('Public found_items feed failed:', foundSettled.reason?.message || foundSettled.reason);
+  }
+
+  if (!lostData.length && !foundData.length) {
+    const reason =
+      lostSettled.status === 'rejected'
+        ? lostSettled.reason
+        : foundSettled.status === 'rejected'
+          ? foundSettled.reason
+          : new Error('Public feed returned no rows');
+    throw reason;
+  }
+
+  return mapPublicFeedRows(lostData, foundData);
+}
+
+function resolveTimeoutMs(limit) {
+  return limit <= 8 ? PREVIEW_FETCH_TIMEOUT_MS : DEFAULT_FETCH_TIMEOUT_MS;
+}
+
+function readCachedFeed(safeLimit) {
   const now = Date.now();
   if (
     publicItemsCache.data &&
@@ -146,21 +166,32 @@ export async function fetchPublicLiveItems({ limit = 48 } = {}) {
   ) {
     return publicItemsCache.data.slice(0, safeLimit * 2);
   }
+  return null;
+}
+
+function writeCachedFeed(combined, safeLimit) {
+  publicItemsCache = {
+    data: combined,
+    limit: safeLimit,
+    timestamp: Date.now(),
+  };
+  return combined;
+}
+
+async function fetchPublicLiveItemsInternal({ limit = 48, timeoutMs } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 48, 1), 100);
+  const effectiveTimeout = timeoutMs || resolveTimeoutMs(safeLimit);
+  const cached = readCachedFeed(safeLimit);
+  if (cached) return cached;
 
   try {
     const combined = await queryPublicFeed({
       lostColumns: LOST_COLUMNS_WITH_APPROVED_AT,
       foundColumns: FOUND_COLUMNS_WITH_APPROVED_AT,
       limit: safeLimit,
+      timeoutMs: effectiveTimeout,
     });
-
-    publicItemsCache = {
-      data: combined,
-      limit: safeLimit,
-      timestamp: now,
-    };
-
-    return combined;
+    return writeCachedFeed(combined, safeLimit);
   } catch (error) {
     const errText = errorText(error);
     const timedOut = /timed out/i.test(errText);
@@ -186,21 +217,44 @@ export async function fetchPublicLiveItems({ limit = 48 } = {}) {
           lostColumns,
           foundColumns,
           limit: safeLimit,
+          timeoutMs: effectiveTimeout,
         });
-        publicItemsCache = {
-          data: combined,
-          limit: safeLimit,
-          timestamp: now,
-        };
-        return combined;
+        return writeCachedFeed(combined, safeLimit);
       } catch (fallbackErr) {
         console.error('Error in fetchPublicLiveItems (fallback retry):', fallbackErr);
       }
     }
 
+    if (publicItemsCache.data?.length) {
+      console.warn('Public feed refresh failed; serving cached items.', error?.message || error);
+      return publicItemsCache.data.slice(0, safeLimit * 2);
+    }
+
     console.error('Error in fetchPublicLiveItems:', error);
-    return publicItemsCache.data || [];
+    return [];
   }
+}
+
+/**
+ * Public feed: LIVE lost/found + secure holds (mobile parity).
+ * Secure cards never expose photos or private contact fields.
+ */
+export async function fetchPublicLiveItems(options = {}) {
+  const safeLimit = Math.min(Math.max(Number(options.limit) || 48, 1), 100);
+  const cached = readCachedFeed(safeLimit);
+  if (cached) return cached;
+
+  if (inflightRequest && inflightLimit >= safeLimit) {
+    return inflightRequest;
+  }
+
+  inflightLimit = safeLimit;
+  inflightRequest = fetchPublicLiveItemsInternal(options).finally(() => {
+    inflightRequest = null;
+    inflightLimit = 0;
+  });
+
+  return inflightRequest;
 }
 
 function isPublicLiveRow(data) {
@@ -213,7 +267,11 @@ function isPublicLiveRow(data) {
 }
 
 async function selectPublicItemById(table, columns, id) {
-  const { data, error } = await supabase.from(table).select(columns).eq('id', id).maybeSingle();
+  const { data, error } = await withTimeout(
+    supabase.from(table).select(columns).eq('id', id).maybeSingle(),
+    `${table} item ${id}`,
+    PREVIEW_FETCH_TIMEOUT_MS
+  );
   if (error) throw error;
   return data;
 }
@@ -227,15 +285,11 @@ export async function fetchPublicLiveItemById(itemType, id) {
   const numericId = Number(id);
   if (!numericId) return null;
 
-  try {
-    const feed = await fetchPublicLiveItems();
-    const fromFeed = (feed || []).find(
-      (row) => row.itemType === type && Number(row.id) === numericId
-    );
-    if (fromFeed) return fromFeed;
-  } catch {
-    /* fall through to direct query */
-  }
+  const cachedFeed = readCachedFeed(100);
+  const fromCache = (cachedFeed || []).find(
+    (row) => row.itemType === type && Number(row.id) === numericId
+  );
+  if (fromCache) return fromCache;
 
   const table = type === 'found' ? 'found_items' : 'lost_items';
   const withApproved =
@@ -288,7 +342,6 @@ export function toPublicItemCard(item) {
         ? notice
         : 'Held securely at campus security. Contact the Lost & Found desk via the JU LOFO app.'
       : item.displayDescription || item.description || '',
-    // Mobile parity: never show secure hold photos on the public board
     imageUrl: isSecure ? null : item.imageUrl || null,
     reportedAt: item.reportedAt || null,
     refId: item.refId || null,

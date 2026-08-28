@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../src/services/supabase';
 import { showAppConfirm } from '../../../src/utils/appAlert';
+import { facultyFromStudentId } from '../../../src/constants/faculty';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -37,7 +38,8 @@ export default function ProfilePage() {
             ...session,
             phone: data.phone_number,
             userName: data.full_name,
-            email: data.email || session.email
+            email: data.email || session.email,
+            faculty: data.faculty || session.faculty || facultyFromStudentId(data.student_id || session.studentId) || '',
           });
         } else {
           setUser(session);
@@ -110,6 +112,7 @@ export default function ProfilePage() {
             <Text style={styles.sectionTitle}>Account Information</Text>
             <InfoRow icon="person-outline" label="Full Name" value={user?.userName} color="#1E40AF" />
             <InfoRow icon="id-card-outline" label="Student ID" value={user?.studentId} color="#8B5CF6" />
+            <InfoRow icon="school-outline" label="Department / Faculty" value={user?.faculty} color="#F59E0B" />
             <InfoRow icon="mail-outline" label="University Email" value={user?.email} color="#EF4444" />
             <InfoRow icon="call-outline" label="Phone Number" value={user?.phone || '+252 --- ---'} color="#10B981" />
           </View>

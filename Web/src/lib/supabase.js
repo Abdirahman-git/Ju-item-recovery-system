@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ITEM_STATUS, normalizeItemStatus } from './itemStatus';
 import { buildDashboardTrendRows } from './dashboardAnalytics';
 import { mapInventoryItem, mapRecentActivityItem, resolveItemImageUrl } from './itemImage';
+import { facultyFromStudentId, resolveFaculty } from './faculty';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -747,13 +748,48 @@ export async function fetchAdminUsers() {
     .select('*')
     .order('created_at', { ascending: false, nullsFirst: false });
 
+  let users;
   if (error) {
     const fallback = await supabase.from('users').select('*').order('id', { ascending: false });
     if (fallback.error) throw fallback.error;
-    return fallback.data || [];
+    users = fallback.data || [];
+  } else {
+    users = data || [];
   }
 
-  return data || [];
+  const missingIds = [
+    ...new Set(
+      users
+        .filter((user) => !String(user.faculty || '').trim() && user.student_id)
+        .map((user) => String(user.student_id).trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ];
+
+  const facultyById = new Map();
+
+  if (missingIds.length) {
+    const { data: directoryRows } = await supabase
+      .from('student_directory')
+      .select('student_id, faculty')
+      .in('student_id', missingIds);
+
+    (directoryRows || []).forEach((row) => {
+      facultyById.set(
+        String(row.student_id || '').trim().toUpperCase(),
+        String(row.faculty || '').trim()
+      );
+    });
+  }
+
+  return users.map((user) => {
+    const faculty = String(user.faculty || '').trim();
+    if (faculty) return user;
+    const fromDirectory = facultyById.get(String(user.student_id || '').trim().toUpperCase()) || '';
+    const fromPrefix = facultyFromStudentId(user.student_id);
+    const resolved = faculty || fromDirectory || fromPrefix;
+    return resolved ? { ...user, faculty: resolved } : user;
+  });
 }
 
 export async function updateAdminUserApproval(email, isApproved) {
@@ -1726,6 +1762,16 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     .sort((a, b) => b[1] - a[1])
     .map(([name, count]) => ({ name, count }));
 
+  const facultyMap = {};
+  users.forEach((user) => {
+    if (user.role === 'admin') return;
+    const faculty = String(user.faculty || '').trim() || 'Unassigned';
+    facultyMap[faculty] = (facultyMap[faculty] || 0) + 1;
+  });
+  const faculties = Object.entries(facultyMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+
   const totalItems = items.length;
   const recovered = returnedItems.length;
   const recoveryRate = totalItems > 0 ? Math.round((recovered / totalItems) * 100) : 0;
@@ -1834,22 +1880,24 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     );
   }
 
+  const facultyFor = buildFacultyResolver(users);
+
   const records = {
     users: mapSystemReportUsers(users),
-    inventory: mapSystemReportItems(items),
-    lost: mapSystemReportItems(lostItems),
-    found: mapSystemReportItems(foundItems),
-    returned: mapSystemReportReturned(returnedItems),
-    pending: mapSystemReportPending(pendingData.combined || []),
-    claims: mapSystemReportClaims(claims),
-    drafts: mapSystemReportItems(draftItems),
-    secure: mapSystemReportItems(secureItems),
+    inventory: mapSystemReportItems(items, facultyFor),
+    lost: mapSystemReportItems(lostItems, facultyFor),
+    found: mapSystemReportItems(foundItems, facultyFor),
+    returned: mapSystemReportReturned(returnedItems, facultyFor),
+    pending: mapSystemReportPending(pendingData.combined || [], facultyFor),
+    claims: mapSystemReportClaims(claims, facultyFor),
+    drafts: mapSystemReportItems(draftItems, facultyFor),
+    secure: mapSystemReportItems(secureItems, facultyFor),
   };
 
   if (includePrivilegedSources) {
     records.recycle = mapSystemReportRecycle(recycleItems);
-    records.archived = mapSystemReportArchived(archived);
-    records.contact = mapSystemReportContact(contacts);
+    records.archived = mapSystemReportArchived(archived, facultyFor);
+    records.contact = mapSystemReportContact(contacts, facultyFor);
   }
 
   return {
@@ -1879,6 +1927,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       recoveryRate,
     },
     categories,
+    faculties,
     dataSources,
     records,
     generatedAt: new Date().toISOString(),
@@ -1910,12 +1959,45 @@ function toReportDateKey(value) {
   }
 }
 
+function buildFacultyResolver(users = []) {
+  const byStudentId = new Map();
+  const byEmail = new Map();
+
+  users.forEach((user) => {
+    const faculty = resolveFaculty({ faculty: user.faculty, studentId: user.student_id });
+    const studentId = String(user.student_id || user.studentId || '').trim().toUpperCase();
+    const email = String(user.email || '').trim().toLowerCase();
+    if (studentId) byStudentId.set(studentId, faculty);
+    if (email) byEmail.set(email, faculty);
+  });
+
+  return function facultyFor(entity = {}) {
+    const studentId = String(
+      entity.student_id ||
+        entity.studentId ||
+        entity.reporterStudentId ||
+        entity.claimer_student_id ||
+        entity.claimerStudentId ||
+        entity.displayRecipientId ||
+        entity.recipient_student_id ||
+        ''
+    )
+      .trim()
+      .toUpperCase();
+    const email = String(entity.email || entity.reporterEmail || '').trim().toLowerCase();
+    if (studentId && byStudentId.has(studentId)) return byStudentId.get(studentId);
+    if (email && byEmail.has(email)) return byEmail.get(email);
+    return resolveFaculty({ faculty: entity.faculty, studentId });
+  };
+}
+
 function mapSystemReportUsers(users = []) {
   return users.map((user) => ({
     id: user.email || String(user.id),
     name: user.name || '?',
     email: user.email || '?',
     studentId: user.student_id || user.studentId || '?',
+    faculty: resolveFaculty({ faculty: user.faculty, studentId: user.student_id || user.studentId }),
     role: user.role === 'admin' ? 'Admin' : 'Student',
     status:
       user.role === 'admin' ? 'Admin' : user.is_approved === true ? 'Active' : 'Pending',
@@ -1924,13 +2006,14 @@ function mapSystemReportUsers(users = []) {
   }));
 }
 
-function mapSystemReportItems(items = []) {
+function mapSystemReportItems(items = [], facultyFor = () => 'Unassigned') {
   const rawDate = (item) => item.reportedAt || item.created_at;
   return items.map((item) => ({
     id: `${item.itemType}-${item.id}`,
     ref: item.inventoryRef || item.refId || `#${item.id}`,
     name: item.displayName || 'Unnamed item',
     category: item.displayCategory || item.category || 'General',
+    faculty: facultyFor(item),
     location: item.displayLocation || item.location || 'Campus',
     type: item.itemType === 'found' ? 'Found' : 'Lost',
     status: normalizeItemStatus(item),
@@ -1939,12 +2022,13 @@ function mapSystemReportItems(items = []) {
   }));
 }
 
-function mapSystemReportReturned(items = []) {
+function mapSystemReportReturned(items = [], facultyFor = () => 'Unassigned') {
   return items.map((item) => ({
     id: String(item.id),
     ref: item.refId || `RET-${item.id}`,
     name: item.displayName || 'Unnamed item',
     category: item.displayCategory || 'General',
+    faculty: facultyFor(item),
     recipient: item.displayRecipient || '?',
     type: item.displayType || 'FOUND',
     returnedAt: formatReportDate(item.returnedAt),
@@ -1952,13 +2036,14 @@ function mapSystemReportReturned(items = []) {
   }));
 }
 
-function mapSystemReportPending(items = []) {
+function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned') {
   const rawDate = (item) => item.reportedAt || item.created_at;
   return items.map((item) => ({
     id: `${item.reportType}-${item.id}`,
     ref: item.refId || `#${item.id}`,
     name: item.displayName || 'Unnamed item',
     category: item.displayCategory || 'General',
+    faculty: facultyFor(item),
     reporter: item.reporterName || '?',
     type: item.reportType === 'found' ? 'Found' : 'Lost',
     reportedAt: formatReportDate(rawDate(item)),
@@ -1966,7 +2051,7 @@ function mapSystemReportPending(items = []) {
   }));
 }
 
-function mapSystemReportClaims(claims = []) {
+function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
   const rawDate = (claim) => claim.requestedAt || claim.created_at;
   return claims.map((claim) => ({
     id: String(claim.id),
@@ -1974,6 +2059,7 @@ function mapSystemReportClaims(claims = []) {
     item: claim.targetItem?.displayName || claim.item_name || 'Unknown item',
     claimer: claim.claimer_name || claim.claimerName || '?',
     studentId: claim.claimer_student_id || claim.claimerStudentId || '?',
+    faculty: facultyFor(claim),
     status: claim.status || 'pending',
     requestedAt: formatReportDate(rawDate(claim)),
     dateKey: toReportDateKey(rawDate(claim)),
@@ -1994,7 +2080,7 @@ function mapSystemReportRecycle(items = []) {
   }));
 }
 
-function mapSystemReportArchived(items = []) {
+function mapSystemReportArchived(items = [], facultyFor = () => 'Unassigned') {
   return items.map((item) => {
     const type = String(item.displayType || item.type || 'LOST').toUpperCase();
     return {
@@ -2002,6 +2088,7 @@ function mapSystemReportArchived(items = []) {
       ref: item.refId || `ARC-${String(item.id).padStart(4, '0')}`,
       name: item.displayName || item.item_name || 'Unnamed item',
       category: item.displayCategory || item.category || 'General',
+      faculty: facultyFor(item),
       location: item.displayLocation || item.location || '—',
       type: type === 'FOUND' ? 'Found' : 'Lost',
       status: 'Archived',
@@ -2027,15 +2114,17 @@ function parseContactMessageExtras(message) {
   };
 }
 
-function mapSystemReportContact(messages = []) {
+function mapSystemReportContact(messages = [], facultyFor = () => 'Unassigned') {
   return messages.map((row) => {
     const extras = parseContactMessageExtras(row.message);
+    const studentId = extras.studentId || '';
     return {
       id: String(row.id),
       name: row.fullName || 'Unknown',
       email: row.email || '—',
       phone: row.phone || '—',
-      studentId: extras.studentId || '—',
+      studentId: studentId || '—',
+      faculty: facultyFor({ ...row, studentId, email: row.email }),
       subject: row.subject || 'LOFO contact',
       item: extras.itemName || '—',
       place: extras.place || '—',

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { MapPin, Package, ShieldAlert } from 'lucide-react';
+import { MapPin, Package, Shield } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import { formatPublicDate } from '@/lib/publicItems';
 
@@ -35,15 +35,18 @@ export default function ItemCard({ item, index = 0, reveal = true }) {
           <div
             className={`relative flex h-full w-full items-center justify-center ${
               isSecure
-                ? 'bg-amber-50 text-amber-700'
+                ? 'public-detail-placeholder--secure'
                 : isFound
-                  ? 'bg-blue-50 text-[#1A56DB]'
-                  : 'bg-amber-50 text-amber-600'
+                  ? 'public-detail-placeholder--found'
+                  : 'public-detail-placeholder--lost'
             }`}
           >
             {isSecure ? (
-              <span className="relative inline-flex">
-                <ShieldAlert className="h-7 w-7 sm:h-10 sm:w-10" strokeWidth={1.5} />
+              <span className="public-secure-mark relative inline-flex">
+                <Shield
+                  className="public-detail-secure-icon h-7 w-7 sm:h-10 sm:w-10"
+                  strokeWidth={0}
+                />
                 <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-600 text-[9px] font-black text-white sm:-right-1 sm:-top-1 sm:h-5 sm:w-5 sm:text-[11px]">
                   !
                 </span>
@@ -77,7 +80,7 @@ export default function ItemCard({ item, index = 0, reveal = true }) {
           {item.category}
         </p>
         {isSecure && item.description ? (
-          <p className="mt-1.5 hidden line-clamp-1 text-sm font-medium text-amber-800/80 sm:mt-2 sm:block">
+          <p className="public-item-secure-note mt-1.5 hidden line-clamp-1 text-sm font-medium text-amber-800/80 sm:mt-2 sm:block">
             {item.description}
           </p>
         ) : null}

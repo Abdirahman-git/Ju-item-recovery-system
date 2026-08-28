@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, MapPin, Package, ShieldAlert, Smartphone, Tag } from 'lucide-react';
+import { ArrowLeft, MapPin, Package, Shield, Smartphone, Tag } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import {
   fetchPublicLiveItemById,
@@ -60,20 +60,20 @@ export default async function PublicItemDetailPage({ params }) {
       </Link>
 
       <article className="public-detail-card relative z-[1] mt-4 overflow-hidden rounded-[24px] bg-white animate-fade-in">
-        <div className="relative overflow-hidden bg-slate-100">
+        <div className="public-detail-media relative overflow-hidden bg-slate-100">
           {isSecure || !item.imageUrl ? (
             <div
-              className={`relative flex aspect-[4/3] w-full items-center justify-center ${
+              className={`public-detail-placeholder relative flex aspect-[4/3] w-full items-center justify-center ${
                 isSecure
-                  ? 'bg-amber-50 text-amber-700'
+                  ? 'public-detail-placeholder--secure'
                   : isFound
-                    ? 'bg-blue-50 text-[#1A56DB]'
-                    : 'bg-amber-50 text-amber-600'
+                    ? 'public-detail-placeholder--found'
+                    : 'public-detail-placeholder--lost'
               }`}
             >
               {isSecure ? (
-                <span className="relative inline-flex">
-                  <ShieldAlert size={56} strokeWidth={1.35} />
+                <span className="public-secure-mark relative inline-flex">
+                  <Shield size={56} strokeWidth={0} className="public-detail-secure-icon" />
                   <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
                     !
                   </span>
@@ -103,50 +103,50 @@ export default async function PublicItemDetailPage({ params }) {
           </span>
         </div>
 
-        <div className="p-5 sm:p-6">
-          <h1 className="text-balance text-2xl font-black tracking-tight text-[#0F172A] sm:text-3xl">
+        <div className="public-detail-body p-5 sm:p-6">
+          <h1 className="public-detail-title text-balance text-2xl font-black tracking-tight sm:text-3xl">
             {item.title}
           </h1>
-          <p className="mt-1.5 text-sm font-semibold tabular-nums text-slate-400">
+          <p className="public-detail-muted mt-1.5 text-sm font-semibold tabular-nums">
             {formatPublicDate(item.reportedAt)}
           </p>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+            <span className="public-detail-chip inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold">
               <Tag size={12} />
               {item.category}
             </span>
-            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#1A56DB]">
+            <span className="public-detail-chip public-detail-chip--blue inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold">
               <MapPin size={12} />
               {item.location}
             </span>
           </div>
 
           <div className="mt-5">
-            <h2 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+            <h2 className="public-detail-label text-[10px] font-black uppercase tracking-[0.14em]">
               {isSecure ? 'Public notice' : 'Description'}
             </h2>
-            <p className="mt-1.5 text-pretty text-sm font-medium leading-relaxed text-slate-600">
+            <p className="public-detail-desc mt-1.5 text-pretty text-sm font-medium leading-relaxed">
               {item.description || 'No additional description provided.'}
             </p>
           </div>
 
           <div
             className={`public-detail-claim mt-6 rounded-[16px] p-4 ${
-              isSecure ? 'bg-amber-50' : 'bg-[rgba(26,86,219,0.06)]'
+              isSecure ? 'public-detail-claim--secure' : 'public-detail-claim--default'
             }`}
           >
-            <h3 className="text-base font-black text-[#0F172A]">
+            <h3 className="public-detail-claim-title text-base font-black">
               {isSecure ? 'Held at campus security' : 'Is this yours?'}
             </h3>
-            <p className="mt-1.5 text-pretty text-sm font-medium leading-relaxed text-slate-600">
+            <p className="public-detail-claim-text mt-1.5 text-pretty text-sm font-medium leading-relaxed">
               {isSecure
                 ? 'Photos stay private for safety. Open the JU LOFO app to follow up with the Lost & Found desk.'
                 : 'Contact details stay private for safety. Open the JU LOFO mobile app to claim this item.'}
             </p>
             <a
               href="/#get-app"
-              className="public-press mt-4 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full bg-[#1A56DB] pl-5 pr-4 text-sm font-black text-white shadow-[0_1px_0_rgba(255,255,255,0.18)_inset,0_10px_24px_rgba(26,86,219,0.28)] transition-[transform,background-color,box-shadow] duration-200 hover:bg-[#1E40AF]"
+              className="public-detail-cta public-press mt-4 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full pl-5 pr-4 text-sm font-black shadow-[0_1px_0_rgba(255,255,255,0.18)_inset,0_10px_24px_rgba(26,86,219,0.28)] transition-[transform,background-color,box-shadow] duration-200 hover:bg-[#1E40AF]"
             >
               <Smartphone size={16} />
               Open in app to claim / contact

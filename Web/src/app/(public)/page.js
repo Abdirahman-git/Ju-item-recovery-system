@@ -7,7 +7,9 @@ import RevealOnScroll from '@/components/public/RevealOnScroll';
 import HeroPhoneFrame from '@/components/public/HeroPhoneFrame';
 import HowItWorksFlow from '@/components/public/HowItWorksFlow';
 import ContactSection from '@/components/public/ContactSection';
-import { fetchPublicLiveItems, toPublicItemCard } from '@/lib/publicItems';
+import Typewriter from '@/components/public/Typewriter';
+import { getPublicLiveItemsCached } from '@/lib/publicItems.server';
+import { toPublicItemCard } from '@/lib/publicItems';
 
 export const revalidate = 15;
 
@@ -20,8 +22,8 @@ const TRUST = [
 export default async function HomePage() {
   let preview = [];
   try {
-    const live = await fetchPublicLiveItems();
-    preview = live.slice(0, 6).map(toPublicItemCard).filter(Boolean);
+    const live = await getPublicLiveItemsCached(6);
+    preview = live.map(toPublicItemCard).filter(Boolean);
   } catch {
     preview = [];
   }
@@ -41,6 +43,19 @@ export default async function HomePage() {
             <p className="mt-4 max-w-xl text-base font-medium leading-relaxed text-slate-600 sm:text-lg">
               Lost something on campus? Report it. Found something? Turn it in. JU LOFO brings them back together.
             </p>
+
+            <div className="public-hero-typed-row mt-3 max-w-xl text-sm sm:text-base">
+              <Typewriter
+                phrases={[
+                  'Campus Lost & Found',
+                  'Admin-verified recovery',
+                  'Students and staff welcome',
+                  'Report lost or found',
+                  'Secure campus holds',
+                  'Live item feed',
+                ]}
+              />
+            </div>
 
             <div className="mt-6 flex flex-wrap gap-2">
               {TRUST.map(({ icon: Icon, label }) => (

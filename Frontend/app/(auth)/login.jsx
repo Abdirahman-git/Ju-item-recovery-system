@@ -63,6 +63,7 @@ export default function LoginScreen() {
         userName: session.userName,
         studentId: session.studentId,
         phone: session.phone || '',
+        faculty: session.faculty || '',
         adminToken: session.adminToken || null,
       }));
 

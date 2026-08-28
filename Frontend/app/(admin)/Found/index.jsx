@@ -8,8 +8,8 @@ import {
 import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import VisualEvidenceUpload from '../../../src/components/VisualEvidenceUpload';
 import { CATEGORY_ICONS } from '../../../src/constants/categories';
 import { useDynamicCategories } from '../../../src/hooks/useDynamicCategories';
 import CategoryPills from '../../../src/components/CategoryPills';
@@ -420,32 +420,14 @@ export default function AdminFoundPage() {
                  <Text style={styles.portalSubtitle}>Provide the details below to help us return it to its rightful owner.</Text>
               </View>
 
-              {/* Visual Evidence */}
-              <Text style={styles.fieldLabel}>VISUAL EVIDENCE (REQUIRED)</Text>
-              <TouchableOpacity style={styles.uploadBox} onPress={pickImage}>
-                {newItem.imageURI ? (
-                  <View style={{ flex: 1 }}>
-                     <Image source={{ uri: newItem.imageURI }} style={styles.uploadedImage} resizeMode="cover" />
-                     <TouchableOpacity 
-                       style={styles.removeImageBtn} 
-                       onPress={(e) => {
-                         e.stopPropagation();
-                         setNewItem({ ...newItem, imageURI: '' });
-                       }}
-                     >
-                        <Ionicons name="close-circle" size={24} color="#EF4444" />
-                     </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View style={styles.uploadInner}>
-                    <View style={styles.uploadIconCircle}>
-                        <MaterialCommunityIcons name="camera-plus-outline" size={32} color={PRIMARY_GREEN} />
-                    </View>
-                    <Text style={styles.uploadTitle}>Upload or drag photos</Text>
-                    <Text style={styles.uploadSubtitle}>Clear photos help owners identify items</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              <VisualEvidenceUpload
+                imageUri={newItem.imageURI}
+                onPick={pickImage}
+                onRemove={() => setNewItem({ ...newItem, imageURI: '' })}
+                accentColor={PRIMARY_GREEN}
+                required
+                subtitle="Clear photos help owners identify items"
+              />
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>ITEM NAME</Text>

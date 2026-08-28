@@ -4,18 +4,19 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Image,
   ActivityIndicator,
   TextInput,
+  Platform,
+  Pressable,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { DrawerActions } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../../src/constants/colors';
 import AdminHeader from '../../../src/components/AdminHeader';
-import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import {
   fetchAllInventoryItems,
@@ -27,19 +28,27 @@ import { canMarkInventoryItemReturned } from '../../../src/utils/inventory';
 import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const STATUS_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'draft', label: 'Draft' },
-  { id: 'secure', label: 'Secure' },
-  { id: 'found', label: 'Found' },
-  { id: 'lost', label: 'Lost' },
+  { id: 'all', label: 'All', icon: 'grid-outline' },
+  { id: 'draft', label: 'Draft', icon: 'document-text-outline' },
+  { id: 'secure', label: 'Secure', icon: 'shield-checkmark-outline' },
+  { id: 'found', label: 'Found', icon: 'checkmark-circle-outline' },
+  { id: 'lost', label: 'Lost', icon: 'help-buoy-outline' },
 ];
 
 const SORT_OPTIONS = [
-  { id: 'newest', label: 'Newest' },
-  { id: 'oldest', label: 'Oldest' },
-  { id: 'name', label: 'A–Z' },
-  { id: 'name-desc', label: 'Z–A' },
+  { id: 'newest', label: 'Newest', icon: 'arrow-down-outline' },
+  { id: 'oldest', label: 'Oldest', icon: 'arrow-up-outline' },
+  { id: 'name', label: 'A–Z', icon: 'text-outline' },
+  { id: 'name-desc', label: 'Z–A', icon: 'text-outline' },
 ];
+
+const STAT_META = {
+  all: { label: 'Total', icon: 'albums-outline', tint: Colors.primary, soft: Colors.primaryLight },
+  draft: { label: 'Draft', icon: 'create-outline', tint: '#7C3AED', soft: '#EDE9FE' },
+  secure: { label: 'Secure', icon: 'lock-closed-outline', tint: '#D97706', soft: '#FEF3C7' },
+  found: { label: 'Found', icon: 'checkmark-done-outline', tint: Colors.success, soft: '#ECFDF5' },
+  lost: { label: 'Lost', icon: 'alert-circle-outline', tint: Colors.error, soft: '#FEF2F2' },
+};
 
 function getCardMeta(item) {
   const status = normalizeItemStatus(item);
@@ -49,31 +58,29 @@ function getCardMeta(item) {
   if (status === ITEM_STATUS.DRAFT || item.status === 'draft') {
     return {
       filter: 'draft',
-      badge: isSecure ? { label: 'Secure Draft', bg: '#F59E0B', color: '#FFF' } : { label: 'Draft', bg: '#7C3AED', color: '#FFF' },
-      action: { label: isSecure ? 'Continue Secure' : itemType === 'found' ? 'Continue Found' : 'Continue Lost', variant: 'primary' },
+      badge: isSecure
+        ? { label: 'Secure Draft', bg: '#FFF7ED', color: '#C2410C', border: '#FDBA74' }
+        : { label: 'Draft', bg: '#F5F3FF', color: '#6D28D9', border: '#C4B5FD' },
     };
   }
 
   if (isSecure && status === ITEM_STATUS.LIVE) {
     return {
       filter: 'secure',
-      badge: { label: 'Secure', bg: '#D97706', color: '#FFF' },
-      action: { label: 'Mark Returned', variant: 'success' },
+      badge: { label: 'Secure', bg: '#FFFBEB', color: '#B45309', border: '#FCD34D' },
     };
   }
 
   if (itemType === 'found') {
     return {
       filter: 'found',
-      badge: { label: 'Found', bg: Colors.success, color: '#FFF' },
-      action: { label: 'Details', variant: 'ghost' },
+      badge: { label: 'Found', bg: '#ECFDF5', color: '#047857', border: '#A7F3D0' },
     };
   }
 
   return {
     filter: 'lost',
-    badge: { label: 'Lost', bg: Colors.error, color: '#FFF' },
-    action: { label: 'Details', variant: 'ghost' },
+    badge: { label: 'Lost', bg: '#FEF2F2', color: '#B91C1C', border: '#FECACA' },
   };
 }
 
@@ -93,6 +100,18 @@ function sortItems(list, sortBy) {
   return rows.sort((a, b) => key(b) - key(a));
 }
 
+function PressScale({ children, onPress, style, disabled }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [style, pressed && !disabled && { transform: [{ scale: 0.96 }] }]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
 export default function AllItemsScreen() {
   const router = useRouter();
   const navigation = useNavigation();
@@ -107,6 +126,7 @@ export default function AllItemsScreen() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -159,6 +179,9 @@ export default function AllItemsScreen() {
       sortBy
     );
   }, [items, statusFilter, categoryFilter, searchQuery, sortBy]);
+
+  const activeFilterCount =
+    (categoryFilter !== 'all' ? 1 : 0) + (sortBy !== 'newest' ? 1 : 0);
 
   const handleDelete = (item) => {
     showAppConfirm({
@@ -231,97 +254,182 @@ export default function AllItemsScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader
-        title="All Items"
-        subtitle="University property logs"
+        title="Inventory"
+        subtitle="Campus property desk"
         onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
         rightElement={
-          <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
-            <Ionicons name="refresh-outline" size={22} color={Colors.primary} />
-          </TouchableOpacity>
+          <PressScale style={styles.refreshBtn} onPress={fetchData}>
+            <Ionicons name="refresh-outline" size={20} color={Colors.primaryDark} />
+          </PressScale>
         }
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <AdminPageHero
-          eyebrow="Item Management"
-          title="All property logs"
-          subtitle="Browse, manage, and release every report in one unified inventory."
-        />
+        <Animated.View entering={FadeInDown.duration(420)} style={styles.heroCard}>
+          <LinearGradient
+            colors={['#0F172A', '#1E3A8A', '#1A56DB']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroGradient}
+          >
+            <Text style={styles.heroEyebrow}>ITEM MANAGEMENT</Text>
+            <Text style={styles.heroTitle}>Property logs</Text>
+            <Text style={styles.heroSubtitle}>
+              Review, release, and keep every campus report in one clean desk.
+            </Text>
+            <View style={styles.heroMeta}>
+              <View style={styles.heroMetaPill}>
+                <Ionicons name="layers-outline" size={14} color="#BFDBFE" />
+                <Text style={styles.heroMetaText}>{counts.all} items</Text>
+              </View>
+              <View style={styles.heroMetaPill}>
+                <Ionicons name="flash-outline" size={14} color="#BFDBFE" />
+                <Text style={styles.heroMetaText}>{counts.secure} secure</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
 
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, styles.statCardPrimary]}>
-            <Text style={styles.statNum}>{counts.all}</Text>
-            <Text style={styles.statLabel}>Total</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.statsScroll}
+          style={styles.statsRow}
+        >
+          {STATUS_TABS.map((tab, index) => {
+            const meta = STAT_META[tab.id];
+            const active = statusFilter === tab.id;
+            return (
+              <Animated.View key={tab.id} entering={FadeInDown.delay(60 * index).duration(380)}>
+                <PressScale
+                  style={[styles.statCard, active && styles.statCardActive, { backgroundColor: meta.soft }]}
+                  onPress={() => setStatusFilter(tab.id)}
+                >
+                  <View style={[styles.statIconWrap, { backgroundColor: '#FFF' }]}>
+                    <Ionicons name={meta.icon} size={16} color={meta.tint} />
+                  </View>
+                  <Text style={[styles.statNum, { color: meta.tint }]}>{counts[tab.id]}</Text>
+                  <Text style={styles.statLabel}>{meta.label}</Text>
+                </PressScale>
+              </Animated.View>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.toolbar}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={Colors.slate400} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search name, place, person..."
+              placeholderTextColor={Colors.slate400}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+            {searchQuery ? (
+              <PressScale onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={Colors.slate400} />
+              </PressScale>
+            ) : null}
           </View>
-          <View style={[styles.statCard, styles.statCardDraft]}>
-            <Text style={styles.statNum}>{counts.draft}</Text>
-            <Text style={styles.statLabel}>Draft</Text>
-          </View>
-          <View style={[styles.statCard, styles.statCardSecure]}>
-            <Text style={styles.statNum}>{counts.secure}</Text>
-            <Text style={styles.statLabel}>Secure</Text>
-          </View>
-          <View style={[styles.statCard, styles.statCardFound]}>
-            <Text style={styles.statNum}>{counts.found}</Text>
-            <Text style={styles.statLabel}>Found</Text>
-          </View>
-          <View style={[styles.statCard, styles.statCardLost]}>
-            <Text style={styles.statNum}>{counts.lost}</Text>
-            <Text style={styles.statLabel}>Lost</Text>
-          </View>
+
+          <PressScale
+            style={[styles.filterToggle, filtersOpen && styles.filterToggleActive]}
+            onPress={() => setFiltersOpen((v) => !v)}
+          >
+            <Ionicons
+              name="options-outline"
+              size={18}
+              color={filtersOpen || activeFilterCount ? Colors.primaryDark : Colors.slate600}
+            />
+            {activeFilterCount > 0 ? (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            ) : null}
+          </PressScale>
         </View>
 
-        <View style={styles.searchBarContainer}>
-          <Ionicons name="search-outline" size={20} color={Colors.slate400} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search items, locations, reporters..."
-            placeholderTextColor={Colors.slate400}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            clearButtonMode="while-editing"
-          />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statusChips}>
+          {STATUS_TABS.map((tab) => {
+            const active = statusFilter === tab.id;
+            return (
+              <PressScale
+                key={tab.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setStatusFilter(tab.id)}
+              >
+                <Ionicons
+                  name={tab.icon}
+                  size={14}
+                  color={active ? Colors.white : Colors.slate500}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {tab.label}
+                </Text>
+                <Text style={[styles.chipCount, active && styles.chipCountActive]}>
+                  {counts[tab.id]}
+                </Text>
+              </PressScale>
+            );
+          })}
+        </ScrollView>
+
+        {filtersOpen ? (
+          <Animated.View entering={FadeInDown.duration(280)} style={styles.filterPanel}>
+            <Text style={styles.filterSectionLabel}>Category</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.panelChips}>
+              {categories.map((cat) => {
+                const active = categoryFilter === cat;
+                return (
+                  <PressScale
+                    key={cat}
+                    style={[styles.softChip, active && styles.softChipActive]}
+                    onPress={() => setCategoryFilter(cat)}
+                  >
+                    <Text style={[styles.softChipText, active && styles.softChipTextActive]} numberOfLines={1}>
+                      {cat === 'all' ? 'All categories' : cat}
+                    </Text>
+                  </PressScale>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={[styles.filterSectionLabel, { marginTop: 12 }]}>Sort</Text>
+            <View style={styles.sortRow}>
+              {SORT_OPTIONS.map((opt) => {
+                const active = sortBy === opt.id;
+                return (
+                  <PressScale
+                    key={opt.id}
+                    style={[styles.sortChip, active && styles.sortChipActive]}
+                    onPress={() => setSortBy(opt.id)}
+                  >
+                    <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{opt.label}</Text>
+                  </PressScale>
+                );
+              })}
+            </View>
+          </Animated.View>
+        ) : null}
+
+        <View style={styles.listHeader}>
+          <Text style={styles.listHeaderTitle}>
+            {filteredItems.length} result{filteredItems.length === 1 ? '' : 's'}
+          </Text>
+          {(categoryFilter !== 'all' || sortBy !== 'newest') && (
+            <PressScale
+              onPress={() => {
+                setCategoryFilter('all');
+                setSortBy('newest');
+              }}
+            >
+              <Text style={styles.clearFilters}>Reset</Text>
+            </PressScale>
+          )}
         </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          {STATUS_TABS.map((tab) => (
-            <TouchableOpacity
-              key={tab.id}
-              style={[styles.chip, statusFilter === tab.id && styles.chipActive]}
-              onPress={() => setStatusFilter(tab.id)}
-            >
-              <Text style={[styles.chipText, statusFilter === tab.id && styles.chipTextActive]}>
-                {tab.label} ({counts[tab.id]})
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          {categories.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[styles.chip, categoryFilter === cat && styles.chipActive]}
-              onPress={() => setCategoryFilter(cat)}
-            >
-              <Text style={[styles.chipText, categoryFilter === cat && styles.chipTextActive]}>
-                {cat === 'all' ? 'All categories' : cat}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          {SORT_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt.id}
-              style={[styles.chip, sortBy === opt.id && styles.chipActive]}
-              onPress={() => setSortBy(opt.id)}
-            >
-              <Text style={[styles.chipText, sortBy === opt.id && styles.chipTextActive]}>{opt.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
 
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -329,86 +437,117 @@ export default function AllItemsScreen() {
             <Text style={styles.loadingText}>Loading property logs...</Text>
           </View>
         ) : filteredItems.length > 0 ? (
-          filteredItems.map((item) => {
+          filteredItems.map((item, index) => {
             const meta = getCardMeta(item);
             const isSecure = meta.filter === 'secure';
             const showReturn = canMarkInventoryItemReturned(item);
-            return (
-              <TouchableOpacity
-                key={`${item.itemType}-${item.id}`}
-                style={styles.itemCard}
-                activeOpacity={0.9}
-                onPress={() => handleOpenItem(item)}
-              >
-                {isSecure ? (
-                  <View style={[styles.itemCardImg, styles.secureImg]}>
-                    <Text style={styles.secureBang}>!</Text>
-                  </View>
-                ) : item.imageURI ? (
-                  <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
-                ) : (
-                  <View
-                    style={[
-                      styles.itemCardImg,
-                      styles.placeholderImg,
-                      { backgroundColor: meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge },
-                    ]}
-                  >
-                    <Ionicons
-                      name={meta.filter === 'lost' ? 'help-buoy-outline' : 'checkmark-circle-outline'}
-                      size={28}
-                      color={meta.filter === 'lost' ? Colors.lostBadgeText : Colors.foundBadgeText}
-                    />
-                  </View>
-                )}
+            const categoryLabel = String(item.category || 'General');
 
-                <View style={styles.itemCardInfo}>
-                  <View style={styles.itemHeader}>
-                    <Text style={styles.itemCategory}>{item.category || 'Uncategorized'}</Text>
-                    <View style={[styles.badge, { backgroundColor: meta.badge.bg }]}>
-                      <Text style={[styles.badgeText, { color: meta.badge.color }]}>{meta.badge.label}</Text>
+            return (
+              <Animated.View
+                key={`${item.itemType}-${item.id}`}
+                entering={FadeInDown.delay(Math.min(index, 8) * 45).duration(360)}
+              >
+                <PressScale style={styles.itemCard} onPress={() => handleOpenItem(item)}>
+                  <View style={styles.thumbWrap}>
+                    {isSecure ? (
+                      <View style={[styles.itemCardImg, styles.secureImg]}>
+                        <Ionicons name="shield" size={28} color="#D97706" />
+                      </View>
+                    ) : item.imageURI ? (
+                      <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
+                    ) : (
+                      <View
+                        style={[
+                          styles.itemCardImg,
+                          styles.placeholderImg,
+                          {
+                            backgroundColor:
+                              meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={meta.filter === 'lost' ? 'help-buoy-outline' : 'checkmark-circle-outline'}
+                          size={26}
+                          color={meta.filter === 'lost' ? Colors.lostBadgeText : Colors.foundBadgeText}
+                        />
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.itemCardBody}>
+                    <View style={styles.itemTopRow}>
+                      <Text style={styles.itemCategory} numberOfLines={1} ellipsizeMode="tail">
+                        {categoryLabel}
+                      </Text>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: meta.badge.bg,
+                            borderColor: meta.badge.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.badgeText, { color: meta.badge.color }]}>
+                          {meta.badge.label}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.itemName} numberOfLines={1}>
+                      {item.itemName || item.item_name}
+                    </Text>
+
+                    <View style={styles.metaRow}>
+                      <Ionicons name="location-outline" size={13} color={Colors.slate400} />
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        {item.location || 'Unknown location'}
+                      </Text>
+                    </View>
+                    <View style={styles.metaRow}>
+                      <Ionicons name="calendar-outline" size={13} color={Colors.slate400} />
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        {formatDate(item.created_at)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.cardActions}>
+                      {showReturn ? (
+                        <PressScale
+                          style={styles.returnBtn}
+                          onPress={() => handleMarkReturned(item)}
+                        >
+                          <Ionicons name="return-down-back-outline" size={14} color="#047857" />
+                          <Text style={styles.returnBtnText}>Return</Text>
+                        </PressScale>
+                      ) : (
+                        <View style={styles.openHint}>
+                          <Text style={styles.openHintText}>Open</Text>
+                          <Ionicons name="chevron-forward" size={14} color={Colors.slate400} />
+                        </View>
+                      )}
+
+                      <PressScale
+                        style={styles.deleteBtn}
+                        onPress={() => handleDelete(item)}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                      </PressScale>
                     </View>
                   </View>
-
-                  <Text style={styles.itemName} numberOfLines={1}>
-                    {item.itemName || item.item_name}
-                  </Text>
-                  <Text style={styles.itemLine} numberOfLines={1}>
-                    <Ionicons name="location-outline" size={13} color={Colors.slate500} /> {item.location || 'Unknown'}
-                  </Text>
-                  <Text style={styles.itemLine} numberOfLines={1}>
-                    <Ionicons name="calendar-outline" size={13} color={Colors.slate500} /> {formatDate(item.created_at)}
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.itemDeleteBtn}
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    handleDelete(item);
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={19} color={Colors.error} />
-                </TouchableOpacity>
-                {showReturn ? (
-                  <TouchableOpacity
-                    style={styles.itemReturnBtn}
-                    onPress={(e) => {
-                      e.stopPropagation?.();
-                      handleMarkReturned(item);
-                    }}
-                  >
-                    <Text style={styles.itemReturnBtnText}>Return</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </TouchableOpacity>
+                </PressScale>
+              </Animated.View>
             );
           })
         ) : (
           <View style={styles.emptyContainer}>
-            <Ionicons name="albums-outline" size={56} color={Colors.slate300} />
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="albums-outline" size={32} color={Colors.primary} />
+            </View>
             <Text style={styles.emptyTitle}>No matching items</Text>
-            <Text style={styles.emptyText}>Try another filter, search, or switch tabs.</Text>
+            <Text style={styles.emptyText}>Try another filter, search, or clear the advanced options.</Text>
           </View>
         )}
       </ScrollView>
@@ -419,7 +558,7 @@ export default function AllItemsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.slate50 },
+  container: { flex: 1, backgroundColor: '#F4F7FB' },
   refreshBtn: {
     width: 44,
     height: 44,
@@ -430,94 +569,288 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 48,
   },
-  statsRow: {
+  heroCard: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.22,
+        shadowRadius: 20,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  heroGradient: {
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+  },
+  heroEyebrow: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: '#93C5FD',
+    letterSpacing: 1.4,
+    marginBottom: 8,
+  },
+  heroTitle: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 28,
+    color: Colors.white,
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: 'rgba(226,232,240,0.9)',
+    lineHeight: 20,
+    maxWidth: 280,
+    marginBottom: 16,
+  },
+  heroMeta: {
     flexDirection: 'row',
     gap: 8,
+  },
+  heroMetaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  heroMetaText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: '#E2E8F0',
+  },
+  statsRow: {
     marginBottom: 14,
+    marginHorizontal: -20,
+  },
+  statsScroll: {
+    paddingHorizontal: 20,
+    gap: 10,
   },
   statCard: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 10,
+    width: 88,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    borderWidth: 1,
   },
-  statCardPrimary: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: '#BFDBFE',
+  statCardActive: {
+    borderWidth: 1.5,
+    borderColor: 'rgba(15,23,42,0.12)',
   },
-  statCardDraft: {
-    backgroundColor: '#EDE9FE',
-    borderColor: '#C4B5FD',
-  },
-  statCardSecure: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FCD34D',
-  },
-  statCardFound: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
-  },
-  statCardLost: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+  statIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   statNum: {
     fontFamily: 'Poppins_700Bold',
-    fontSize: 16,
-    color: Colors.slate900,
+    fontSize: 18,
+    fontVariant: ['tabular-nums'],
   },
   statLabel: {
     marginTop: 2,
     fontFamily: 'Inter_500Medium',
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.slate600,
   },
-  searchBarContainer: {
+  toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: Colors.white,
-    marginBottom: 10,
     paddingHorizontal: 14,
     height: 50,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.slate100,
-  },
-  searchIcon: {
-    marginRight: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+      },
+      android: { elevation: 1 },
+    }),
   },
   searchInput: {
     flex: 1,
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
     color: Colors.slate900,
+    paddingVertical: 0,
   },
-  filterScroll: {
-    marginBottom: 10,
+  filterToggle: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterToggleActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: '#93C5FD',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9,
+    color: Colors.white,
+  },
+  statusChips: {
+    paddingBottom: 4,
+    gap: 8,
   },
   chip: {
-    marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingVertical: 9,
+    borderRadius: 14,
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.slate100,
   },
   chipActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: '#93C5FD',
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   chipText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 12,
-    color: Colors.slate500,
+    color: Colors.slate600,
   },
   chipTextActive: {
+    color: Colors.white,
+  },
+  chipCount: {
+    marginLeft: 6,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 11,
+    color: Colors.slate400,
+    fontVariant: ['tabular-nums'],
+  },
+  chipCountActive: {
+    color: 'rgba(255,255,255,0.85)',
+  },
+  filterPanel: {
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: Colors.white,
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+  },
+  filterSectionLabel: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: Colors.slate400,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  panelChips: {
+    gap: 8,
+  },
+  softChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: Colors.slate50,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+    maxWidth: 160,
+  },
+  softChipActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: '#93C5FD',
+  },
+  softChipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate600,
+  },
+  softChipTextActive: {
     color: Colors.primaryDark,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: Colors.slate50,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+  },
+  sortChipActive: {
+    backgroundColor: Colors.slate900,
+    borderColor: Colors.slate900,
+  },
+  sortChipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate600,
+  },
+  sortChipTextActive: {
+    color: Colors.white,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  listHeaderTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 13,
+    color: Colors.slate500,
+  },
+  clearFilters: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 12,
+    color: Colors.primary,
   },
   loadingContainer: {
     paddingTop: 60,
@@ -531,23 +864,32 @@ const styles = StyleSheet.create({
   },
   itemCard: {
     flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: Colors.white,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.slate100,
-    shadowColor: Colors.slate900,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    elevation: 2,
+    borderColor: 'rgba(15,23,42,0.05)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  thumbWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.12)',
   },
   itemCardImg: {
-    width: 78,
-    height: 78,
-    borderRadius: 14,
+    width: 92,
+    height: 108,
+    borderRadius: 16,
     backgroundColor: Colors.slate100,
   },
   placeholderImg: {
@@ -559,33 +901,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FEF3C7',
   },
-  secureBang: {
-    fontSize: 48,
-    fontFamily: 'Poppins_700Bold',
-    color: '#D97706',
-  },
-  itemCardInfo: {
+  itemCardBody: {
     flex: 1,
     marginLeft: 12,
+    minWidth: 0,
   },
-  itemHeader: {
+  itemTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 8,
     marginBottom: 4,
   },
   itemCategory: {
     flex: 1,
+    minWidth: 0,
     fontFamily: 'Inter_600SemiBold',
     fontSize: 11,
-    color: Colors.slate500,
+    color: Colors.slate400,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   badge: {
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderWidth: 1,
+    flexShrink: 0,
   },
   badgeText: {
     fontFamily: 'Inter_700Bold',
@@ -593,47 +934,84 @@ const styles = StyleSheet.create({
   },
   itemName: {
     fontFamily: 'Poppins_700Bold',
-    fontSize: 15,
+    fontSize: 16,
     color: Colors.slate900,
     marginBottom: 6,
   },
-  itemLine: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+  },
+  metaText: {
+    flex: 1,
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
-    color: Colors.slate600,
-    marginBottom: 2,
+    color: Colors.slate500,
   },
-  itemDeleteBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+  cardActions: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
+    justifyContent: 'space-between',
+    marginTop: 10,
   },
-  itemReturnBtn: {
+  returnBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: '#ECFDF5',
     borderWidth: 1,
     borderColor: '#A7F3D0',
-    marginLeft: 4,
+    minHeight: 40,
   },
-  itemReturnBtnText: {
+  returnBtnText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 12,
     color: '#047857',
   },
-  emptyContainer: {
-    paddingTop: 60,
+  openHint: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 2,
+    minHeight: 40,
+  },
+  openHintText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate400,
+  },
+  deleteBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  emptyContainer: {
+    paddingTop: 48,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: Colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   emptyTitle: {
-    marginTop: 12,
     fontFamily: 'Poppins_700Bold',
-    fontSize: 16,
-    color: Colors.slate700,
+    fontSize: 17,
+    color: Colors.slate800,
   },
   emptyText: {
     marginTop: 6,
@@ -641,5 +1019,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.slate500,
     textAlign: 'center',
+    lineHeight: 20,
   },
 });

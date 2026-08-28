@@ -93,6 +93,12 @@ function filterReportRows(rows, filters) {
       return false;
     }
 
+    if (filters.faculty && filters.faculty !== 'all') {
+      if (String(row.faculty || 'Unassigned') !== filters.faculty) {
+        return false;
+      }
+    }
+
     if (filters.from || filters.to) {
       if (!row.dateKey) return false;
       if (filters.from && row.dateKey < filters.from) return false;
@@ -161,6 +167,7 @@ const EMPTY_REPORTS = {
     recoveryRate: 0,
   },
   categories: [],
+  faculties: [],
   dataSources: [],
   records: {},
   generatedAt: null,
@@ -186,6 +193,7 @@ const REPORT_COLUMNS = {
     { key: 'name', label: 'Name' },
     { key: 'email', label: 'Email' },
     { key: 'studentId', label: 'Student ID' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'role', label: 'Role' },
     { key: 'status', label: 'Status' },
     { key: 'joined', label: 'Joined' },
@@ -194,6 +202,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'type', label: 'Type' },
     { key: 'status', label: 'Status' },
@@ -203,6 +212,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'status', label: 'Status' },
     { key: 'reportedAt', label: 'Reported' },
@@ -211,6 +221,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'status', label: 'Status' },
     { key: 'reportedAt', label: 'Reported' },
@@ -219,6 +230,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'recipient', label: 'Recipient' },
     { key: 'type', label: 'Type' },
     { key: 'returnedAt', label: 'Returned' },
@@ -227,6 +239,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'reporter', label: 'Reporter' },
     { key: 'type', label: 'Type' },
     { key: 'reportedAt', label: 'Submitted' },
@@ -236,6 +249,7 @@ const REPORT_COLUMNS = {
     { key: 'item', label: 'Item' },
     { key: 'claimer', label: 'Claimer' },
     { key: 'studentId', label: 'Student ID' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'status', label: 'Status' },
     { key: 'requestedAt', label: 'Requested' },
   ],
@@ -243,6 +257,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'type', label: 'Type' },
     { key: 'status', label: 'Status' },
     { key: 'reportedAt', label: 'Saved' },
@@ -251,6 +266,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'status', label: 'Status' },
     { key: 'reportedAt', label: 'Posted' },
@@ -267,6 +283,7 @@ const REPORT_COLUMNS = {
     { key: 'ref', label: 'Ref' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'type', label: 'Type' },
     { key: 'reason', label: 'Reason' },
@@ -278,6 +295,7 @@ const REPORT_COLUMNS = {
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
     { key: 'studentId', label: 'Student ID' },
+    { key: 'faculty', label: 'Faculty' },
     { key: 'subject', label: 'Subject' },
     { key: 'item', label: 'Item' },
     { key: 'place', label: 'Campus place' },
@@ -378,6 +396,11 @@ function exportReportsCsv(view) {
     ['Contact New', view.summary.contactNew ?? 0],
     ['Contact Read', view.summary.contactRead ?? 0],
     ['Contact Archived', view.summary.contactArchived ?? 0],
+    [],
+    ['Department', 'Students'],
+    ...(Array.isArray(view.faculties) && view.faculties.length
+      ? view.faculties.map((row) => [row.name, row.count])
+      : [['Unassigned', view.summary.students ?? 0]]),
   ];
 
   const csv = rows
@@ -458,7 +481,7 @@ function ResetConfirmModal({ onCancel, onConfirm }) {
         </div>
         <h3 className="mt-5 text-2xl font-black text-slate-950">Reset filters?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          Date range, status, search, and data source will return to defaults (Global Inventory · All time).
+          Date range, status, faculty, search, and data source will return to defaults (Global Inventory · All time).
         </p>
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
@@ -540,7 +563,7 @@ function ReportTable({ columns, rows, onResetFilters, loading = false }) {
                   const isStatus = column.key === 'status' || column.key === 'role';
                   const isType = column.key === 'type';
                   const value = isStatus ? formatStatusLabel(raw) : raw;
-                  const wrapCell = column.key === 'name' || column.key === 'item' || column.key === 'email' || column.key === 'location';
+                  const wrapCell = column.key === 'name' || column.key === 'item' || column.key === 'email' || column.key === 'location' || column.key === 'faculty';
 
                   return (
                     <td
@@ -587,6 +610,7 @@ export default function SystemReportsClient() {
   const [filters, setFilters] = useState({
     sourceId: 'inventory',
     status: 'all',
+    faculty: 'all',
     from: DEFAULT_RANGE.from,
     to: DEFAULT_RANGE.to,
     search: '',
@@ -631,6 +655,20 @@ export default function SystemReportsClient() {
   const allRows = records[filters.sourceId] || [];
 
   const filteredRows = useMemo(() => filterReportRows(allRows, filters), [allRows, filters]);
+
+  const facultyOptions = useMemo(() => {
+    const values = new Set();
+    allRows.forEach((row) => {
+      const faculty = String(row.faculty || '').trim();
+      if (faculty) values.add(faculty);
+    });
+    return [
+      { value: 'all', label: 'All faculties' },
+      ...Array.from(values)
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ value, label: value })),
+    ];
+  }, [allRows]);
 
   const statusOptions = useMemo(() => buildStatusOptions(allRows), [allRows]);
 
@@ -691,6 +729,7 @@ export default function SystemReportsClient() {
     setFilters({
       sourceId: 'inventory',
       status: 'all',
+      faculty: 'all',
       from: range.from,
       to: range.to,
       search: '',
@@ -710,7 +749,7 @@ export default function SystemReportsClient() {
   }
 
   function handleSourceChange(sourceId) {
-    updateFilters({ sourceId, status: 'all' });
+    updateFilters({ sourceId, status: 'all', faculty: 'all' });
   }
 
   function jumpToSource(sourceId) {
@@ -719,6 +758,7 @@ export default function SystemReportsClient() {
     setFilters({
       sourceId,
       status: 'all',
+      faculty: 'all',
       from: '',
       to: '',
       search: '',
@@ -739,6 +779,12 @@ export default function SystemReportsClient() {
       updateFilters({ status: 'all' });
     }
   }, [filters.sourceId, statusOptions, filters.status]);
+
+  useEffect(() => {
+    if (filters.faculty !== 'all' && !facultyOptions.some((option) => option.value === filters.faculty)) {
+      updateFilters({ faculty: 'all' });
+    }
+  }, [filters.sourceId, facultyOptions, filters.faculty]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -880,6 +926,9 @@ export default function SystemReportsClient() {
           statusOptions={statusOptions}
           statusValue={filters.status}
           onStatusChange={(status) => updateFilters({ status })}
+          facultyOptions={facultyOptions}
+          facultyValue={filters.faculty}
+          onFacultyChange={(faculty) => updateFilters({ faculty })}
           searchQuery={searchDraft}
           onSearchChange={setSearchDraft}
           onSearchKeyDown={(event) => {
@@ -904,6 +953,7 @@ export default function SystemReportsClient() {
                       `${filteredRows.length} of ${allRows.length} rows`,
                       `${formatFilterDate(filters.from)} → ${formatFilterDate(filters.to)}`,
                       filters.status === 'all' ? 'All statuses' : formatStatusLabel(filters.status),
+                      filters.faculty === 'all' ? 'All faculties' : filters.faculty,
                       filters.search ? `"${filters.search}"` : null,
                     ]
                       .filter(Boolean)

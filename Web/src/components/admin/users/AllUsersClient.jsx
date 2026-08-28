@@ -27,6 +27,10 @@ const TABS = [
   { id: 'admins', label: 'Admins' },
 ];
 
+function userFaculty(user) {
+  return String(user?.faculty || '').trim();
+}
+
 function initials(name) {
   return String(name || '?')
     .split(' ')
@@ -123,6 +127,7 @@ export default function AllUsersClient() {
   const [sparkPlayKey, setSparkPlayKey] = useState(0);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('all');
+  const [facultyFilter, setFacultyFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [busyEmail, setBusyEmail] = useState('');
   const [confirmAction, setConfirmAction] = useState(null);
@@ -152,6 +157,15 @@ export default function AllUsersClient() {
     setSparkPlayKey((k) => k + 1);
   };
 
+  const facultyOptions = useMemo(() => {
+    const set = new Set();
+    users.forEach((user) => {
+      const faculty = userFaculty(user);
+      if (faculty) set.add(faculty);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [users]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter((user) => {
@@ -163,20 +177,27 @@ export default function AllUsersClient() {
         (tab === 'active' && !isAdmin && isActive) ||
         (tab === 'pending' && !isAdmin && !isActive);
 
+      const faculty = userFaculty(user);
+      const matchesFaculty =
+        facultyFilter === 'all' ||
+        (facultyFilter === 'unassigned' && !faculty) ||
+        faculty === facultyFilter;
+
       const matchesSearch =
         !q ||
         user.name?.toLowerCase().includes(q) ||
         user.student_id?.toLowerCase().includes(q) ||
         user.email?.toLowerCase().includes(q) ||
-        user.phone?.toLowerCase?.().includes(q);
+        user.phone?.toLowerCase?.().includes(q) ||
+        faculty.toLowerCase().includes(q);
 
-      return matchesTab && matchesSearch;
+      return matchesTab && matchesFaculty && matchesSearch;
     });
-  }, [users, search, tab]);
+  }, [users, search, tab, facultyFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, tab]);
+  }, [search, tab, facultyFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -317,14 +338,28 @@ export default function AllUsersClient() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={facultyFilter}
+            onChange={(event) => setFacultyFilter(event.target.value)}
+            className="glass-input h-10 min-w-[190px] rounded-[18px] px-3 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
+            aria-label="Filter by department"
+          >
+            <option value="all">All departments</option>
+            {facultyOptions.map((faculty) => (
+              <option key={faculty} value={faculty}>
+                {faculty}
+              </option>
+            ))}
+            <option value="unassigned">Unassigned</option>
+          </select>
           <label className="relative min-w-[260px]">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by ID, name, phone or email..."
+              placeholder="Search by ID, name, department..."
               className="glass-input h-10 w-full rounded-[18px] pl-9 pr-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15 lg:w-[360px]"
             />
           </label>
@@ -341,11 +376,12 @@ export default function AllUsersClient() {
 
       <div className="glass-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="w-full min-w-[1080px] text-left text-sm">
             <thead>
               <tr className="border-b border-white/40 bg-white/[0.12] text-[11px] font-black uppercase tracking-wider text-slate-500">
                 <th className="px-5 py-4">User</th>
                 <th className="px-4 py-4">Student ID</th>
+                <th className="px-4 py-4">Department</th>
                 <th className="px-4 py-4">Contact</th>
                 <th className="px-4 py-4">Status</th>
                 <th className="px-5 py-4 text-center">Actions</th>
@@ -354,7 +390,7 @@ export default function AllUsersClient() {
             <tbody>
               {pageItems.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-5 py-14 text-center text-slate-500">
+                  <td colSpan={6} className="px-5 py-14 text-center text-slate-500">
                     No users match your filters.
                   </td>
                 </tr>
@@ -376,6 +412,11 @@ export default function AllUsersClient() {
                         </div>
                       </td>
                       <td className="px-4 py-4 font-semibold text-slate-600">{user.student_id || 'N/A'}</td>
+                      <td className="px-4 py-4">
+                        <p className="max-w-[180px] truncate font-semibold text-slate-700">
+                          {userFaculty(user) || (isAdmin ? 'Administration' : 'Unassigned')}
+                        </p>
+                      </td>
                       <td className="px-4 py-4">
                         <p className="truncate font-semibold text-slate-700">{user.email || 'No email'}</p>
                         <p className="text-xs text-slate-400">{user.phone || 'No phone listed'}</p>

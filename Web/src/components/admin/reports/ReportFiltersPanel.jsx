@@ -35,6 +35,9 @@ export default function ReportFiltersPanel({
   statusOptions,
   statusValue,
   onStatusChange,
+  facultyOptions = [],
+  facultyValue = 'all',
+  onFacultyChange,
   searchQuery,
   onSearchChange,
   onRunReport,
@@ -50,7 +53,7 @@ export default function ReportFiltersPanel({
           </span>
           <div>
             <h3 className="text-base font-extrabold text-slate-900">Filters</h3>
-            <p className="text-[11px] font-medium text-slate-500">Date, source & status update live · Run report refreshes data</p>
+            <p className="text-[11px] font-medium text-slate-500">Date, faculty, source & status work together · Run report refreshes data</p>
           </div>
         </div>
 
@@ -75,7 +78,7 @@ export default function ReportFiltersPanel({
         </div>
       </div>
 
-      <div className="relative z-50 grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[1fr_1fr_1.2fr_1fr_auto] lg:items-end xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto]">
+      <div className="relative z-50 grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto] xl:items-end">
         <FilterField label="From" dropdown>
           <ReportDatePicker
             value={dateFrom}
@@ -102,6 +105,18 @@ export default function ReportFiltersPanel({
             onChange={onSourceChange}
             options={sourceOptions}
             placeholder="Select data source"
+            theme="blue"
+            variant="filter"
+            searchable
+          />
+        </FilterField>
+
+        <FilterField label="Faculty" dropdown>
+          <ReportSelect
+            value={facultyValue}
+            onChange={onFacultyChange}
+            options={facultyOptions}
+            placeholder="All faculties"
             theme="blue"
             variant="filter"
             searchable

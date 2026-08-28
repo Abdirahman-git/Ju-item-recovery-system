@@ -5,6 +5,7 @@ const dns = require('dns').promises;
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 const { createClient } = require('@supabase/supabase-js');
+const { facultyFromStudentId } = require('./faculty');
 
 // Load environment variables
 dotenv.config();
@@ -225,6 +226,17 @@ async function sendSms(phone, message) {
   return resData;
 }
 
+async function lookupDirectoryFaculty(studentId) {
+  const id = String(studentId || '').trim().toUpperCase();
+  if (!id) return '';
+  const { data } = await supabase
+    .from('student_directory')
+    .select('faculty')
+    .eq('student_id', id)
+    .maybeSingle();
+  return String(data?.faculty || '').trim() || facultyFromStudentId(id);
+}
+
 async function lookupStudentForActivation(studentId) {
   const id = studentId.trim().toUpperCase();
 
@@ -247,7 +259,7 @@ async function lookupStudentForActivation(studentId) {
       studentId: student.student_id,
       fullName: student.full_name,
       phone: student.phone_number || '',
-      faculty: student.faculty || '',
+      faculty: student.faculty || facultyFromStudentId(student.student_id),
       email: student.email || '',
     },
   };
@@ -290,7 +302,7 @@ app.post('/api/validate-id', async (req, res) => {
       studentId: student.student_id,
       fullName: student.full_name,
       phone: student.phone_number,
-      faculty: student.faculty
+      faculty: student.faculty || facultyFromStudentId(student.student_id)
     });
   } catch (err) {
     console.error('Validate ID Error:', err.message);
@@ -448,18 +460,24 @@ app.post('/api/activate-account', async (req, res) => {
   const normalizedEmail = normalizeEmail(email || record.email);
 
   try {
+    const faculty = await lookupDirectoryFaculty(studentId.trim().toUpperCase());
+    const userRow = {
+      student_id: studentId.trim(),
+      email: normalizedEmail,
+      password: password, // manual custom password stored
+      name: name,
+      phone: phone || record.phone || '',
+      role: 'user',
+      faculty,
+      is_approved: true // Approved by default
+    };
+
     // 1. Create student user profile in Supabase users table
-    const { error: insertError } = await supabase
-      .from('users')
-      .insert({
-        student_id: studentId.trim(),
-        email: normalizedEmail,
-        password: password, // manual custom password stored
-        name: name,
-        phone: phone || record.phone || '',
-        role: 'user',
-        is_approved: true // Approved by default
-      });
+    let { error: insertError } = await supabase.from('users').insert(userRow);
+    if (insertError && /faculty|column|schema cache/i.test(insertError.message || '')) {
+      delete userRow.faculty;
+      ({ error: insertError } = await supabase.from('users').insert(userRow));
+    }
 
     if (insertError) {
       console.error("Supabase user insert failed:", insertError);
@@ -925,16 +943,19 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Enrich phone from directory if missing
+    // Enrich phone / faculty from directory if missing on the user row
     let phone = user.phone || '';
-    if (!phone && user.student_id) {
+    let faculty = String(user.faculty || '').trim();
+    if ((!phone || !faculty) && user.student_id) {
       const { data: dir } = await supabase
         .from('student_directory')
-        .select('phone_number')
+        .select('phone_number, faculty')
         .eq('student_id', String(user.student_id).toUpperCase())
         .maybeSingle();
-      phone = dir?.phone_number || '';
+      if (!phone) phone = dir?.phone_number || '';
+      if (!faculty) faculty = String(dir?.faculty || '').trim();
     }
+    if (!faculty) faculty = facultyFromStudentId(user.student_id);
 
     const session = {
       email: (user.email || '').trim().toLowerCase(),
@@ -943,6 +964,7 @@ app.post('/api/auth/login', async (req, res) => {
       userName: user.name,
       studentId: user.student_id,
       phone: phone || '',
+      faculty: faculty || '',
       is_approved: user.is_approved !== false,
     };
 

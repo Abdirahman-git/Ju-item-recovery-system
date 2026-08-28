@@ -1,0 +1,32 @@
+# Render Blueprint — Backend API only.
+# Dashboard: New → Blueprint → connect this repo, or create Web Service manually with Root Directory: Backend
+
+services:
+  - type: web
+    name: ju-lofo-api
+    runtime: node
+    rootDir: Backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: ADMIN_JWT_SECRET
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_PASS
+        sync: false
+      - key: SUPER_ADMIN_EMAIL
+        value: admin2@ju.edu.so
+      - key: CONTACT_INBOX_EMAIL
+        sync: false
+      - key: CONTACT_REPLY_TO
+        sync: false
+      - key: TABARAAK_SMS_USER
+        sync: false
+      - key: TABARAAK_SMS_PASSWORD
+        sync: false

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutGrid,
@@ -59,6 +59,7 @@ export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose =
   const { collapsed, toggleCollapsed, pendingHref, setPendingNav } = useSidebar();
   const adminName = session?.userName || 'Administrator';
   const isSuperAdmin = checkSuperAdmin(session);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   useEffect(() => {
     NAV_SECTIONS.forEach((section) => {
@@ -95,14 +96,13 @@ export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose =
         <div className={`flex items-center gap-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="absolute -inset-1 rounded-2xl bg-white/25 blur-md" />
-              <div className="relative rounded-2xl border border-white/30 bg-white/95 p-1 shadow-lg shadow-black/15">
+              <div className="relative p-0">
                 <Image
                   src="/jazeera_logo.png"
                   alt="JU"
                   width={36}
                   height={36}
-                  className="rounded-xl bg-white p-0.5"
+                  className="h-9 w-9 object-contain"
                 />
               </div>
             </div>
@@ -193,9 +193,22 @@ export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose =
       <div className={`relative border-t border-white/15 p-3 ${collapsed ? 'lg:px-2' : ''}`}>
         {!collapsed ? (
           <div className="mb-2 flex items-center gap-2.5 rounded-2xl border border-white/15 bg-white/10 px-3 py-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 text-xs font-black text-white shadow-lg shadow-blue-900/30">
-              {(adminName || 'A').charAt(0).toUpperCase()}
-            </div>
+            {avatarFailed ? (
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 text-xs font-black text-white shadow-lg shadow-blue-900/30">
+                {(adminName || 'A').charAt(0).toUpperCase()}
+              </div>
+            ) : (
+              <div className="relative h-9 w-9 overflow-hidden rounded-xl ring-1 ring-white/15">
+                <Image
+                  src="/Avatar001.png"
+                  alt="Admin avatar"
+                  fill
+                  className="object-cover"
+                  sizes="36px"
+                  onError={() => setAvatarFailed(true)}
+                />
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold text-white">{adminName}</p>
               <p className="truncate text-[11px] text-sky-100/70">{session?.email || 'Admin'}</p>

@@ -4,21 +4,28 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Image,
   ActivityIndicator,
   TextInput,
+  Platform,
+  Pressable,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { DrawerActions } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../../src/constants/colors';
 import AdminHeader from '../../../src/components/AdminHeader';
-import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { getAllReturnedItems } from '../../../src/services/supabase';
 import { showAppFailure } from '../../../src/utils/appAlert';
+
+const TYPE_TABS = [
+  { id: 'all', label: 'All', icon: 'albums-outline' },
+  { id: 'found', label: 'Found', icon: 'checkmark-circle-outline' },
+  { id: 'lost', label: 'Lost', icon: 'help-buoy-outline' },
+];
 
 const SORT_OPTIONS = [
   { id: 'newest', label: 'Newest' },
@@ -104,6 +111,18 @@ function sortReturnedItems(list, sortBy) {
   );
 }
 
+function PressScale({ children, onPress, style, disabled }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [style, pressed && !disabled && { transform: [{ scale: 0.96 }] }]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
 export default function ReturnedItemsScreen() {
   const navigation = useNavigation();
   const router = useRouter();
@@ -112,9 +131,10 @@ export default function ReturnedItemsScreen() {
   const [returnedItems, setReturnedItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // all | lost | found
+  const [activeTab, setActiveTab] = useState('all');
   const [category, setCategory] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const fetchItems = async () => {
     try {
@@ -181,6 +201,14 @@ export default function ReturnedItemsScreen() {
     return sortReturnedItems(next, sortBy);
   }, [returnedItems, activeTab, category, searchQuery, sortBy]);
 
+  const tabCounts = {
+    all: returnedItems.length,
+    found: foundCount,
+    lost: lostCount,
+  };
+
+  const activeFilterCount = (category !== 'all' ? 1 : 0) + (sortBy !== 'newest' ? 1 : 0);
+
   const openArchiveItem = (item) => {
     router.push({
       pathname: `/(admin)/item/${item.id}`,
@@ -191,104 +219,180 @@ export default function ReturnedItemsScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader
-        title="Returned Archives"
+        title="Archives"
         subtitle="Recovered item history"
         onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
         rightElement={
-          <TouchableOpacity style={styles.refreshBtn} onPress={fetchItems}>
-            <Ionicons name="refresh-outline" size={22} color={Colors.primary} />
-          </TouchableOpacity>
+          <PressScale style={styles.refreshBtn} onPress={fetchItems}>
+            <Ionicons name="refresh-outline" size={20} color={Colors.primaryDark} />
+          </PressScale>
         }
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <AdminPageHero
-          eyebrow="Archive Ledger"
-          title="Returned records"
-          subtitle="Track completed recoveries and verify who received each item."
-        />
+        <Animated.View entering={FadeInDown.duration(420)} style={styles.heroCard}>
+          <LinearGradient
+            colors={['#064E3B', '#047857', '#10B981']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroGradient}
+          >
+            <Text style={styles.heroEyebrow}>ARCHIVE LEDGER</Text>
+            <Text style={styles.heroTitle}>Returned records</Text>
+            <Text style={styles.heroSubtitle}>
+              Track completed recoveries and verify who received each campus item.
+            </Text>
+            <View style={styles.heroMeta}>
+              <View style={styles.heroMetaPill}>
+                <Ionicons name="people-outline" size={14} color="#A7F3D0" />
+                <Text style={styles.heroMetaText}>{returnedItems.length} reunited</Text>
+              </View>
+              <View style={styles.heroMetaPill}>
+                <Ionicons name="time-outline" size={14} color="#A7F3D0" />
+                <Text style={styles.heroMetaText}>{avgArchiveDays}d avg</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
 
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, styles.statCardPrimary]}>
-            <Text style={styles.statNum}>{returnedItems.length}</Text>
+          <Animated.View entering={FadeInDown.delay(60).duration(380)} style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: '#ECFDF5' }]}>
+              <Ionicons name="checkmark-done-outline" size={16} color="#047857" />
+            </View>
+            <Text style={[styles.statNum, { color: '#047857' }]}>{returnedItems.length}</Text>
             <Text style={styles.statLabel}>Total returned</Text>
             <Text style={styles.statSub}>
               {foundCount} found · {lostCount} lost
             </Text>
-          </View>
-          <View style={[styles.statCard, styles.statCardArchive]}>
-            <Text style={styles.statNum}>{returnedItems.length ? `${avgArchiveDays}d` : '0d'}</Text>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(120).duration(380)} style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: Colors.primaryLight }]}>
+              <Ionicons name="hourglass-outline" size={16} color={Colors.primary} />
+            </View>
+            <Text style={[styles.statNum, { color: Colors.primaryDark }]}>
+              {returnedItems.length ? `${avgArchiveDays}d` : '0d'}
+            </Text>
             <Text style={styles.statLabel}>Avg. archive age</Text>
             <Text style={styles.statSub}>Since return date</Text>
+          </Animated.View>
+        </View>
+
+        <View style={styles.toolbar}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={Colors.slate400} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search item, recipient, reporter..."
+              placeholderTextColor={Colors.slate400}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+            {searchQuery ? (
+              <PressScale onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={Colors.slate400} />
+              </PressScale>
+            ) : null}
           </View>
+
+          <PressScale
+            style={[styles.filterToggle, filtersOpen && styles.filterToggleActive]}
+            onPress={() => setFiltersOpen((v) => !v)}
+          >
+            <Ionicons
+              name="options-outline"
+              size={18}
+              color={filtersOpen || activeFilterCount ? Colors.primaryDark : Colors.slate600}
+            />
+            {activeFilterCount > 0 ? (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            ) : null}
+          </PressScale>
         </View>
 
-        <View style={styles.searchBarContainer}>
-          <Ionicons name="search-outline" size={20} color={Colors.slate400} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search item, recipient or reporter..."
-            placeholderTextColor={Colors.slate400}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            clearButtonMode="while-editing"
-          />
-        </View>
-
-        <View style={styles.tabBar}>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'all' && styles.tabBtnActive]}
-            onPress={() => setActiveTab('all')}
-          >
-            <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>
-              All ({returnedItems.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'found' && styles.tabBtnActive]}
-            onPress={() => setActiveTab('found')}
-          >
-            <Text style={[styles.tabText, activeTab === 'found' && styles.tabTextActive]}>
-              Found ({foundCount})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'lost' && styles.tabBtnActive]}
-            onPress={() => setActiveTab('lost')}
-          >
-            <Text style={[styles.tabText, activeTab === 'lost' && styles.tabTextActive]}>
-              Lost ({lostCount})
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          {categories.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[styles.chip, category === cat && styles.chipActive]}
-              onPress={() => setCategory(cat)}
-            >
-              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>
-                {cat === 'all' ? 'All categories' : cat}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeChips}>
+          {TYPE_TABS.map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <PressScale
+                key={tab.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setActiveTab(tab.id)}
+              >
+                <Ionicons
+                  name={tab.icon}
+                  size={14}
+                  color={active ? Colors.white : Colors.slate500}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{tab.label}</Text>
+                <Text style={[styles.chipCount, active && styles.chipCountActive]}>
+                  {tabCounts[tab.id]}
+                </Text>
+              </PressScale>
+            );
+          })}
         </ScrollView>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          {SORT_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt.id}
-              style={[styles.chip, sortBy === opt.id && styles.chipActive]}
-              onPress={() => setSortBy(opt.id)}
+        {filtersOpen ? (
+          <Animated.View entering={FadeInDown.duration(280)} style={styles.filterPanel}>
+            <Text style={styles.filterSectionLabel}>Category</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.panelChips}>
+              {categories.map((cat) => {
+                const active = category === cat;
+                return (
+                  <PressScale
+                    key={cat}
+                    style={[styles.softChip, active && styles.softChipActive]}
+                    onPress={() => setCategory(cat)}
+                  >
+                    <Text style={[styles.softChipText, active && styles.softChipTextActive]} numberOfLines={1}>
+                      {cat === 'all' ? 'All categories' : cat}
+                    </Text>
+                  </PressScale>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={[styles.filterSectionLabel, { marginTop: 12 }]}>Sort</Text>
+            <View style={styles.sortRow}>
+              {SORT_OPTIONS.map((opt) => {
+                const active = sortBy === opt.id;
+                return (
+                  <PressScale
+                    key={opt.id}
+                    style={[styles.sortChip, active && styles.sortChipActive]}
+                    onPress={() => setSortBy(opt.id)}
+                  >
+                    <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </PressScale>
+                );
+              })}
+            </View>
+          </Animated.View>
+        ) : null}
+
+        <View style={styles.listHeader}>
+          <Text style={styles.listHeaderTitle}>
+            {filteredItems.length} record{filteredItems.length === 1 ? '' : 's'}
+          </Text>
+          {(category !== 'all' || sortBy !== 'newest') && (
+            <PressScale
+              onPress={() => {
+                setCategory('all');
+                setSortBy('newest');
+              }}
             >
-              <Text style={[styles.chipText, sortBy === opt.id && styles.chipTextActive]}>{opt.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              <Text style={styles.clearFilters}>Reset</Text>
+            </PressScale>
+          )}
+        </View>
 
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -296,72 +400,93 @@ export default function ReturnedItemsScreen() {
             <Text style={styles.loadingText}>Loading returned archive...</Text>
           </View>
         ) : filteredItems.length > 0 ? (
-          filteredItems.map((item) => {
+          filteredItems.map((item, index) => {
             const isLost = String(item.type).toUpperCase() === 'LOST';
-            return (
-              <TouchableOpacity
-                key={`returned-${item.id}`}
-                style={styles.itemCard}
-                activeOpacity={0.9}
-                onPress={() => openArchiveItem(item)}
-              >
-                {item.imageURI || item.imageuri ? (
-                  <Image source={{ uri: item.imageURI || item.imageuri }} style={styles.itemCardImg} />
-                ) : (
-                  <View
-                    style={[
-                      styles.itemCardImgPlaceholder,
-                      { backgroundColor: isLost ? Colors.primaryLight : Colors.foundBadge },
-                    ]}
-                  >
-                    <Ionicons
-                      name={isLost ? 'help-buoy-outline' : 'checkmark-circle-outline'}
-                      size={28}
-                      color={isLost ? Colors.primary : Colors.success}
-                    />
-                  </View>
-                )}
+            const imageUri = item.imageURI || item.imageuri;
+            const categoryLabel = String(item.category || 'General');
 
-                <View style={styles.itemCardInfo}>
-                  <View style={styles.itemHeader}>
-                    <Text style={styles.itemCategory}>{item.category || 'Uncategorized'}</Text>
-                    <View style={styles.reunitedPill}>
-                      <Text style={styles.reunitedPillText}>Reunited</Text>
+            return (
+              <Animated.View
+                key={`returned-${item.id}`}
+                entering={FadeInDown.delay(Math.min(index, 8) * 45).duration(360)}
+              >
+                <PressScale style={styles.itemCard} onPress={() => openArchiveItem(item)}>
+                  <View style={styles.thumbWrap}>
+                    {imageUri ? (
+                      <Image source={{ uri: imageUri }} style={styles.itemCardImg} />
+                    ) : (
+                      <View
+                        style={[
+                          styles.itemCardImg,
+                          styles.placeholderImg,
+                          {
+                            backgroundColor: isLost ? Colors.lostBadge : Colors.foundBadge,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={isLost ? 'help-buoy-outline' : 'checkmark-circle-outline'}
+                          size={26}
+                          color={isLost ? Colors.lostBadgeText : Colors.foundBadgeText}
+                        />
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.itemCardBody}>
+                    <View style={styles.itemTopRow}>
+                      <Text style={styles.itemCategory} numberOfLines={1} ellipsizeMode="tail">
+                        {categoryLabel}
+                      </Text>
+                      <View style={styles.reunitedPill}>
+                        <Ionicons name="heart" size={10} color="#047857" style={{ marginRight: 4 }} />
+                        <Text style={styles.reunitedPillText}>Reunited</Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.itemName} numberOfLines={1}>
+                      {item.item_name || item.itemName}
+                    </Text>
+
+                    <View style={styles.recipientCard}>
+                      <Text style={styles.recipientLabel}>Returned to</Text>
+                      <Text style={styles.recipientValue} numberOfLines={1}>
+                        {item.recipient_name || 'N/A'}
+                      </Text>
+                      {item.recipient_student_id ? (
+                        <Text style={styles.recipientId}>{item.recipient_student_id}</Text>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.metaRow}>
+                      <Ionicons name="calendar-outline" size={13} color={Colors.slate400} />
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        {formatDate(item.returned_at)}
+                      </Text>
+                    </View>
+                    <View style={styles.metaRow}>
+                      <Ionicons name="time-outline" size={13} color={Colors.slate400} />
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        Submitted {formatSubmittedAt(item)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.openHint}>
+                      <Text style={styles.openHintText}>View archive</Text>
+                      <Ionicons name="chevron-forward" size={14} color={Colors.slate400} />
                     </View>
                   </View>
-
-                  <Text style={styles.itemName} numberOfLines={1}>
-                    {item.item_name || item.itemName}
-                  </Text>
-
-                  <View style={styles.recipientCard}>
-                    <Text style={styles.recipientLabel}>Returned to</Text>
-                    <Text style={styles.recipientValue} numberOfLines={1}>
-                      {item.recipient_name || 'N/A'}
-                    </Text>
-                    {item.recipient_student_id ? (
-                      <Text style={styles.recipientId}>{item.recipient_student_id}</Text>
-                    ) : null}
-                  </View>
-
-                  <View style={styles.metaColumn}>
-                    <Text style={styles.metaText} numberOfLines={1}>
-                      <Ionicons name="calendar-outline" size={13} color={Colors.slate500} />{' '}
-                      {formatDate(item.returned_at)}
-                    </Text>
-                    <Text style={styles.submittedMeta} numberOfLines={1}>
-                      Submitted {formatSubmittedAt(item)}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
+                </PressScale>
+              </Animated.View>
             );
           })
         ) : (
           <View style={styles.emptyContainer}>
-            <Ionicons name="archive-outline" size={56} color={Colors.slate300} />
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="archive-outline" size={32} color="#047857" />
+            </View>
             <Text style={styles.emptyTitle}>No archive matches</Text>
-            <Text style={styles.emptyText}>Try another keyword or switch the tab filter.</Text>
+            <Text style={styles.emptyText}>Try another keyword or switch the type filter.</Text>
           </View>
         )}
       </ScrollView>
@@ -372,7 +497,7 @@ export default function ReturnedItemsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.slate50 },
+  container: { flex: 1, backgroundColor: '#F4F7FB' },
   refreshBtn: {
     width: 44,
     height: 44,
@@ -383,194 +508,401 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 48,
+  },
+  heroCard: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#064E3B',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.22,
+        shadowRadius: 20,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  heroGradient: {
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+  },
+  heroEyebrow: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: '#A7F3D0',
+    letterSpacing: 1.4,
+    marginBottom: 8,
+  },
+  heroTitle: {
+    fontFamily: 'Poppins_700Bold',
+    fontSize: 28,
+    color: Colors.white,
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: 'rgba(236,253,245,0.92)',
+    lineHeight: 20,
+    maxWidth: 290,
+    marginBottom: 16,
+  },
+  heroMeta: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  heroMetaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  heroMetaText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: '#ECFDF5',
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
     marginBottom: 14,
   },
   statCard: {
     flex: 1,
-    borderRadius: 14,
+    backgroundColor: Colors.white,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    borderColor: 'rgba(15,23,42,0.05)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+      },
+      android: { elevation: 1 },
+    }),
+  },
+  statIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
     alignItems: 'center',
-  },
-  statCardPrimary: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: '#BFDBFE',
-  },
-  statCardArchive: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#C7D2FE',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   statNum: {
     fontFamily: 'Poppins_700Bold',
-    fontSize: 18,
-    color: Colors.primaryDark,
-    lineHeight: 23,
+    fontSize: 22,
+    fontVariant: ['tabular-nums'],
   },
   statLabel: {
     marginTop: 2,
-    fontFamily: 'Inter_500Medium',
-    fontSize: 11,
-    color: Colors.slate600,
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate700,
   },
   statSub: {
-    marginTop: 2,
+    marginTop: 3,
     fontFamily: 'Inter_400Regular',
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.slate500,
-    textAlign: 'center',
   },
-  searchBarContainer: {
+  toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.white,
+    gap: 10,
     marginBottom: 12,
+  },
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.white,
     paddingHorizontal: 14,
     height: 50,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.slate100,
-  },
-  searchIcon: {
-    marginRight: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+      },
+      android: { elevation: 1 },
+    }),
   },
   searchInput: {
     flex: 1,
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
     color: Colors.slate900,
+    paddingVertical: 0,
   },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: Colors.slate100,
-    borderRadius: 12,
-    padding: 3,
-    marginBottom: 10,
-  },
-  tabBtn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 9,
-    borderRadius: 10,
-  },
-  tabBtnActive: {
+  filterToggle: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12,
-    color: Colors.slate500,
+  filterToggleActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
-  tabTextActive: {
-    color: Colors.primaryDark,
+  filterBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#047857',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  filterScroll: {
-    marginBottom: 10,
+  filterBadgeText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9,
+    color: Colors.white,
+  },
+  typeChips: {
+    paddingBottom: 4,
+    gap: 8,
   },
   chip: {
-    marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingVertical: 9,
+    borderRadius: 14,
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.slate100,
   },
   chipActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: '#93C5FD',
+    backgroundColor: '#047857',
+    borderColor: '#047857',
   },
   chipText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 12,
-    color: Colors.slate500,
+    color: Colors.slate600,
   },
   chipTextActive: {
-    color: Colors.primaryDark,
+    color: Colors.white,
+  },
+  chipCount: {
+    marginLeft: 6,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 11,
+    color: Colors.slate400,
+    fontVariant: ['tabular-nums'],
+  },
+  chipCountActive: {
+    color: 'rgba(255,255,255,0.85)',
+  },
+  filterPanel: {
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: Colors.white,
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+  },
+  filterSectionLabel: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: Colors.slate400,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  panelChips: {
+    gap: 8,
+  },
+  softChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: Colors.slate50,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+    maxWidth: 160,
+  },
+  softChipActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  softChipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate600,
+  },
+  softChipTextActive: {
+    color: '#047857',
+  },
+  sortRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: Colors.slate50,
+    borderWidth: 1,
+    borderColor: Colors.slate100,
+  },
+  sortChipActive: {
+    backgroundColor: Colors.slate900,
+    borderColor: Colors.slate900,
+  },
+  sortChipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.slate600,
+  },
+  sortChipTextActive: {
+    color: Colors.white,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  listHeaderTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 13,
+    color: Colors.slate500,
+  },
+  clearFilters: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 12,
+    color: '#047857',
   },
   loadingContainer: {
-    paddingVertical: 60,
+    paddingTop: 60,
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 12,
     fontFamily: 'Inter_500Medium',
+    fontSize: 14,
     color: Colors.slate500,
   },
   itemCard: {
     flexDirection: 'row',
     backgroundColor: Colors.white,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.slate100,
+    borderColor: 'rgba(15,23,42,0.05)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  thumbWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.12)',
   },
   itemCardImg: {
-    width: 78,
-    height: 78,
-    borderRadius: 14,
+    width: 92,
+    height: 118,
+    borderRadius: 16,
     backgroundColor: Colors.slate100,
   },
-  itemCardImgPlaceholder: {
-    width: 78,
-    height: 78,
-    borderRadius: 14,
+  placeholderImg: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  itemCardInfo: {
+  itemCardBody: {
     flex: 1,
     marginLeft: 12,
+    minWidth: 0,
   },
-  itemHeader: {
+  itemTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 8,
+    marginBottom: 4,
   },
   itemCategory: {
     flex: 1,
+    minWidth: 0,
     fontFamily: 'Inter_600SemiBold',
     fontSize: 11,
-    color: Colors.slate500,
+    color: Colors.slate400,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   reunitedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#ECFDF5',
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    flexShrink: 0,
   },
   reunitedPillText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 10,
-    color: Colors.success,
+    color: '#047857',
     textTransform: 'uppercase',
   },
   itemName: {
-    marginTop: 4,
     fontFamily: 'Poppins_700Bold',
-    fontSize: 15,
+    fontSize: 16,
     color: Colors.slate900,
+    marginBottom: 8,
   },
   recipientCard: {
-    marginTop: 8,
-    backgroundColor: Colors.slate50,
-    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
   },
   recipientLabel: {
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 10,
-    color: Colors.slate400,
+    color: '#059669',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   recipientValue: {
     marginTop: 2,
@@ -584,29 +916,48 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.slate500,
   },
-  metaColumn: {
-    marginTop: 8,
-    gap: 2,
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
   },
   metaText: {
+    flex: 1,
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
-    color: Colors.slate600,
+    color: Colors.slate500,
   },
-  submittedMeta: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 11,
+  openHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: 8,
+    minHeight: 28,
+  },
+  openHintText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
     color: Colors.slate400,
   },
   emptyContainer: {
-    paddingVertical: 60,
+    paddingTop: 48,
     alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   emptyTitle: {
-    marginTop: 12,
     fontFamily: 'Poppins_700Bold',
-    fontSize: 16,
-    color: Colors.slate700,
+    fontSize: 17,
+    color: Colors.slate800,
   },
   emptyText: {
     marginTop: 6,
@@ -614,5 +965,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.slate500,
     textAlign: 'center',
+    lineHeight: 20,
   },
 });
