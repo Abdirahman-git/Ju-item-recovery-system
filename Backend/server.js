@@ -5,6 +5,7 @@ const dns = require('dns').promises;
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 const { facultyFromStudentId } = require('./faculty');
 
 // Load environment variables
@@ -72,7 +73,10 @@ function assertServerSupabaseKey(key) {
 
 assertServerSupabaseKey(supabaseKey);
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  realtime: { transport: WebSocket },
+});
 
 // Middlewares
 app.use(cors());

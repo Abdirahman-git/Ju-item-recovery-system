@@ -4264,10 +4264,108 @@ html.public-dark .public-wf-snake-copy .public-wf-title,
   filter: drop-shadow(0 16px 32px rgba(15, 23, 42, 0.1));
 }
 
+/* Contact form — unified inputs (light + dark + autofill) */
+.public-contact-input {
+  margin-top: 0.375rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(226 232 240);
+  background: #f8fafc;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #0f172a;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.public-contact-input::placeholder {
+  color: rgb(148 163 184);
+}
+
+.public-contact-input:focus {
+  border-color: #1a56db;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.15);
+}
+
+.public-contact-input:disabled {
+  opacity: 0.6;
+}
+
+.public-contact-form input:-webkit-autofill,
+.public-contact-form textarea:-webkit-autofill,
+.public-contact-form input:-webkit-autofill:hover,
+.public-contact-form textarea:-webkit-autofill:hover,
+.public-contact-form input:-webkit-autofill:focus,
+.public-contact-form textarea:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #f8fafc inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a;
+  transition: background-color 99999s ease-out 0s;
+}
+
+html.public-dark .public-contact-input,
+.public-shell.public-dark .public-contact-input {
+  background: #0f172a !important;
+  border-color: rgba(71, 85, 105, 0.9) !important;
+  color: #ffffff !important;
+}
+
+html.public-dark .public-contact-input::placeholder,
+.public-shell.public-dark .public-contact-input::placeholder {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+html.public-dark .public-contact-input:focus,
+.public-shell.public-dark .public-contact-input:focus {
+  background: #111827 !important;
+  border-color: #1a56db !important;
+  box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.25) !important;
+}
+
+html.public-dark .public-contact-form input:-webkit-autofill,
+html.public-dark .public-contact-form textarea:-webkit-autofill,
+html.public-dark .public-contact-form input:-webkit-autofill:hover,
+html.public-dark .public-contact-form textarea:-webkit-autofill:hover,
+html.public-dark .public-contact-form input:-webkit-autofill:focus,
+html.public-dark .public-contact-form textarea:-webkit-autofill:focus,
+.public-shell.public-dark .public-contact-form input:-webkit-autofill,
+.public-shell.public-dark .public-contact-form textarea:-webkit-autofill,
+.public-shell.public-dark .public-contact-form input:-webkit-autofill:hover,
+.public-shell.public-dark .public-contact-form textarea:-webkit-autofill:hover,
+.public-shell.public-dark .public-contact-form input:-webkit-autofill:focus,
+.public-shell.public-dark .public-contact-form textarea:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0f172a inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+}
+
+html.public-dark .public-contact-form .border-emerald-200,
+.public-shell.public-dark .public-contact-form .border-emerald-200 {
+  border-color: rgba(52, 211, 153, 0.35) !important;
+  background: rgba(6, 78, 59, 0.35) !important;
+  color: #d1fae5 !important;
+}
+
+html.public-dark .public-contact-form .border-rose-200,
+.public-shell.public-dark .public-contact-form .border-rose-200 {
+  border-color: rgba(251, 113, 133, 0.35) !important;
+  background: rgba(127, 29, 29, 0.35) !important;
+  color: #ffe4e6 !important;
+}
+
 /* Contact SweetAlert — JU brand polish */
+.ju-swal-container {
+  z-index: 20000 !important;
+}
 .ju-swal-popup {
   border-radius: 1.5rem !important;
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18) !important;
+  background: #ffffff !important;
 }
 .ju-swal-title {
   color: #0f172a !important;

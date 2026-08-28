@@ -7,8 +7,7 @@ import Swal from 'sweetalert2';
 import RevealOnScroll from '@/components/public/RevealOnScroll';
 import { submitContactMessage } from '@/lib/supabase';
 
-const inputClass =
-  'mt-1.5 w-full rounded-xl border border-slate-200 bg-[#F8FAFC] px-3.5 py-2.5 text-sm font-medium text-[#0F172A] outline-none transition placeholder:text-slate-400 focus:border-[#1A56DB] focus:bg-white focus:ring-2 focus:ring-[#1A56DB]/15 disabled:opacity-60';
+const inputClass = 'public-contact-input';
 
 const EMPTY = {
   firstName: '',
@@ -33,11 +32,15 @@ const REQUIRED_FIELDS = [
 ];
 
 const swalBase = {
-  width: 420,
+  width: 'min(420px, calc(100vw - 2rem))',
   padding: '1.75em',
   confirmButtonText: 'OK',
   confirmButtonColor: '#1A56DB',
+  backdrop: 'rgba(15, 23, 42, 0.55)',
+  heightAuto: false,
+  allowOutsideClick: true,
   customClass: {
+    container: 'ju-swal-container',
     popup: 'ju-swal-popup',
     title: 'ju-swal-title',
     htmlContainer: 'ju-swal-text',
@@ -45,12 +48,19 @@ const swalBase = {
   },
 };
 
+function bumpSwalZIndex() {
+  if (typeof document === 'undefined') return;
+  const container = document.querySelector('.swal2-container');
+  if (container) container.style.zIndex = '20000';
+}
+
 function showWarning(title, text) {
   return Swal.fire({
     ...swalBase,
     icon: 'warning',
     title,
     text,
+    didOpen: bumpSwalZIndex,
   });
 }
 
@@ -61,6 +71,7 @@ function showSuccess(title, text) {
     iconColor: '#059669',
     title,
     text,
+    didOpen: bumpSwalZIndex,
   });
 }
 
@@ -70,12 +81,14 @@ function showError(title, text) {
     icon: 'error',
     title,
     text,
+    didOpen: bumpSwalZIndex,
   });
 }
 
 export default function ContactSection() {
   const [sending, setSending] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  const [submitFeedback, setSubmitFeedback] = useState(null);
 
   const onChange = (e) => {
     const { name, value } = e.target;
@@ -102,6 +115,7 @@ export default function ContactSection() {
     }
 
     setSending(true);
+    setSubmitFeedback(null);
 
     const subject = form.itemName.trim()
       ? `LOFO contact · ${form.itemName.trim()}`
@@ -128,11 +142,19 @@ export default function ContactSection() {
         message: messageBody,
       });
       setForm(EMPTY);
+      setSubmitFeedback({
+        type: 'success',
+        text: 'Your message has been sent. The JU Lost & Found desk will review it soon.',
+      });
       await showSuccess(
-        'Sent successfully',
-        'Your message reached the JU Lost & Found desk. Staff will review it soon.'
+        'Message sent',
+        'Your message has been sent. The JU Lost & Found desk will review it soon.'
       );
     } catch (err) {
+      setSubmitFeedback({
+        type: 'error',
+        text: err?.message || 'Please try again in a moment.',
+      });
       await showError(
         'Could not send',
         err?.message || 'Please try again in a moment.'
@@ -181,6 +203,19 @@ export default function ContactSection() {
             onSubmit={onSubmit}
             className="public-contact-form flex w-full flex-col rounded-[24px] border border-slate-200/90 bg-white p-5 shadow-[0_16px_48px_rgba(15,23,42,0.07)] sm:p-6 lg:p-7"
           >
+            {submitFeedback ? (
+              <div
+                role="status"
+                className={`mb-4 rounded-2xl border px-4 py-3 text-sm font-semibold ${
+                  submitFeedback.type === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-rose-200 bg-rose-50 text-rose-900'
+                }`}
+              >
+                {submitFeedback.text}
+              </div>
+            ) : null}
+
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-bold text-slate-600">
                 First name

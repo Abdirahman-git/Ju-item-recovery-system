@@ -18,7 +18,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "nodemailer": "^6.9.13"
+    "nodemailer": "^6.9.13",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@railway/cli": "^4.10.0",
