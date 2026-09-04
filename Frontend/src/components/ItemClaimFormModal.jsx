@@ -1,10 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AppButton, AppInput, AppModalSheet, AppReadOnlyField } from './AppForm';
-
-const MIN_REASON_LENGTH = 10;
-const MAX_REASON_LENGTH = 420;
+import { AppButton, AppModalSheet, AppReadOnlyField } from './AppForm';
 
 export default function ItemClaimFormModal({
   visible,
@@ -13,34 +10,42 @@ export default function ItemClaimFormModal({
   submitting,
   initialName = '',
   initialStudentId = '',
+  questions = [],
+  loadingQuestions = false,
+  loadError = '',
 }) {
-  const [description, setDescription] = useState('');
-  const trimmed = description.trim();
-  const canSubmit = Boolean(initialStudentId) && trimmed.length >= MIN_REASON_LENGTH && !submitting;
-  const remaining = MAX_REASON_LENGTH - description.length;
+  const [answers, setAnswers] = useState({});
+  const list = Array.isArray(questions) ? questions : [];
+  const allAnswered =
+    list.length > 0 && list.every((_, i) => Number.isInteger(Number(answers[i])));
+  const canSubmit =
+    Boolean(initialStudentId) && allAnswered && !submitting && !loadingQuestions && !loadError;
 
   useEffect(() => {
-    if (!visible) setDescription('');
+    if (!visible) setAnswers({});
   }, [visible]);
 
   const helperText = useMemo(() => {
+    if (loadError) return loadError;
     if (!initialStudentId) return 'Student ID is missing on your account.';
-    if (!trimmed) return 'Write a clear reason so admin can verify your ownership.';
-    if (trimmed.length < MIN_REASON_LENGTH) {
-      const left = MIN_REASON_LENGTH - trimmed.length;
-      return `Add ${left} more character${left === 1 ? '' : 's'}.`;
+    if (loadingQuestions) return 'Loading Ownership Challenge…';
+    if (!list.length) return 'No challenge questions yet.';
+    if (!allAnswered) {
+      const left = list.filter((_, i) => !Number.isInteger(Number(answers[i]))).length;
+      return `Answer ${left} more question${left === 1 ? '' : 's'}.`;
     }
-    return 'Looks good. Send it to admin for review.';
-  }, [initialStudentId, trimmed]);
+    return 'Submit to score your Ownership Challenge.';
+  }, [allAnswered, answers, initialStudentId, list, loadError, loadingQuestions]);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onSubmit({ description: trimmed });
+    const selectedIndexes = list.map((_, i) => Number(answers[i]));
+    onSubmit({ selectedIndexes });
   };
 
   const handleClose = () => {
     if (!submitting) {
-      setDescription('');
+      setAnswers({});
       onClose();
     }
   };
@@ -48,16 +53,16 @@ export default function ItemClaimFormModal({
   return (
     <AppModalSheet
       visible={visible}
-      title="This is mine"
-      subtitle="Tell the admin why this item belongs to you. They will review your request."
-      icon="hand-left-outline"
+      title="Ownership Challenge"
+      subtitle="Answer the private questions set by admin. Correct answers prove this item is yours."
+      icon="shield-checkmark-outline"
       onClose={handleClose}
-      maxHeight="78%"
+      maxHeight="88%"
       footer={
         <View style={styles.footer}>
           <AppButton title="Cancel" variant="secondary" onPress={handleClose} disabled={submitting} style={styles.footerBtn} />
           <AppButton
-            title="Send request"
+            title="Submit answers"
             icon="paper-plane-outline"
             onPress={handleSubmit}
             loading={submitting}
@@ -69,33 +74,59 @@ export default function ItemClaimFormModal({
     >
       <View style={styles.infoCard}>
         <View style={styles.infoIcon}>
-          <Ionicons name="shield-checkmark-outline" size={20} color="#1D4ED8" />
+          <Ionicons name="help-circle-outline" size={20} color="#1D4ED8" />
         </View>
         <View style={styles.infoTextWrap}>
-          <Text style={styles.infoTitle}>Admin verification</Text>
+          <Text style={styles.infoTitle}>How scoring works</Text>
           <Text style={styles.infoText}>
-            Your request will appear in Ownership Requests. Admin can approve or reject it.
+            90%+ auto-approved · 51–89% visit office · 50% or below rejected.
           </Text>
         </View>
       </View>
 
       {initialName ? <AppReadOnlyField label="Your name" value={initialName} icon="person-outline" /> : null}
       <AppReadOnlyField label="Student ID" value={initialStudentId || 'Missing'} icon="card-outline" />
-      <AppInput
-        label="Why is this yours?"
-        value={description}
-        onChangeText={(value) => setDescription(value.slice(0, MAX_REASON_LENGTH))}
-        placeholder="Example: I lost this near the library. It has my sticker or mark..."
-        multiline
-        numberOfLines={4}
-        style={styles.textArea}
-      />
-      <View style={styles.helperRow}>
-        <Text style={[styles.helperText, canSubmit && styles.helperGood]}>{helperText}</Text>
-        <Text style={[styles.counter, remaining < 30 && styles.counterWarn]}>{remaining}</Text>
-      </View>
+
+      {loadingQuestions ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator color="#1A56DB" />
+          <Text style={styles.loadingText}>Loading challenge…</Text>
+        </View>
+      ) : null}
+
+      {loadError ? <Text style={styles.warn}>{loadError}</Text> : null}
+
+      {!loadingQuestions && !loadError
+        ? list.map((q, qi) => (
+            <View key={q.id || qi} style={styles.questionCard}>
+              <Text style={styles.questionLabel}>Question {qi + 1}</Text>
+              <Text style={styles.questionPrompt}>{q.prompt}</Text>
+              <View style={styles.optionsWrap}>
+                {(q.options || []).map((opt, oi) => {
+                  const selected = Number(answers[qi]) === oi;
+                  return (
+                    <TouchableOpacity
+                      key={oi}
+                      style={[styles.optionRow, selected && styles.optionSelected]}
+                      onPress={() => setAnswers((prev) => ({ ...prev, [qi]: oi }))}
+                      activeOpacity={0.85}
+                      disabled={submitting}
+                    >
+                      <View style={[styles.radio, selected && styles.radioOn]}>
+                        {selected ? <View style={styles.radioDot} /> : null}
+                      </View>
+                      <Text style={[styles.optionText, selected && styles.optionTextOn]}>{opt}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ))
+        : null}
+
+      <Text style={[styles.helperText, canSubmit && styles.helperGood]}>{helperText}</Text>
       {!initialStudentId ? (
-        <Text style={styles.warn}>Contact admin to add your Student ID before submitting a claim.</Text>
+        <Text style={styles.warn}>Contact admin to add your Student ID before submitting.</Text>
       ) : null}
     </AppModalSheet>
   );
@@ -104,7 +135,6 @@ export default function ItemClaimFormModal({
 const styles = StyleSheet.create({
   footer: { flexDirection: 'row', gap: 10 },
   footerBtn: { flex: 1 },
-  textArea: { minHeight: 100, textAlignVertical: 'top' },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -127,17 +157,55 @@ const styles = StyleSheet.create({
   infoTextWrap: { flex: 1 },
   infoTitle: { fontSize: 13, fontWeight: '900', color: '#1E3A8A', marginBottom: 3 },
   infoText: { fontSize: 12, lineHeight: 18, color: '#475569', fontWeight: '600' },
-  helperRow: {
-    marginTop: -6,
-    marginBottom: 10,
+  loadingBox: { alignItems: 'center', gap: 8, paddingVertical: 24 },
+  loadingText: { fontSize: 13, fontWeight: '700', color: '#64748B' },
+  questionCard: {
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  questionLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#1A56DB',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  questionPrompt: { fontSize: 14, fontWeight: '800', color: '#0F172A', marginBottom: 10, lineHeight: 20 },
+  optionsWrap: { gap: 8 },
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
-  helperText: { flex: 1, fontSize: 12, color: '#64748B', fontWeight: '600' },
+  optionSelected: {
+    borderColor: '#93C5FD',
+    backgroundColor: '#EFF6FF',
+  },
+  radio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOn: { borderColor: '#1A56DB' },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1A56DB' },
+  optionText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#334155' },
+  optionTextOn: { color: '#1E3A8A', fontWeight: '800' },
+  helperText: { marginTop: 4, marginBottom: 8, fontSize: 12, color: '#64748B', fontWeight: '600' },
   helperGood: { color: '#059669' },
-  counter: { fontSize: 11, color: '#94A3B8', fontWeight: '900' },
-  counterWarn: { color: '#D97706' },
-  warn: { fontSize: 12, color: '#B45309', marginTop: 8 },
+  warn: { fontSize: 12, color: '#B45309', marginTop: 8, fontWeight: '600' },
 });

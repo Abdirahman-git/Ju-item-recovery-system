@@ -24,7 +24,9 @@ import {
 } from 'lucide-react';
 import DetailPhotoPanel from '@/components/admin/DetailPhotoPanel';
 import ItemThumbnail from '@/components/admin/ItemThumbnail';
-import { approveItemClaim, deleteItemClaim, fetchPendingItemClaims, rejectItemClaim } from '@/lib/supabase';
+import { approveItemClaim, deleteItemClaim, fetchPendingItemClaims } from '@/lib/supabase';
+import { confirmPhysicalClaim, restoreItemAfterFailedClaim } from '@/lib/ownershipChallengeApi';
+import { challengeResultLabel } from '@/lib/ownershipChallenge';
 import { resolveSystemCategories } from '@/lib/categories';
 import { invalidateClaimCaches } from '@/lib/adminDataCache';
 import { useAdminBadges } from '@/context/AdminBadgeContext';
@@ -116,9 +118,10 @@ function ClaimsSummary({ summary }) {
         <p className="mt-1 text-sm text-slate-500">Simple overview of all ownership requests</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <SummaryStat label="Total requests" value={summary.total} tone="blue" />
         <SummaryStat label="Still waiting" value={summary.waiting} tone="amber" />
+        <SummaryStat label="Physical" value={summary.physical || 0} tone="blue" />
         <SummaryStat label="Approved" value={summary.approved} tone="emerald" />
         <SummaryStat label="Rejected" value={summary.rejected} tone="red" />
       </div>
@@ -159,6 +162,7 @@ function truncate(text, max = 86) {
 
 function statusClass(status) {
   if (status === 'Reviewing') return 'border-slate-200/60 bg-slate-500/10 text-slate-700';
+  if (status === 'Physical') return 'border-indigo-200/60 bg-indigo-500/10 text-indigo-700';
   if (status === 'Approved') return 'border-emerald-200/60 bg-emerald-500/10 text-emerald-700';
   if (status === 'Rejected') return 'border-red-200/60 bg-red-500/10 text-red-700';
   return 'border-blue-200/60 bg-blue-500/10 text-[#0759B8]';
@@ -168,6 +172,7 @@ function ActionButton({ label, tone, icon: Icon, onClick, disabled }) {
   const tones = {
     approve: 'border-emerald-600 bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-700',
     reject: 'glass-button text-red-600 hover:bg-red-50/80',
+    physical: 'border-indigo-600 bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-700',
     delete: 'glass-button text-slate-600 hover:text-red-600',
   };
 
@@ -235,7 +240,7 @@ function ProofDialog({ claim, onClose }) {
   const imageSrc = resolveClaimProofImage(claim);
   const displayName = resolveClaimDisplayName(claim);
   const itemType = item?.itemType || claim.itemType || claim.item_type || claim.match_breakdown?.item_type;
-  const typeLabel = itemType === 'lost' ? 'Lost item' : itemType ? 'Found item' : null;
+  const typeLabel = itemType ? 'Lost item' : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-5">
@@ -294,10 +299,20 @@ function ProofDialog({ claim, onClose }) {
 
             <div className="flex min-w-0 flex-col gap-3">
               <div className="glass-tile flex-1 p-4">
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Statement</p>
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  {claim.challenge_score != null && claim.challenge_score > 0
+                    ? 'Ownership Challenge result'
+                    : 'Statement'}
+                </p>
                 <p className="mt-2 break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
                   {claim.description || 'No proof statement provided.'}
                 </p>
+                {claim.challenge_score != null && claim.challenge_score > 0 ? (
+                  <p className="mt-3 text-sm font-black text-[#1A56DB]">
+                    Score {claim.challenge_score}% ·{' '}
+                    {challengeResultLabel(claim.challenge_result) || claim.displayStatus}
+                  </p>
+                ) : null}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="glass-tile p-3">
@@ -344,12 +359,20 @@ function SweetConfirm({ action, processing, onCancel, onConfirm, onNoteChange })
       confirm: 'Approve request',
       buttonClass: 'bg-emerald-600 hover:bg-emerald-700',
     },
+    confirmPhysical: {
+      icon: CheckCircle2,
+      iconClass: 'bg-indigo-50 text-indigo-600',
+      title: 'Confirm physical verification?',
+      body: `Confirm ${claimantName} owns "${itemName}" after office check. Item moves to Returned Items.`,
+      confirm: 'Confirm & return',
+      buttonClass: 'bg-indigo-600 hover:bg-indigo-700',
+    },
     reject: {
       icon: XCircle,
       iconClass: 'bg-red-50 text-red-600',
-      title: 'Reject ownership request?',
-      body: `Reject ${claimantName}'s request for "${itemName}". You can add a short admin note.`,
-      confirm: 'Reject request',
+      title: 'Reject & restore live?',
+      body: `Reject ${claimantName}'s request for "${itemName}" and put the item back on the live board.`,
+      confirm: 'Reject & restore',
       buttonClass: 'bg-red-600 hover:bg-red-700',
     },
     delete: {
@@ -494,7 +517,7 @@ function EmptyState({ error, onRetry }) {
 
 function isOpenClaim(claim) {
   const status = String(claim?.displayStatus || claim?.status || '').toLowerCase();
-  return status === 'pending' || status === 'open';
+  return status === 'pending' || status === 'open' || status === 'reviewing' || status === 'physical';
 }
 
 export default function OwnershipRequestsClient() {
@@ -530,7 +553,10 @@ export default function OwnershipRequestsClient() {
   }, [claims, focusActive, focusItemId, focusItemType]);
 
   const focusedOpenClaims = useMemo(
-    () => focusedClaims.filter((claim) => ['Pending', 'Reviewing'].includes(claim.displayStatus)),
+    () =>
+      focusedClaims.filter((claim) =>
+        ['Pending', 'Reviewing', 'Physical'].includes(claim.displayStatus)
+      ),
     [focusedClaims]
   );
 
@@ -568,8 +594,8 @@ export default function OwnershipRequestsClient() {
       const matchesStatus =
         statusFilter === 'all' ||
         claim.displayStatus === statusFilter ||
-        // Pending tab also shows Reviewing when focused from Process Return
-        (statusFilter === 'Pending' && claim.displayStatus === 'Reviewing');
+        (statusFilter === 'Pending' &&
+          (claim.displayStatus === 'Reviewing' || claim.displayStatus === 'Physical'));
       const matchesFilter = filter === 'all' || item?.displayCategory === filter;
       const matchesSearch =
         !q ||
@@ -588,9 +614,12 @@ export default function OwnershipRequestsClient() {
   const pageItems = filteredClaims.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const summary = useMemo(() => {
-    const waiting = claims.filter((c) => ['Pending', 'Reviewing'].includes(c.displayStatus)).length;
+    const waiting = claims.filter((c) =>
+      ['Pending', 'Reviewing', 'Physical'].includes(c.displayStatus)
+    ).length;
     const approved = claims.filter((c) => c.displayStatus === 'Approved').length;
     const rejected = claims.filter((c) => c.displayStatus === 'Rejected').length;
+    const physical = claims.filter((c) => c.displayStatus === 'Physical').length;
 
     const durations = claims
       .filter((c) => ['Approved', 'Rejected'].includes(c.displayStatus))
@@ -626,6 +655,7 @@ export default function OwnershipRequestsClient() {
       waiting,
       approved,
       rejected,
+      physical,
       replyTime,
       topCategory,
     };
@@ -680,18 +710,50 @@ export default function OwnershipRequestsClient() {
     setProcessingId(claim.id);
     try {
       const wasOpen = isOpenClaim(claim);
-      await rejectItemClaim(claim.id, note);
+      await restoreItemAfterFailedClaim(claim, note);
+      invalidateClaimCaches();
       if (wasOpen) bumpBadge('claims', -1);
       patchData((current) =>
         current.map((row) =>
           row.id === claim.id
-            ? { ...row, status: 'rejected', displayStatus: 'Rejected', admin_note: note, reviewed_at: new Date().toISOString() }
+            ? {
+                ...row,
+                status: 'rejected',
+                displayStatus: 'Rejected',
+                admin_note: note,
+                reviewed_at: new Date().toISOString(),
+              }
             : row
         )
       );
       setConfirmAction(null);
     } catch (e) {
       setFeedback({ title: 'Reject failed', message: e.message || 'Could not reject request.' });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const runConfirmPhysical = async (claim) => {
+    setProcessingId(claim.id);
+    try {
+      const wasOpen = isOpenClaim(claim);
+      await confirmPhysicalClaim(claim);
+      invalidateClaimCaches();
+      if (wasOpen) bumpBadge('claims', -1);
+      patchData((current) =>
+        current.map((row) =>
+          row.id === claim.id
+            ? { ...row, status: 'approved', displayStatus: 'Approved', reviewed_at: new Date().toISOString() }
+            : row
+        )
+      );
+      setConfirmAction(null);
+    } catch (e) {
+      setFeedback({
+        title: 'Confirm failed',
+        message: e.message || 'Could not confirm physical verification.',
+      });
     } finally {
       setProcessingId(null);
     }
@@ -715,6 +777,7 @@ export default function OwnershipRequestsClient() {
   const confirmCurrentAction = () => {
     if (!confirmAction) return;
     if (confirmAction.type === 'approve') runApprove(confirmAction.claim);
+    if (confirmAction.type === 'confirmPhysical') runConfirmPhysical(confirmAction.claim);
     if (confirmAction.type === 'reject') runReject(confirmAction.claim, confirmAction.note);
     if (confirmAction.type === 'delete') runDelete(confirmAction.claim);
   };
@@ -764,6 +827,10 @@ export default function OwnershipRequestsClient() {
           <div className="inline-flex max-w-full overflow-x-auto rounded-[22px] border border-white/60 bg-white/20 p-1 backdrop-blur-xl [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {[
               { id: 'all', label: `All Requests (${focusActive ? focusedClaims.length : claims.length})` },
+              {
+                id: 'Physical',
+                label: `Physical (${(focusActive ? focusedClaims : claims).filter((claim) => claim.displayStatus === 'Physical').length})`,
+              },
               { id: 'Reviewing', label: `Reviewing (${(focusActive ? focusedClaims : claims).filter((claim) => claim.displayStatus === 'Reviewing').length})` },
               { id: 'Pending', label: `Pending (${(focusActive ? focusedClaims : claims).filter((claim) => claim.displayStatus === 'Pending').length})` },
               { id: 'Approved', label: `Approved (${(focusActive ? focusedClaims : claims).filter((claim) => claim.displayStatus === 'Approved').length})` },
@@ -868,7 +935,8 @@ export default function OwnershipRequestsClient() {
                     const imageSrc = resolveClaimProofImage(claim);
                     const itemType = item?.itemType || claim.itemType || claim.item_type;
                     const busy = processingId === claim.id;
-                    const actionable = ['Pending', 'Reviewing'].includes(claim.displayStatus);
+                    const actionable = ['Pending', 'Reviewing', 'Physical'].includes(claim.displayStatus);
+                    const isPhysical = claim.displayStatus === 'Physical';
                     const isFocusedRow = focusActive && claimMatchesFocusedItem(claim, focusItemId, focusItemType);
                     return (
                       <tr
@@ -913,6 +981,12 @@ export default function OwnershipRequestsClient() {
                       </td>
                       <td className="max-w-[420px] px-5 py-4">
                         <div className="max-w-xl">
+                          {claim.challenge_score != null && claim.challenge_score > 0 ? (
+                            <p className="mb-1 text-xs font-black text-[#1A56DB]">
+                              Challenge {claim.challenge_score}% ·{' '}
+                              {challengeResultLabel(claim.challenge_result) || claim.displayStatus}
+                            </p>
+                          ) : null}
                           <p className="line-clamp-2 text-sm leading-6 text-slate-600">
                             &quot;{truncate(claim.description, 120)}&quot;
                           </p>
@@ -941,19 +1015,29 @@ export default function OwnershipRequestsClient() {
                         {actionable ? (
                           <div className="flex flex-wrap justify-center gap-2">
                             <ActionButton
-                              label="Reject"
+                              label="Restore live"
                               tone="reject"
                               icon={X}
                               disabled={busy}
                               onClick={() => setConfirmAction({ type: 'reject', claim, note: '' })}
                             />
-                            <ActionButton
-                              label="Approve"
-                              tone="approve"
-                              icon={Check}
-                              disabled={busy}
-                              onClick={() => setConfirmAction({ type: 'approve', claim })}
-                            />
+                            {isPhysical ? (
+                              <ActionButton
+                                label="Confirm office"
+                                tone="physical"
+                                icon={ShieldCheck}
+                                disabled={busy}
+                                onClick={() => setConfirmAction({ type: 'confirmPhysical', claim })}
+                              />
+                            ) : (
+                              <ActionButton
+                                label="Approve"
+                                tone="approve"
+                                icon={Check}
+                                disabled={busy}
+                                onClick={() => setConfirmAction({ type: 'approve', claim })}
+                              />
+                            )}
                           </div>
                         ) : (
                           <div className="flex flex-wrap justify-center gap-2">

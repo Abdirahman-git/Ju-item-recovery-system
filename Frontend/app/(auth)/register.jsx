@@ -43,10 +43,10 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // STEP 1: Validate Student ID & Automatically Send OTP to Registered Phone via SMS
+  // STEP 1: Validate ID & Automatically Send OTP to Registered Phone via SMS
   const handleValidateId = async () => {
     if (!studentId.trim()) {
-      showAppValidation('Enter your Student ID.');
+      showAppValidation('Enter your ID.');
       return;
     }
 
@@ -59,11 +59,11 @@ export default function RegisterScreen() {
         .single();
 
       if (error || !student) {
-        throw new Error('Student ID not found in Jazeera University directory.');
+        throw new Error('ID not found in Jazeera University directory.');
       }
 
       if (student.status === 'activated') {
-        throw new Error('This Student ID is already activated. Please login instead.');
+        throw new Error('This ID is already activated. Please login instead.');
       }
 
       if (!student.phone_number) {
@@ -109,7 +109,7 @@ export default function RegisterScreen() {
   // Helper function to resend OTP
   const handleSendOtp = async () => {
     if (!studentId.trim()) {
-      showAppValidation('Student ID missing. Go back and verify again.');
+      showAppValidation('ID missing. Go back and verify again.');
       return;
     }
 
@@ -225,7 +225,7 @@ export default function RegisterScreen() {
 
   const getStepTitle = () => {
     switch (step) {
-      case 1: return 'Student ID Lookup';
+      case 1: return 'ID Verification';
       case 2: return 'OTP Verification';
       case 3: return 'Secure Account';
       default: return 'Register';
@@ -234,7 +234,7 @@ export default function RegisterScreen() {
 
   const getStepSubtitle = () => {
     switch (step) {
-      case 1: return 'Lookup Jazeera University academic roster to verify credentials.';
+      case 1: return 'Verify your Jazeera University credentials.';
       case 2: return 'Type the 6-digit confirmation key sent to your phone via SMS.';
       case 3: return 'Establish your secret access password to complete activation.';
       default: return 'Join the Jazeera University network.';
@@ -274,10 +274,10 @@ export default function RegisterScreen() {
       <Text style={styles.subtitle}>{getStepSubtitle()}</Text>
 
       <View style={styles.card}>
-      {/* STEP 1: Student ID */}
+      {/* STEP 1: ID */}
         {step === 1 && (
           <View>
-            <Text style={styles.label}>ENTER STUDENT ID</Text>
+            <Text style={styles.label}>ENTER ID</Text>
             <View style={styles.inputContainer}>
               <Ionicons name="id-card-outline" size={20} color={Colors.slate400} style={styles.icon} />
               <TextInput
@@ -291,7 +291,7 @@ export default function RegisterScreen() {
             </View>
 
             <TouchableOpacity style={styles.button} onPress={handleValidateId} disabled={loading}>
-              {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify Student ID</Text>}
+              {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify ID</Text>}
             </TouchableOpacity>
           </View>
         )}

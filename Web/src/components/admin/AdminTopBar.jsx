@@ -106,12 +106,12 @@ export default function AdminTopBar() {
       });
 
       (claimsData || []).forEach((claim) => {
-        if (claim.status === 'pending') {
+        if (claim.status === 'pending' || claim.status === 'physical' || claim.displayStatus === 'Physical') {
           itemsList.push({
             id: `claim-${claim.id}`,
             type: 'claim',
-            title: 'New Ownership Claim',
-            description: `${claim.full_name || claim.student_id || 'Student'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
+            title: claim.status === 'physical' ? 'Physical verification' : 'New Ownership Claim',
+            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'Student'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
             time: claim.created_at || claim.requestedAt || null,
             link: '/admin/claims',
           });
@@ -136,7 +136,9 @@ export default function AdminTopBar() {
       if (updateBadges) {
         setBadgeCounts((prev) => ({
           pending: (reportsData.combined || []).length,
-          claims: (claimsData || []).filter((c) => c.status === 'pending').length,
+          claims: (claimsData || []).filter(
+            (c) => c.status === 'pending' || c.status === 'physical' || c.displayStatus === 'Physical'
+          ).length,
           contact: isSuperAdmin ? newContacts.length : prev?.contact || 0,
         }));
       }

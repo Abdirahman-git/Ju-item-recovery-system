@@ -227,7 +227,7 @@ export default function SecureFoundScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader
-        title="Secure Found Hold"
+        title="Secure Lost Hold"
         subtitle="High-value item notices"
         onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
         rightElement={
@@ -239,8 +239,8 @@ export default function SecureFoundScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <AdminPageHero
-          eyebrow="Secure hold"
-          title={draftId ? `Editing draft #${draftId}` : 'Post a secure notice'}
+          eyebrow="Secure Lost"
+          title={draftId ? `Editing draft #${draftId}` : 'Post a secure lost hold'}
           subtitle="High-value items (money, jewelry, IDs) are kept secure without a public photo. Students only see a short notice."
         />
 

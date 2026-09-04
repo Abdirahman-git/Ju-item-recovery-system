@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { ITEM_STATUS, normalizeItemStatus } from './itemStatus';
+import { ITEM_STATUS, normalizeItemStatus, isSecureFoundItem } from './itemStatus';
 import { buildDashboardTrendRows } from './dashboardAnalytics';
 import { mapInventoryItem, mapRecentActivityItem, resolveItemImageUrl } from './itemImage';
 import { facultyFromStudentId, resolveFaculty } from './faculty';
@@ -936,9 +936,8 @@ function getActivityStatus(item, itemType) {
   if (status === ITEM_STATUS.RETURNED) return { label: 'Returned', tone: 'returned' };
   if (item.status === 'matched') return { label: 'Matched', tone: 'matched' };
   if (status === ITEM_STATUS.PENDING_REVIEW) return { label: 'Pending', tone: 'pending' };
-  return itemType === 'found'
-    ? { label: 'Found', tone: 'found' }
-    : { label: 'Lost', tone: 'lost' };
+  if (isSecureFoundItem(item)) return { label: 'Lost', tone: 'lost' };
+  return { label: 'Lost', tone: 'lost' };
 }
 
 function buildActionItems({ pendingUsers, pendingReports, claimsCount, recoveryRate }) {
@@ -1012,6 +1011,173 @@ export async function fetchPendingReports() {
 
 function normalizeLookupKey(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function resolveItemReporterName(item = {}) {
+  const type = item.itemType || item.reportType;
+  if (type === 'found') {
+    return item.finderName || item.finder_name || item.reporterName || '?';
+  }
+  return item.ownerName || item.owner_name || item.reporterName || '?';
+}
+
+function resolveItemPosterKey(item = {}) {
+  const email = normalizeLookupKey(item.email || item.userId || item.userid);
+  if (email && email.includes('@')) return `email:${email}`;
+
+  const studentId = String(item.student_id || item.studentId || item.reporterStudentId || '')
+    .trim()
+    .toUpperCase();
+  if (studentId) return `sid:${studentId}`;
+
+  const name = normalizeLookupKey(resolveItemReporterName(item));
+  if (name && name !== '?') return `name:${name}`;
+
+  return 'unknown:anonymous';
+}
+
+function buildUserIdentityLookup(users = []) {
+  const byEmail = new Map();
+  const byStudentId = new Map();
+  const byName = new Map();
+
+  users.forEach((user) => {
+    const email = normalizeLookupKey(user.email);
+    const studentId = String(user.student_id || user.studentId || '')
+      .trim()
+      .toUpperCase();
+    const name = normalizeLookupKey(user.name);
+    if (email) byEmail.set(email, user);
+    if (studentId) byStudentId.set(studentId, user);
+    if (name) byName.set(name, user);
+  });
+
+  function resolveUser({ email, studentId, name, posterKey } = {}) {
+    if (posterKey?.startsWith('email:')) {
+      const matched = byEmail.get(posterKey.slice(6));
+      if (matched) return matched;
+    }
+    if (posterKey?.startsWith('sid:')) {
+      const matched = byStudentId.get(posterKey.slice(4));
+      if (matched) return matched;
+    }
+    if (posterKey?.startsWith('name:')) {
+      const matched = byName.get(posterKey.slice(5));
+      if (matched) return matched;
+    }
+
+    const normalizedEmail = normalizeLookupKey(email);
+    if (normalizedEmail && byEmail.has(normalizedEmail)) return byEmail.get(normalizedEmail);
+
+    const sid = String(studentId || '')
+      .trim()
+      .toUpperCase();
+    if (sid && sid !== '—' && sid !== '?' && byStudentId.has(sid)) return byStudentId.get(sid);
+
+    const normalizedName = normalizeLookupKey(name);
+    if (normalizedName && normalizedName !== '?' && byName.has(normalizedName)) {
+      return byName.get(normalizedName);
+    }
+
+    return null;
+  }
+
+  function studentIdFor(item = {}) {
+    const user = resolveUser({
+      email: item.email || item.userId || item.userid || item.reporterEmail,
+      studentId: item.student_id || item.studentId || item.reporterStudentId,
+      name: resolveItemReporterName(item),
+      posterKey: resolveItemPosterKey(item),
+    });
+    if (user) {
+      const sid = String(user.student_id || user.studentId || '')
+        .trim()
+        .toUpperCase();
+      if (sid) return sid;
+    }
+
+    const key = resolveItemPosterKey(item);
+    if (key.startsWith('sid:')) return key.slice(4);
+
+    const direct = String(item.student_id || item.studentId || item.reporterStudentId || '')
+      .trim()
+      .toUpperCase();
+    return direct;
+  }
+
+  function enrichContributor(contributor = {}) {
+    const user = resolveUser({
+      email: contributor.email || contributor.posterEmail,
+      studentId: contributor.studentId,
+      name: contributor.name,
+      posterKey: contributor.key,
+    });
+
+    const sid =
+      (user &&
+        String(user.student_id || user.studentId || '')
+          .trim()
+          .toUpperCase()) ||
+      (contributor.key?.startsWith('sid:') ? contributor.key.slice(4) : '') ||
+      (contributor.studentId && !['—', '?'].includes(String(contributor.studentId))
+        ? String(contributor.studentId).trim().toUpperCase()
+        : '');
+
+    return {
+      ...contributor,
+      name: user?.name || contributor.name,
+      email: user?.email || contributor.email || contributor.posterEmail || '',
+      studentId: sid || '—',
+      faculty: user?.faculty
+        ? resolveFaculty({ faculty: user.faculty, studentId: user.student_id || user.studentId })
+        : contributor.faculty || 'Unassigned',
+      role: user ? (user.role !== 'user' ? 'Admin' : 'Student') : contributor.role || 'Guest',
+    };
+  }
+
+  return { resolveUser, studentIdFor, enrichContributor };
+}
+
+export function enrichContributorsWithUsers(contributors = [], users = []) {
+  const identity = buildUserIdentityLookup(users);
+  return contributors.map((contributor) => identity.enrichContributor(contributor));
+}
+
+function buildTopContributors(items = [], users = [], limit = 0) {
+  const identity = buildUserIdentityLookup(users);
+
+  const counts = new Map();
+
+  items.forEach((item) => {
+    const key = resolveItemPosterKey(item);
+    if (!counts.has(key)) {
+      counts.set(key, { key, count: 0, lost: 0, found: 0 });
+    }
+    const row = counts.get(key);
+    row.count += 1;
+    const type = item.itemType || item.reportType;
+    if (type === 'found') row.found += 1;
+    else row.lost += 1;
+  });
+
+  return Array.from(counts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(limit > 0 ? 0 : undefined, limit > 0 ? limit : undefined)
+    .map((row) => {
+      const fallbackName =
+        row.key.startsWith('name:') ? row.key.slice(5) : row.key.startsWith('email:') ? row.key.slice(6) : 'Unknown';
+
+      return identity.enrichContributor({
+        key: row.key,
+        name: fallbackName,
+        email: row.key.startsWith('email:') ? row.key.slice(6) : '',
+        studentId: row.key.startsWith('sid:') ? row.key.slice(4) : '—',
+        faculty: 'Unassigned',
+        count: row.count,
+        lost: row.lost,
+        found: row.found,
+      });
+    });
 }
 
 function normalizePhone(value) {
@@ -1263,9 +1429,13 @@ function normalizeClaimRow(row, targetItem) {
       ? 'Approved'
       : rawStatus === 'rejected'
         ? 'Rejected'
-        : row.match_score > 0
-          ? 'Reviewing'
-          : 'Pending';
+        : rawStatus === 'physical'
+          ? 'Physical'
+          : row.challenge_result === 'auto_pass'
+            ? 'Approved'
+            : row.challenge_score > 0
+              ? 'Reviewing'
+              : 'Pending';
 
   return {
     ...row,
@@ -1357,7 +1527,7 @@ export async function approveItemClaim(claim) {
   return { success: true };
 }
 
-export async function rejectItemClaim(claimId, adminNote = '') {
+export async function rejectItemClaim(claimId, adminNote = '', claimMeta = null) {
   const { error } = await supabase
     .from('item_claims')
     .update({
@@ -1368,6 +1538,19 @@ export async function rejectItemClaim(claimId, adminNote = '') {
     .eq('id', claimId);
 
   if (error) throw new Error(error.message || 'Failed to reject ownership request.');
+
+  // Restore live listing after challenge / claim hold
+  const itemType = claimMeta?.itemType || claimMeta?.item_type;
+  const itemId =
+    claimMeta?.itemId ||
+    claimMeta?.item_id ||
+    claimMeta?.found_item_id ||
+    claimMeta?.lost_item_id;
+  if (itemType && itemId) {
+    const table = itemType === 'lost' ? 'lost_items' : 'found_items';
+    await supabase.from(table).update({ status: 'live' }).eq('id', itemId);
+  }
+
   return { success: true };
 }
 
@@ -1793,7 +1976,9 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
   const approvedStudents = students.filter((user) => user.is_approved === true);
   const pendingStudents = students.filter((user) => user.is_approved !== true);
 
-  const pendingClaims = claims.filter((claim) => claim.status === 'pending');
+  const pendingClaims = claims.filter(
+    (claim) => claim.status === 'pending' || claim.status === 'physical'
+  );
   const approvedClaims = claims.filter((claim) => claim.status === 'approved');
   const rejectedClaims = claims.filter((claim) => claim.status === 'rejected');
 
@@ -1817,6 +2002,9 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     .sort((a, b) => b[1] - a[1])
     .map(([name, count]) => ({ name, count }));
 
+  const topContributors = buildTopContributors(items, users);
+  const topContributor = topContributors[0] || null;
+
   const totalItems = items.length;
   const recovered = returnedItems.length;
   const recoveryRate = totalItems > 0 ? Math.round((recovered / totalItems) * 100) : 0;
@@ -1836,28 +2024,20 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       description: 'All lost and found property records',
       href: '/admin/items',
       count: totalItems,
-      meta: `${lostItems.length} lost - ${foundItems.length} found`,
+      meta: `${lostItems.length + foundItems.length} lost`,
     },
     {
       id: 'lost',
       label: 'Lost Reports',
-      description: 'Items reported missing on campus',
+      description: 'All live campus lost listings',
       href: '/admin/items',
-      count: lostItems.length,
-      meta: `${pendingReviewItems.filter((item) => item.itemType === 'lost').length} awaiting review`,
-    },
-    {
-      id: 'found',
-      label: 'Found Reports',
-      description: 'Recovered items logged in the system',
-      href: '/admin/items',
-      count: foundItems.length,
-      meta: `${liveItems.filter((item) => item.itemType === 'found').length} live listings`,
+      count: lostItems.length + foundItems.length,
+      meta: `${liveItems.filter((item) => item.itemType === 'lost' || item.itemType === 'found').length} live listings`,
     },
     {
       id: 'returned',
       label: 'Returned Items',
-      description: 'Successfully reunited with owners',
+      description: 'Found / recovered — reunited with owners',
       href: '/admin/returned',
       count: recovered,
       meta: `${recoveryRate}% recovery rate`,
@@ -1888,7 +2068,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     },
     {
       id: 'secure',
-      label: 'Secure Found Holds',
+      label: 'Secure Hold',
       description: 'High-value secure campus notices',
       href: '/admin/secure-found',
       count: secureItems.length,
@@ -1926,17 +2106,18 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
   }
 
   const facultyFor = buildFacultyResolver(users);
+  const identity = buildUserIdentityLookup(users);
 
   const records = {
     users: mapSystemReportUsers(users),
-    inventory: mapSystemReportItems(items, facultyFor),
-    lost: mapSystemReportItems(lostItems, facultyFor),
-    found: mapSystemReportItems(foundItems, facultyFor),
+    inventory: mapSystemReportItems(items, facultyFor, identity),
+    lost: mapSystemReportItems(lostItems, facultyFor, identity),
+    found: mapSystemReportItems(foundItems, facultyFor, identity),
     returned: mapSystemReportReturned(returnedItems, facultyFor),
-    pending: mapSystemReportPending(pendingData.combined || [], facultyFor),
+    pending: mapSystemReportPending(pendingData.combined || [], facultyFor, identity),
     claims: mapSystemReportClaims(claims, facultyFor),
-    drafts: mapSystemReportItems(draftItems, facultyFor),
-    secure: mapSystemReportItems(secureItems, facultyFor),
+    drafts: mapSystemReportItems(draftItems, facultyFor, identity),
+    secure: mapSystemReportItems(secureItems, facultyFor, identity),
   };
 
   if (includePrivilegedSources) {
@@ -1970,9 +2151,15 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       approvedClaims: approvedClaims.length,
       rejectedClaims: rejectedClaims.length,
       recoveryRate,
+      maxUserActivityCount: topContributor?.count ?? 0,
+      maxUserActivityName: topContributor?.name ?? '—',
+      maxUserActivityMeta: topContributor
+        ? `${topContributor.lost} lost · ${topContributor.found} found`
+        : 'No item posts yet',
     },
     categories,
     faculties,
+    topContributors,
     dataSources,
     records,
     generatedAt: new Date().toISOString(),
@@ -2051,49 +2238,78 @@ function mapSystemReportUsers(users = []) {
   }));
 }
 
-function mapSystemReportItems(items = [], facultyFor = () => 'Unassigned') {
+function mapSystemReportItems(items = [], facultyFor = () => 'Unassigned', identity = null) {
   const rawDate = (item) => item.reportedAt || item.created_at;
-  return items.map((item) => ({
-    id: `${item.itemType}-${item.id}`,
-    ref: item.inventoryRef || item.refId || `#${item.id}`,
-    name: item.displayName || 'Unnamed item',
-    category: item.displayCategory || item.category || 'General',
-    faculty: facultyFor(item),
-    location: item.displayLocation || item.location || 'Campus',
-    type: item.itemType === 'found' ? 'Found' : 'Lost',
-    status: normalizeItemStatus(item),
-    reportedAt: formatReportDate(rawDate(item)),
-    dateKey: toReportDateKey(rawDate(item)),
-  }));
+  return items.map((item) => {
+    const posterKey = resolveItemPosterKey(item);
+    const studentId = identity?.studentIdFor(item) || '';
+    const posterEmail =
+      String(item.email || item.userId || item.userid || '').trim().toLowerCase() ||
+      (posterKey.startsWith('email:') ? posterKey.slice(6) : '');
+
+    return {
+      id: `${item.itemType}-${item.id}`,
+      ref: item.inventoryRef || item.refId || `#${item.id}`,
+      imageUrl: item.imageUrl || resolveItemImageUrl(item) || null,
+      isSecure: isSecureFoundItem(item),
+      name: item.displayName || 'Unnamed item',
+      category: item.displayCategory || item.category || 'General',
+      faculty: facultyFor(item),
+      location: item.displayLocation || item.location || 'Campus',
+      type: 'Lost',
+      status: normalizeItemStatus(item),
+      reporter: resolveItemReporterName(item),
+      posterKey,
+      studentId: studentId || '—',
+      posterEmail,
+      reportedAt: formatReportDate(rawDate(item)),
+      dateKey: toReportDateKey(rawDate(item)),
+    };
+  });
 }
 
 function mapSystemReportReturned(items = [], facultyFor = () => 'Unassigned') {
   return items.map((item) => ({
     id: String(item.id),
     ref: item.refId || `RET-${item.id}`,
+    imageUrl: item.imageUrl || resolveItemImageUrl(item) || null,
     name: item.displayName || 'Unnamed item',
     category: item.displayCategory || 'General',
     faculty: facultyFor(item),
     recipient: item.displayRecipient || '?',
-    type: item.displayType || 'FOUND',
+    type: 'Returned',
     returnedAt: formatReportDate(item.returnedAt),
     dateKey: toReportDateKey(item.returnedAt),
   }));
 }
 
-function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned') {
+function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned', identity = null) {
   const rawDate = (item) => item.reportedAt || item.created_at;
-  return items.map((item) => ({
-    id: `${item.reportType}-${item.id}`,
-    ref: item.refId || `#${item.id}`,
-    name: item.displayName || 'Unnamed item',
-    category: item.displayCategory || 'General',
-    faculty: facultyFor(item),
-    reporter: item.reporterName || '?',
-    type: item.reportType === 'found' ? 'Found' : 'Lost',
-    reportedAt: formatReportDate(rawDate(item)),
-    dateKey: toReportDateKey(rawDate(item)),
-  }));
+  return items.map((item) => {
+    const typed = { ...item, itemType: item.reportType };
+    const posterKey = resolveItemPosterKey(typed);
+    const studentId = identity?.studentIdFor(typed) || '';
+    const posterEmail =
+      String(item.reporterEmail || item.email || '').trim().toLowerCase() ||
+      (posterKey.startsWith('email:') ? posterKey.slice(6) : '');
+
+    return {
+      id: `${item.reportType}-${item.id}`,
+      ref: item.refId || `#${item.id}`,
+      imageUrl: item.imageUrl || resolveItemImageUrl(item) || null,
+      isSecure: isSecureFoundItem(typed),
+      name: item.displayName || 'Unnamed item',
+      category: item.displayCategory || 'General',
+      faculty: facultyFor(item),
+      reporter: item.reporterName || resolveItemReporterName(typed) || '?',
+      posterKey,
+      studentId: studentId || '—',
+      posterEmail,
+      type: 'Lost',
+      reportedAt: formatReportDate(rawDate(item)),
+      dateKey: toReportDateKey(rawDate(item)),
+    };
+  });
 }
 
 function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
@@ -2101,6 +2317,7 @@ function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
   return claims.map((claim) => ({
     id: String(claim.id),
     ref: claim.refId || `CLM-${claim.id}`,
+    imageUrl: claim.targetItem?.imageUrl || resolveItemImageUrl(claim.targetItem) || null,
     item: claim.targetItem?.displayName || claim.item_name || 'Unknown item',
     claimer: claim.claimer_name || claim.claimerName || '?',
     studentId: claim.claimer_student_id || claim.claimerStudentId || '?',
@@ -2116,6 +2333,7 @@ function mapSystemReportRecycle(items = []) {
   return items.map((item) => ({
     id: String(item.id),
     ref: `#DEL-${String(item.id).slice(-4)}`,
+    imageUrl: null,
     name: item.title || 'Unknown',
     category: item.summary || 'No details',
     type: item.entityType || 'Record',
@@ -2131,11 +2349,12 @@ function mapSystemReportArchived(items = [], facultyFor = () => 'Unassigned') {
     return {
       id: String(item.id),
       ref: item.refId || `ARC-${String(item.id).padStart(4, '0')}`,
+      imageUrl: item.imageUrl || resolveItemImageUrl(item) || null,
       name: item.displayName || item.item_name || 'Unnamed item',
       category: item.displayCategory || item.category || 'General',
       faculty: facultyFor(item),
       location: item.displayLocation || item.location || '—',
-      type: type === 'FOUND' ? 'Found' : 'Lost',
+      type: 'Lost',
       status: 'Archived',
       reason: item.displayReason || item.reason || '—',
       archivedBy: item.displayArchivedBy || item.archived_by || '—',

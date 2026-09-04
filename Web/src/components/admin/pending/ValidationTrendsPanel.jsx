@@ -109,7 +109,7 @@ function ChartTooltip({ active, payload }) {
     <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-lg">
       <p className="text-[11px] font-bold text-slate-900">{row?.rangeLabel}</p>
       <div className="mt-1 flex gap-4 text-[10px] font-semibold">
-        <span className="text-teal-600">Found {row?.primary ?? 0}</span>
+        <span className="text-teal-600">Holds {row?.primary ?? 0}</span>
         <span className="text-orange-500">Lost {row?.secondary ?? 0}</span>
       </div>
     </div>
@@ -249,7 +249,7 @@ export default function ValidationTrendsPanel({ reports = [] }) {
               <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-500">
                 <span className="inline-flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-                  Found {animatedFound}
+                  Holds {animatedFound}
                   <TrendBadge value={stats.foundTrend} compact />
                 </span>
                 <span className="inline-flex items-center gap-1">
@@ -340,7 +340,7 @@ export default function ValidationTrendsPanel({ reports = [] }) {
 
           <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
             <MiniStat
-              label="Found"
+              label="Lost"
               value={animatedFound}
               trend={stats.foundTrend}
               icon={CheckCircle2}

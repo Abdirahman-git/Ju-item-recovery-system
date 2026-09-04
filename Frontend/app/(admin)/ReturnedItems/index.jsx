@@ -23,8 +23,6 @@ import { showAppFailure } from '../../../src/utils/appAlert';
 
 const TYPE_TABS = [
   { id: 'all', label: 'All', icon: 'albums-outline' },
-  { id: 'found', label: 'Found', icon: 'checkmark-circle-outline' },
-  { id: 'lost', label: 'Lost', icon: 'help-buoy-outline' },
 ];
 
 const SORT_OPTIONS = [
@@ -177,10 +175,7 @@ export default function ReturnedItemsScreen() {
 
     const next = returnedItems.filter((item) => {
       const type = String(item.type || '').toUpperCase();
-      const matchesTab =
-        activeTab === 'all' ||
-        (activeTab === 'lost' && type === 'LOST') ||
-        (activeTab === 'found' && type === 'FOUND');
+      const matchesTab = activeTab === 'all' || activeTab === 'lost';
       const matchesCategory = category === 'all' || item.category === category;
       const haystack = [
         item.item_name,
@@ -263,7 +258,7 @@ export default function ReturnedItemsScreen() {
             <Text style={[styles.statNum, { color: '#047857' }]}>{returnedItems.length}</Text>
             <Text style={styles.statLabel}>Total returned</Text>
             <Text style={styles.statSub}>
-              {foundCount} found · {lostCount} lost
+              {returnedItems.length} returned
             </Text>
           </Animated.View>
 

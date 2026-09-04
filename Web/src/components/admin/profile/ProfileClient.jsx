@@ -75,7 +75,7 @@ function buildStatusLines(counts, name, photoRate) {
   if (counts.total === 0) {
     lines.push(`${who}, campus-ku wuu sugayaa first report-kaaga — bilow maanta!`);
     lines.push(`Hey ${who} 👋 diyaar ma u tahay inaad arday u caawiso?`);
-    lines.push(`Ma jiraan posts hadda — Report Found ama Lost riix si aad u bilowdo.`);
+    lines.push(`Ma jiraan posts hadda — Report Lost riix si aad u bilowdo.`);
   } else {
     lines.push(`${who}, waxaad soo gelisay ${counts.total} item${counts.total === 1 ? '' : 's'} — mahadsanid shaqadaada!`);
     if (counts.found > 0) {
@@ -157,14 +157,6 @@ const QUICK_ACTIONS = [
     shadow: 'shadow-blue-500/25',
   },
   {
-    href: '/admin/found',
-    label: 'Report Found',
-    hint: 'Log recovered item',
-    icon: Sparkles,
-    tone: 'from-emerald-500 to-teal-600',
-    shadow: 'shadow-emerald-500/25',
-  },
-  {
     href: '/admin/lost',
     label: 'Report Lost',
     hint: 'Create lost report',
@@ -174,8 +166,8 @@ const QUICK_ACTIONS = [
   },
   {
     href: '/admin/secure-found',
-    label: 'Secure Hold',
-    hint: 'Post secure notice',
+    label: 'Secure Lost',
+    hint: 'Post secure lost hold',
     icon: Shield,
     tone: 'from-amber-500 to-orange-600',
     shadow: 'shadow-amber-500/25',
@@ -203,11 +195,11 @@ function ActivityThumb({ item }) {
 
   if (!item.imageUrl) {
     const meta = getInventoryCardMeta(item);
-    const isFound = meta.filterStatus === 'found';
+    const isLost = true;
     return (
       <div
         className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-2 ring-white/80 ${
-          isFound ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
+          isLost ? 'bg-red-50 text-red-500' : 'bg-red-50 text-red-500'
         }`}
       >
         <Package size={22} strokeWidth={1.75} />
@@ -287,13 +279,14 @@ export default function ProfileClient() {
         const meta = getInventoryCardMeta(item);
         return {
           total: acc.total + 1,
-          found: acc.found + (meta.filterStatus === 'found' ? 1 : 0),
-          lost: acc.lost + (meta.filterStatus === 'lost' ? 1 : 0),
+          lost:
+            acc.lost +
+            (meta.filterStatus === 'lost' || meta.filterStatus === 'found' ? 1 : 0),
           secure: acc.secure + (meta.filterStatus === 'secure' ? 1 : 0),
           withPhoto: acc.withPhoto + (item.imageUrl ? 1 : 0),
         };
       },
-      { total: 0, found: 0, lost: 0, secure: 0, withPhoto: 0 }
+      { total: 0, lost: 0, secure: 0, withPhoto: 0 }
     );
   }, [myItems]);
 
@@ -452,7 +445,7 @@ export default function ProfileClient() {
           icon="package"
           value={counts.total}
           label="Total Posted"
-          trendLabel={`${counts.found} found · ${counts.lost} lost`}
+          trendLabel={`${counts.lost} lost · ${counts.secure} secure`}
           subLabel="Your campus reports"
           sparkData={sparklines.total}
         />
@@ -460,10 +453,10 @@ export default function ProfileClient() {
           compact
           playKey={sparkPlayKey}
           sparkIndex={1}
-          icon="check"
-          value={counts.found}
-          label="Found Items"
-          trendLabel="Public found reports"
+          icon="shield"
+          value={counts.secure}
+          label="Secure"
+          trendLabel="High-value holds"
           sparkData={sparklines.found}
         />
         <StatCard
@@ -533,20 +526,20 @@ export default function ProfileClient() {
               </div>
               <p className="text-lg font-black text-slate-900">No activity yet</p>
               <p className="mt-2 max-w-sm text-sm font-medium leading-6 text-slate-500">
-                Start by reporting a lost or found item — your activity timeline will light up here.
+                Start by reporting a lost item — your activity timeline will light up here.
               </p>
               <div className="mt-5 flex flex-wrap justify-center gap-2">
                 <Link
-                  href="/admin/found"
+                  href="/admin/lost"
                   className="rounded-2xl bg-[#1A56DB] px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:bg-[#1E40AF]"
                 >
-                  Report Found
+                  Report Lost
                 </Link>
                 <Link
-                  href="/admin/lost"
+                  href="/admin/secure-found"
                   className="rounded-2xl border border-white/80 bg-white/70 px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-white"
                 >
-                  Report Lost
+                  Secure Lost
                 </Link>
               </div>
             </div>

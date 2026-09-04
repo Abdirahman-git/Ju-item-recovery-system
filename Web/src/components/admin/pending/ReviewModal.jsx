@@ -2,13 +2,14 @@
 
 import DetailPhotoPanel from '@/components/admin/DetailPhotoPanel';
 import {
+  ArrowRight,
   CalendarClock,
-  CheckCircle2,
   ClipboardList,
   IdCard,
   Mail,
   MapPin,
   Phone,
+  ShieldQuestion,
   Tag,
   Trash2,
   UserRound,
@@ -22,9 +23,9 @@ const TYPE_STYLES = {
     accent: 'from-red-500/15 via-transparent to-transparent',
   },
   found: {
-    label: 'Found Report',
-    badge: 'border-emerald-200/70 bg-emerald-500/10 text-emerald-700',
-    accent: 'from-emerald-500/15 via-transparent to-transparent',
+    label: 'Lost Report',
+    badge: 'border-red-200/70 bg-red-500/10 text-red-700',
+    accent: 'from-red-500/15 via-transparent to-transparent',
   },
 };
 const TITLE_LIMIT = 68;
@@ -155,29 +156,39 @@ export default function ReviewModal({ item, onClose, onApprove, onReject, proces
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-white/60 bg-white/45 px-5 py-4 backdrop-blur-md sm:px-6">
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-semibold leading-5 text-slate-500">
-              Approving will publish this report. Rejecting removes it from the pending queue.
-            </p>
-            <div className="flex gap-2">
+        <div className="shrink-0 border-t border-white/70 bg-gradient-to-b from-white/50 to-white/80 px-5 py-4 backdrop-blur-md sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="min-w-0 sm:max-w-md">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                Next step
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-5 text-slate-600 text-pretty">
+                Set private owner questions, then the item goes live. Reject removes this report.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2.5">
               <button
                 type="button"
                 disabled={processing}
                 onClick={onReject}
-                className="glass-button inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black text-red-600 transition hover:bg-red-50/80 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-red-200/80 bg-white/80 px-4 text-sm font-bold text-red-600 shadow-sm transition hover:border-red-300 hover:bg-red-50 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
               >
-                <Trash2 size={16} />
+                <Trash2 size={15} strokeWidth={2.2} />
                 Reject
               </button>
               <button
                 type="button"
                 disabled={processing}
                 onClick={onApprove}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-500/30 transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+                className="group inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#1A56DB] px-5 text-sm font-black text-white shadow-[0_10px_24px_rgba(26,86,219,0.28)] transition hover:bg-[#1E40AF] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
               >
-                <CheckCircle2 size={16} />
-                Approve
+                <ShieldQuestion size={16} strokeWidth={2.2} className="opacity-95" />
+                Continue to Challenge
+                <ArrowRight
+                  size={16}
+                  strokeWidth={2.4}
+                  className="transition-transform duration-200 group-hover:translate-x-0.5"
+                />
               </button>
             </div>
           </div>

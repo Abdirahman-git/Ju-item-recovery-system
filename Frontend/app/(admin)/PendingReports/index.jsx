@@ -120,10 +120,7 @@ export default function PendingReportsScreen() {
 
   // Filters based on tab and search
   const filteredReports = combinedPending.filter(item => {
-    const matchesTab = 
-      activeTab === 'all' || 
-      (activeTab === 'lost' && item.type === 'lost') || 
-      (activeTab === 'found' && item.type === 'found');
+    const matchesTab = activeTab === 'all' || activeTab === 'lost';
 
     const q = searchQuery.toLowerCase();
     const matchesQuery =
@@ -167,16 +164,7 @@ export default function PendingReportsScreen() {
             onPress={() => setActiveTab('lost')}
           >
             <Text style={[styles.tabBtnText, activeTab === 'lost' && styles.tabBtnTextActive]}>
-              Lost ({lostItems.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'found' && styles.tabBtnActive]}
-            onPress={() => setActiveTab('found')}
-          >
-            <Text style={[styles.tabBtnText, activeTab === 'found' && styles.tabBtnTextActive]}>
-              Found ({foundItems.length})
+              Lost ({lostItems.length + foundItems.length})
             </Text>
           </TouchableOpacity>
         </View>
@@ -203,7 +191,7 @@ export default function PendingReportsScreen() {
           filteredReports.map((item) => {
             const isLost = item.type === 'lost';
             const reporterName = isLost ? item.ownerName : item.finderName;
-            const badgeLabel = isLost ? 'LOST REQUEST' : 'FOUND REQUEST';
+            const badgeLabel = 'LOST REQUEST';
             
             return (
               <View key={`${item.type}-${item.id}`} style={styles.reportCard}>

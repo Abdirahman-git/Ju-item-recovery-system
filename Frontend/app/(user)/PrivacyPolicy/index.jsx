@@ -32,7 +32,7 @@ const POLICY_SECTIONS = [
     points: [
       'Create and manage user accounts.',
       'Show approved campus lost & found listings.',
-      'Support communication between reporters and claimers.',
+      'Support claim review between students and campus administrators.',
       'Allow admins to review reports and claims fairly.',
       'Send verification and reset OTP messages.',
     ],
@@ -41,7 +41,7 @@ const POLICY_SECTIONS = [
     title: 'Visibility, photos, and sharing',
     icon: 'image-outline',
     points: [
-      'Reporter contact details may be visible on approved listings.',
+      'Reporter contact details are visible only to campus administrators — not to other students on listings.',
       'Listings are intended for registered university users.',
       'Uploaded photos are used only for item identification and moderation.',
       'We do not sell personal data to third parties.',

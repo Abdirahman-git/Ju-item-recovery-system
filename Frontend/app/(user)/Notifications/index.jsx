@@ -208,8 +208,7 @@ export default function NotificationsPage() {
         ) : notifications.length > 0 ? (
           <View style={styles.list}>
             {notifications.map((note, index) => {
-              const isLost = note.item_type === 'lost';
-              const accent = isLost ? LOST_BLUE : FOUND_GREEN;
+              const accent = LOST_BLUE;
               return (
                 <Animated.View key={note.id} entering={FadeInDown.delay(index * 40).springify()}>
                   <TouchableOpacity
@@ -219,7 +218,7 @@ export default function NotificationsPage() {
                   >
                     <View style={[styles.iconWrap, { backgroundColor: `${accent}15` }]}>
                       <MaterialCommunityIcons
-                        name={isLost ? 'magnify' : 'cube-outline'}
+                        name="magnify"
                         size={22}
                         color={accent}
                       />

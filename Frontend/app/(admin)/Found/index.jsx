@@ -51,7 +51,19 @@ export default function AdminFoundPage() {
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams();
-  const draftParamId = params?.draftId ? Number(params.draftId) : null;
+  const draftParamId = params?.draftId
+    ? Number(params.draftId)
+    : params?.draft
+      ? Number(params.draft)
+      : null;
+
+  // New Found reports closed — only legacy found drafts can open this screen.
+  useEffect(() => {
+    if (!draftParamId) {
+      router.replace('/(admin)/Lost');
+    }
+  }, [draftParamId, router]);
+
   const draftLoadedRef = useRef(false);
   const [draftId, setDraftId] = useState(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
@@ -354,6 +366,14 @@ export default function AdminFoundPage() {
       </TouchableOpacity>
     );
   };
+
+  if (!draftParamId) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG_LIGHT }}>
+        <ActivityIndicator size="large" color={PRIMARY_GREEN} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -123,7 +123,7 @@ export default function PhoneMockup({ items = [] }) {
                             ) : null}
                           </div>
                           <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-100/70">
-                            {isFound ? 'Found' : 'Lost'} · {card.cat}
+                            Lost · {card.cat}
                           </p>
                           <p className="mt-1 flex items-center gap-1 text-[10px] font-medium text-blue-100/80">
                             <MapPin size={10} />

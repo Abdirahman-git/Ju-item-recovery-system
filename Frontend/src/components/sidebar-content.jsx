@@ -16,7 +16,6 @@ const NAV_SECTIONS = [
     items: [
       { icon: 'home', label: 'Home', routeName: 'DashBoard/index', path: '/(user)/DashBoard' },
       { icon: 'search', label: 'Report Lost', routeName: 'Lost/index', path: '/(user)/Lost' },
-      { icon: 'checkmark-circle', label: 'Report Found', routeName: 'Found/index', path: '/(user)/Found' },
       { icon: 'folder-open', label: 'My Items', routeName: 'MyItems/index', path: '/(user)/MyItems' },
       { icon: 'document-text', label: 'My Requests', routeName: 'MyRequests/index', path: '/(user)/MyRequests' },
       { icon: 'notifications', label: 'Notifications', routeName: 'Notifications/index', path: '/(user)/Notifications' },

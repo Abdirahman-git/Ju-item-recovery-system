@@ -8,7 +8,7 @@ const STEPS = [
     n: '01',
     icon: Smartphone,
     title: 'Report it',
-    body: 'Lost or found something on campus? Open the JU LOFO app and submit a photo with a few details.',
+    body: 'Lost something on campus? Open the JU LOFO app and submit a photo with a few details.',
     hint: 'Takes about a minute',
   },
   {

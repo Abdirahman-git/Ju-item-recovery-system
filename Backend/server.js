@@ -826,10 +826,15 @@ app.post('/api/claims/submit', async (req, res) => {
     claimer_email: claimerEmail,
     claimer_student_id: claim.claimer_student_id ?? null,
     description: claim.description.trim(),
-    match_score: 0,
+    match_score: Number(claim.match_score) || Number(claim.challenge_score) || 0,
     match_breakdown: claim.match_breakdown ?? { source: 'direct' },
-    status: 'pending',
+    status: claim.status || 'pending',
   };
+
+  if (claim.challenge_id != null) payload.challenge_id = claim.challenge_id;
+  if (claim.challenge_score != null) payload.challenge_score = claim.challenge_score;
+  if (claim.challenge_result != null) payload.challenge_result = claim.challenge_result;
+  if (claim.challenge_answers != null) payload.challenge_answers = claim.challenge_answers;
 
   try {
     const data = await insertClaimWithColumnFallback(payload);

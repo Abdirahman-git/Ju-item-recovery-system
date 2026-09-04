@@ -1,19 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Package, Search } from 'lucide-react';
+import { LayoutGrid, Package, Search, X } from 'lucide-react';
 import ItemCard, { ItemCardSkeleton } from '@/components/public/ItemCard';
-import CategorySelect from '@/components/public/CategorySelect';
 import RevealOnScroll from '@/components/public/RevealOnScroll';
+import { getCategoryIcon } from '@/components/admin/categoryOptions';
 import { PUBLIC_CATEGORIES, collectCategoriesFromItems, mergeCategoryLists } from '@/lib/categories';
 import { toPublicItemCard } from '@/lib/publicItems';
 
 const PAGE_SIZE = 12;
-const TYPE_FILTERS = [
-  { id: 'all', label: 'All' },
-  { id: 'lost', label: 'Lost' },
-  { id: 'found', label: 'Found' },
-];
 
 export default function BrowsePage() {
   const [items, setItems] = useState([]);
@@ -21,7 +16,6 @@ export default function BrowsePage() {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
   const [category, setCategory] = useState('all');
   const [visible, setVisible] = useState(PAGE_SIZE);
 
@@ -54,30 +48,47 @@ export default function BrowsePage() {
     return mergeCategoryLists(PUBLIC_CATEGORIES, fromItems);
   }, [items]);
 
+  const categoryCounts = useMemo(() => {
+    const counts = { all: items.length };
+    for (const name of categories) {
+      counts[name] = items.filter((item) => item.category === name).length;
+    }
+    return counts;
+  }, [items, categories]);
+
   const filtered = useMemo(() => {
     return items.filter((item) => {
-      if (typeFilter !== 'all' && item.itemType !== typeFilter) return false;
       if (category !== 'all' && item.category !== category) return false;
       if (!debouncedQuery) return true;
       const hay = `${item.title} ${item.category} ${item.location} ${item.description}`.toLowerCase();
       return hay.includes(debouncedQuery);
     });
-  }, [items, typeFilter, category, debouncedQuery]);
+  }, [items, category, debouncedQuery]);
 
   useEffect(() => {
     setVisible(PAGE_SIZE);
-  }, [typeFilter, category, debouncedQuery]);
+  }, [category, debouncedQuery]);
 
   const shown = filtered.slice(0, visible);
   const canLoadMore = visible < filtered.length;
-  const hasActiveFilters =
-    typeFilter !== 'all' || category !== 'all' || Boolean(debouncedQuery);
+  const hasActiveFilters = category !== 'all' || Boolean(debouncedQuery);
 
   const clearFilters = () => {
     setQuery('');
-    setTypeFilter('all');
     setCategory('all');
   };
+
+  const categoryChips = useMemo(
+    () => [
+      { value: 'all', label: 'All', icon: LayoutGrid },
+      ...categories.map((name) => ({
+        value: name,
+        label: name,
+        icon: getCategoryIcon(name),
+      })),
+    ],
+    [categories]
+  );
 
   return (
     <section className="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6 sm:pb-20 sm:pt-16 xl:px-8">
@@ -96,8 +107,25 @@ export default function BrowsePage() {
       </RevealOnScroll>
 
       <RevealOnScroll delay={70} className="relative z-20">
-        <div className="public-browse-toolbar mt-5 overflow-visible rounded-[18px] border border-slate-200/80 bg-white p-3 shadow-[0_1px_1px_rgba(15,23,42,0.03),0_12px_32px_rgba(15,23,42,0.05)] sm:mt-8 sm:rounded-[20px] sm:p-5">
-          <label className="relative block">
+        <div className="public-browse-toolbar mt-5 overflow-visible rounded-[22px] border border-slate-200/80 bg-white/90 p-3 shadow-[0_1px_1px_rgba(15,23,42,0.03),0_16px_40px_rgba(15,23,42,0.06)] backdrop-blur-sm sm:mt-8 sm:rounded-[24px] sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-red-600 ring-1 ring-red-100">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />
+              Lost board
+            </span>
+            {hasActiveFilters ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="public-press inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-[#1A56DB] transition-opacity hover:opacity-80"
+              >
+                <X size={12} />
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+
+          <label className="relative mt-3 block sm:mt-4">
             <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
               Search
             </span>
@@ -111,56 +139,54 @@ export default function BrowsePage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by name, category, or place…"
-                className="w-full cursor-text rounded-xl border border-slate-200 bg-slate-50/80 py-3 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#1A56DB] focus:bg-white focus:ring-4 focus:ring-[#1A56DB]/12"
+                className="w-full cursor-text rounded-2xl border border-slate-200 bg-slate-50/80 py-3.5 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-slate-400 focus:border-[#1A56DB] focus:bg-white focus:ring-4 focus:ring-[#1A56DB]/12"
               />
             </span>
           </label>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_minmax(14rem,18rem)] sm:items-end">
-            <div>
-              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                Type
-              </span>
-              <div
-                className="inline-flex w-full rounded-xl border border-slate-200 bg-slate-50/80 p-1 sm:w-auto"
-                role="group"
-                aria-label="Type filter"
-              >
-                {TYPE_FILTERS.map((f) => (
+          <div className="mt-4 sm:mt-5">
+            <span className="mb-2.5 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              Category
+            </span>
+            <div
+              className="flex flex-wrap gap-2"
+              role="group"
+              aria-label="Category filter"
+            >
+              {categoryChips.map((chip, index) => {
+                const Icon = chip.icon || LayoutGrid;
+                const active = category === chip.value;
+                const count = categoryCounts[chip.value] ?? 0;
+                return (
                   <button
-                    key={f.id}
+                    key={chip.value}
                     type="button"
-                    onClick={() => setTypeFilter(f.id)}
-                    className={`public-press min-h-10 flex-1 cursor-pointer rounded-[10px] px-4 text-sm font-bold transition-[background-color,color,box-shadow,transform] duration-200 sm:flex-none ${
-                      typeFilter === f.id
-                        ? 'bg-[#1A56DB] text-white shadow-[0_6px_16px_rgba(26,86,219,0.28)]'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-[#1A56DB]'
+                    onClick={() => setCategory(chip.value)}
+                    style={{ animationDelay: `${Math.min(index, 12) * 35}ms` }}
+                    className={`public-browse-cat-chip public-press inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-2xl px-3.5 text-sm font-bold transition-[background-color,color,box-shadow,transform,border-color] duration-200 ${
+                      active
+                        ? 'bg-[#1A56DB] text-white shadow-[0_8px_20px_rgba(26,86,219,0.28)] ring-1 ring-[#1A56DB]/30'
+                        : 'border border-slate-200/90 bg-slate-50/90 text-slate-600 hover:border-blue-200 hover:bg-white hover:text-[#1A56DB] hover:shadow-[0_6px_16px_rgba(15,23,42,0.06)]'
                     }`}
                   >
-                    {f.label}
+                    <Icon
+                      size={15}
+                      strokeWidth={2.25}
+                      className={active ? 'text-white/95' : 'text-slate-400'}
+                    />
+                    <span>{chip.label}</span>
+                    <span
+                      className={`tabular-nums rounded-full px-1.5 py-0.5 text-[10px] font-black ${
+                        active ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-500'
+                      }`}
+                    >
+                      {count}
+                    </span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-
-            <CategorySelect
-              value={category}
-              options={categories}
-              onChange={setCategory}
-            />
           </div>
-
-          {hasActiveFilters ? (
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="public-press cursor-pointer text-xs font-bold text-[#1A56DB] transition-opacity hover:opacity-80"
-              >
-                Clear filters
-              </button>
-            </div>
-          ) : null}
         </div>
       </RevealOnScroll>
 
@@ -215,9 +241,11 @@ export default function BrowsePage() {
                 Showing{' '}
                 <span className="tabular-nums text-slate-800">{shown.length}</span> of{' '}
                 <span className="tabular-nums text-slate-800">{filtered.length}</span> items
+                {category !== 'all' ? (
+                  <span className="text-slate-400"> · {category}</span>
+                ) : null}
               </p>
             </div>
-            {/* ItemCard left unchanged */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
               {shown.map((item, i) => (
                 <ItemCard key={item.slug} item={item} index={i} />

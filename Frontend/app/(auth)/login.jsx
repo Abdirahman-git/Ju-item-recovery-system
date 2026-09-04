@@ -116,11 +116,11 @@ export default function LoginScreen() {
       {/* JU Logo top */}
       <View style={styles.logoContainer}>
         <Image source={JU_LOGO} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.appName}>JU Item Recovery System</Text>
+        <Text style={styles.appName}>JU Lost Item Recovery</Text>
       </View>
 
       <View style={styles.header}>
-        <Text style={styles.title}>Welcome{'\n'}Back.</Text>
+        <Text style={styles.title}>Welcome Back.</Text>
       </View>
 
       <View style={styles.card}>
@@ -195,7 +195,7 @@ export default function LoginScreen() {
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
-            placeholder="Enter your Student ID (e.g. CS-123)"
+            placeholder="Enter your ID (e.g. CS-123)"
             placeholderTextColor={Colors.slate400}
             value={identifier}
             onChangeText={(text) => {

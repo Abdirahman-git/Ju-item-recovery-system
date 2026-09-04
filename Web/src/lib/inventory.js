@@ -33,7 +33,7 @@ export function getInventoryCardMeta(item) {
       badge: { label: isSecureDraft ? 'SECURE DRAFT' : 'DRAFT', className: 'bg-violet-600/95 text-white' },
       overlay: isSecureDraft ? 'Secure Draft' : 'Draft Item',
       action: {
-        label: isSecureDraft ? 'Continue Secure' : itemType === 'found' ? 'Continue Found' : 'Continue Lost',
+        label: isSecureDraft ? 'Continue Secure' : 'Continue Lost',
         variant: 'primary',
         href: continueHref,
       },
@@ -64,10 +64,11 @@ export function getInventoryCardMeta(item) {
 
   if (normalized === ITEM_STATUS.PENDING_REVIEW) {
     return {
-      filterStatus: itemType,
+      // Still inventoriable under Lost / All; badge shows review state
+      filterStatus: 'lost',
       badge: {
-        label: itemType === 'found' ? 'FOUND' : 'LOST',
-        className: itemType === 'found' ? 'bg-emerald-600/95 text-white' : 'bg-red-600/95 text-white',
+        label: 'PENDING REVIEW',
+        className: 'bg-amber-600/95 text-white',
       },
       overlay: 'Awaiting Review',
       action: { label: 'Review', variant: 'primary', href: '/admin/pending' },
@@ -77,25 +78,36 @@ export function getInventoryCardMeta(item) {
   if (itemType === 'found' && isSecureListing(item) && normalized === ITEM_STATUS.LIVE) {
     return {
       filterStatus: 'secure',
-      badge: { label: 'SECURE', className: 'bg-amber-600/95 text-white' },
+      badge: { label: 'LOST', className: 'bg-red-600/95 text-white' },
       overlay: 'Security Hold',
       action: { label: 'Manage', variant: 'primary' },
     };
   }
 
-  if (itemType === 'found') {
-    const ready = rawStatus === 'claim_pending' || rawStatus === 'ready_pickup';
+  const claimHold =
+    rawStatus === 'claim_pending' ||
+    rawStatus === 'awaiting_pickup' ||
+    rawStatus === 'ready_pickup';
+  if (claimHold) {
+    const physical = rawStatus === 'awaiting_pickup';
     return {
-      filterStatus: 'found',
-      badge: { label: 'FOUND', className: 'bg-emerald-600/95 text-white' },
-      overlay: ready ? 'Ready for Pickup' : null,
-      action: ready
-        ? {
-            label: 'Release Item',
-            variant: 'success',
-            href: claimsHrefForItem(item, itemType),
-          }
-        : { label: 'Details', variant: 'ghost' },
+      filterStatus: 'lost',
+      badge: { label: 'LOST', className: 'bg-red-600/95 text-white' },
+      overlay: physical ? 'Physical verify' : 'Challenge hold',
+      action: {
+        label: physical ? 'Confirm office' : 'View request',
+        variant: 'success',
+        href: claimsHrefForItem(item, itemType),
+      },
+    };
+  }
+
+  if (itemType === 'found') {
+    return {
+      filterStatus: 'lost',
+      badge: { label: 'LOST', className: 'bg-red-600/95 text-white' },
+      overlay: null,
+      action: { label: 'Details', variant: 'ghost' },
     };
   }
 
@@ -117,9 +129,16 @@ export function canMarkInventoryItemReturned(item) {
 
   if (meta.filterStatus === 'draft' || meta.filterStatus === 'returned') return false;
   if (normalized === ITEM_STATUS.PENDING_REVIEW) return false;
-  if (rawStatus === 'matched' || rawStatus === 'claim_pending' || rawStatus === 'ready_pickup') return false;
+  if (
+    rawStatus === 'matched' ||
+    rawStatus === 'claim_pending' ||
+    rawStatus === 'awaiting_pickup' ||
+    rawStatus === 'ready_pickup'
+  ) {
+    return false;
+  }
 
-  return meta.filterStatus === 'secure' || meta.filterStatus === 'found' || meta.filterStatus === 'lost';
+  return meta.filterStatus === 'secure' || meta.filterStatus === 'lost';
 }
 
 export function sortInventoryItems(items, sortBy) {
@@ -146,8 +165,7 @@ export function filterInventoryItems(items, { status, category, search }) {
       (status === 'secure' && meta.filterStatus === 'secure') ||
       (status === 'draft' && meta.filterStatus === 'draft') ||
       (status === 'matched' && meta.filterStatus === 'matched') ||
-      (status === 'found' && meta.filterStatus === 'found') ||
-      (status === 'lost' && meta.filterStatus === 'lost');
+      (status === 'lost' && (meta.filterStatus === 'lost' || meta.filterStatus === 'found'));
     const matchCategory = category === 'all' || item.displayCategory === category;
     const matchSearch =
       !q ||

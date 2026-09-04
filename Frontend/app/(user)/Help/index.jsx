@@ -50,7 +50,7 @@ const FAQ_GROUPS = [
       },
       {
         q: 'Can I contact the reporter?',
-        a: 'Yes. Use the Call Reporter button when a contact number is available.',
+        a: 'No. Reporter names and phone numbers are hidden for privacy. Submit a claim and campus admin will handle contact and return.',
       },
     ],
   },

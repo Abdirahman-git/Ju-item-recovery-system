@@ -36,7 +36,7 @@ const FILTER_TABS = [
   { id: 'all', label: 'All' },
   { id: 'user', label: 'Users' },
   { id: 'lost_item', label: 'Lost' },
-  { id: 'found_item', label: 'Found' },
+  { id: 'found_item', label: 'Lost' },
   { id: 'contact_message', label: 'Contact' },
 ];
 

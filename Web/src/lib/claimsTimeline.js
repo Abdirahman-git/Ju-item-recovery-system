@@ -148,7 +148,7 @@ function getSourceSeriesConfig(sourceId) {
       };
     case 'secure':
       return {
-        title: 'Secure Found Holds',
+        title: 'Secure Lost Holds',
         primaryLabel: 'Posted',
         secondaryLabel: 'Live',
         primaryColor: '#0D9488',

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Image, ScrollView,
-  TouchableOpacity, Dimensions, Linking, Platform, StatusBar, ActivityIndicator
+  TouchableOpacity, Dimensions, Platform, StatusBar, ActivityIndicator
 } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -10,12 +10,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { readItemTimeField } from '../../../src/utils/itemTimeUtils';
 import {
-  submitItemClaim,
+  submitOwnershipChallengeClaim,
+  fetchPublicOwnershipChallenge,
   getUserPendingClaimForItem,
   CLAIM_ALREADY_PENDING_MSG,
+  CHALLENGE_NOT_READY_MSG,
   supabase,
   normalizeItemRow,
 } from '../../../src/services/supabase';
+import { challengeResultLabel } from '../../../src/utils/ownershipChallenge';
 import SuccessToast from '../../../src/components/SuccessToast';
 import ItemClaimFormModal from '../../../src/components/ItemClaimFormModal';
 import { showAppError } from '../../../src/utils/appAlert';
@@ -56,6 +59,9 @@ export default function ItemDetailScreen() {
   const [claimPending, setClaimPending] = useState(false);
   const [claimModalVisible, setClaimModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [challengeQuestions, setChallengeQuestions] = useState([]);
+  const [loadingChallenge, setLoadingChallenge] = useState(false);
+  const [challengeError, setChallengeError] = useState('');
 
   useEffect(() => {
     AsyncStorage.getItem('userSession').then((raw) => {
@@ -164,7 +170,8 @@ export default function ItemDetailScreen() {
 
   const isLost = isLostItemRecord(item);
   const isSecure = isSecureListing(item);
-  const themeColor = isSecure ? SECURE_COLOR : isLost ? LOST_COLOR : FOUND_COLOR;
+  const themeColor = isSecure ? SECURE_COLOR : LOST_COLOR;
+  const statusLabel = 'LOST';
   const secureDisplay = isSecure ? getSecureItemDisplay(item) : null;
 
   const isOwnItem = isOwnReportedItem(item, userEmail, userName);
@@ -177,7 +184,12 @@ export default function ItemDetailScreen() {
   const showThisIsMine = canShowThisIsMine(item, userEmail, userName);
   const showNotMine = canShowNotMine(item, userEmail, userName);
 
-  const personName = isSecure ? 'Campus Security' : isLost ? item.ownerName : item.finderName;
+  // Reporter identity is admin-only — students never see owner/finder name or phone.
+  const listingSourceLabel = isOwnItem
+    ? 'You'
+    : isSecure
+      ? 'Campus Security'
+      : 'JU LOFO Desk';
   const itemDate = isLost ? item.dateLost : item.dateFound;
   const itemTime = isLost
     ? (readItemTimeField(item, 'lost') || 'Not specified')
@@ -189,19 +201,31 @@ export default function ItemDetailScreen() {
     ? (item.security_location || item.location || 'Campus Security Office')
     : item.location;
 
-  const getPhoneNumber = () => {
-    if (item.phnum && item.phnum !== 'N/A') return item.phnum;
-    if (item.phone && item.phone !== 'N/A') return item.phone;
-    return '+252612345678';
-  };
-
-  const handleCall = () => Linking.openURL(`tel:${getPhoneNumber()}`);
-
   const itemType = isLost ? 'lost' : 'found';
 
   const markClaimPending = async () => {
     setClaimPending(true);
     await AsyncStorage.setItem(pendingClaimStorageKey(item), '1');
+  };
+
+  const openClaimModal = async () => {
+    if (!item?.id) return;
+    setClaimModalVisible(true);
+    setLoadingChallenge(true);
+    setChallengeError('');
+    setChallengeQuestions([]);
+    try {
+      const challenge = await fetchPublicOwnershipChallenge(itemType, item.id);
+      if (!challenge?.questions?.length) {
+        setChallengeError(CHALLENGE_NOT_READY_MSG);
+        return;
+      }
+      setChallengeQuestions(challenge.questions);
+    } catch (e) {
+      setChallengeError(e?.message || CHALLENGE_NOT_READY_MSG);
+    } finally {
+      setLoadingChallenge(false);
+    }
   };
 
   const submitClaim = async (form) => {
@@ -216,13 +240,25 @@ export default function ItemDetailScreen() {
         toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
         return;
       }
-      await submitItemClaim(item, itemType, {
-        description: form.description,
+      const outcome = await submitOwnershipChallengeClaim(item, itemType, {
+        selectedIndexes: form.selectedIndexes,
         claimerEmail: userEmail,
       });
       setClaimModalVisible(false);
+      if (outcome.result === 'reject') {
+        toastRef.current?.show(
+          `Score ${outcome.score}%`,
+          challengeResultLabel(outcome.result),
+          'success'
+        );
+        return;
+      }
       await markClaimPending();
-      toastRef.current?.show('Sent to admin', 'Track status in My Requests.', 'success');
+      toastRef.current?.show(
+        `Score ${outcome.score}%`,
+        outcome.message || challengeResultLabel(outcome.result),
+        'success'
+      );
     } catch (e) {
       const msg = e?.message || '';
       if (msg === CLAIM_ALREADY_PENDING_MSG || msg.includes('already sent')) {
@@ -231,7 +267,7 @@ export default function ItemDetailScreen() {
         toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
         return;
       }
-      showAppError('Could not submit', msg || 'Could not submit request.');
+      showAppError('Could not submit', msg || 'Could not submit Ownership Challenge.');
     } finally {
       setSubmitting(false);
     }
@@ -242,7 +278,7 @@ export default function ItemDetailScreen() {
     setClaimDismissed(true);
     toastRef.current?.show(
       'Dismissed',
-      'Call Reporter stays available. Reopen to claim later.',
+      'Claim options will return when you reopen this item.',
       'success'
     );
   };
@@ -312,21 +348,21 @@ export default function ItemDetailScreen() {
               </View>
             </View>
 
-            {/* Reporter Info Card */}
+            {/* Listing source — no personal reporter identity for students */}
             <View style={styles.reporterCard}>
               <View style={styles.reporterLeft}>
                 <View style={[styles.avatarCircle, { backgroundColor: themeColor + '20' }]}>
-                  <Ionicons name="person" size={16} color={themeColor} />
+                  <Ionicons name={isOwnItem ? 'person' : 'shield-checkmark'} size={16} color={themeColor} />
                 </View>
                 <View>
-                  <Text style={styles.reportedByLabel}>Reported by</Text>
-                  <Text style={styles.reporterName}>{personName}</Text>
+                  <Text style={styles.reportedByLabel}>Listed via</Text>
+                  <Text style={styles.reporterName}>{listingSourceLabel}</Text>
                 </View>
               </View>
               <View style={[styles.statusBadge, { backgroundColor: themeColor + '12', borderColor: themeColor + '25' }]}>
                 <View style={[styles.statusDot, { backgroundColor: themeColor }]} />
                 <Text style={[styles.statusBadgeText, { color: themeColor }]}>
-                  {isSecure ? 'SECURE' : isLost ? 'LOST' : 'FOUND'}
+                  {statusLabel}
                 </Text>
               </View>
             </View>
@@ -392,21 +428,22 @@ export default function ItemDetailScreen() {
                     <Text style={styles.secondaryBtnText}>Not mine</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: themeColor }]}
-                  onPress={() => setClaimModalVisible(true)}
-                >
-                  <Ionicons name="lock-closed" size={16} color="#FFF" />
-                  <Text style={styles.primaryBtnText}>Claim Item</Text>
-                </TouchableOpacity>
+                {showThisIsMine ? (
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, { backgroundColor: themeColor }]}
+                    onPress={openClaimModal}
+                  >
+                    <Ionicons name="lock-closed" size={16} color="#FFF" />
+                    <Text style={styles.primaryBtnText}>Claim Item</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
-            ) : null}
-
-            {/* Call stays in place on every visit for non-own listings */}
-            <TouchableOpacity style={[styles.contactBtn, styles.callBtn]} onPress={handleCall}>
-              <Ionicons name="call" size={20} color="#FFF" style={styles.btnIcon} />
-              <Text style={styles.contactBtnText}>Call Reporter</Text>
-            </TouchableOpacity>
+            ) : (
+              <View style={[styles.primaryBtn, styles.bottomBarTopAction, { backgroundColor: '#F1F5F9' }]}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={SLATE_500} />
+                <Text style={[styles.primaryBtnText, { color: SLATE_600 }]}>Claim via campus admin</Text>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -418,6 +455,9 @@ export default function ItemDetailScreen() {
         submitting={submitting}
         initialName={userName}
         initialStudentId={studentId}
+        questions={challengeQuestions}
+        loadingQuestions={loadingChallenge}
+        loadError={challengeError}
       />
       <SuccessToast ref={toastRef} />
     </View>

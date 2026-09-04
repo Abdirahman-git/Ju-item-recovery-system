@@ -1,6 +1,6 @@
 'use client';
 
-import { Filter, Play, Search } from 'lucide-react';
+import { Filter, Search } from 'lucide-react';
 import ReportSelect from '@/components/admin/ReportSelect';
 import ReportDatePicker from '@/components/admin/ReportDatePicker';
 
@@ -38,11 +38,12 @@ export default function ReportFiltersPanel({
   facultyOptions = [],
   facultyValue = 'all',
   onFacultyChange,
+  showCategoryFilter = false,
+  categoryOptions = [],
+  categoryValue = 'all',
+  onCategoryChange,
   searchQuery,
   onSearchChange,
-  onRunReport,
-  onSearchKeyDown,
-  running = false,
 }) {
   return (
     <section className="report-filters-panel relative z-40 overflow-visible">
@@ -53,7 +54,7 @@ export default function ReportFiltersPanel({
           </span>
           <div>
             <h3 className="text-base font-extrabold text-slate-900">Filters</h3>
-            <p className="text-[11px] font-medium text-slate-500">Date, faculty, source & status work together · Run report refreshes data</p>
+            <p className="text-[11px] font-medium text-slate-500">Filters update the report instantly as you change them</p>
           </div>
         </div>
 
@@ -78,7 +79,13 @@ export default function ReportFiltersPanel({
         </div>
       </div>
 
-      <div className="relative z-50 grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto] xl:items-end">
+      <div
+        className={`relative z-50 grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-2 ${
+          showCategoryFilter
+            ? 'xl:grid-cols-3 2xl:grid-cols-6'
+            : 'xl:grid-cols-3 2xl:grid-cols-5'
+        } xl:items-end`}
+      >
         <FilterField label="From" dropdown>
           <ReportDatePicker
             value={dateFrom}
@@ -123,6 +130,20 @@ export default function ReportFiltersPanel({
           />
         </FilterField>
 
+        {showCategoryFilter ? (
+          <FilterField label="Category" dropdown>
+            <ReportSelect
+              value={categoryValue}
+              onChange={onCategoryChange}
+              options={categoryOptions}
+              placeholder="All categories"
+              theme="blue"
+              variant="filter"
+              searchable
+            />
+          </FilterField>
+        ) : null}
+
         <FilterField label="Status" dropdown>
           <ReportSelect
             value={statusValue}
@@ -134,20 +155,6 @@ export default function ReportFiltersPanel({
             searchable={false}
           />
         </FilterField>
-
-        <div className="flex shrink-0 items-end lg:pb-0">
-          <button
-            type="button"
-            onClick={onRunReport}
-            disabled={running}
-            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#1A56DB] px-5 text-sm font-bold text-white shadow-md shadow-blue-500/25 transition hover:bg-[#1648c7] disabled:opacity-60 lg:w-auto lg:min-w-[140px]"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
-              <Play size={12} fill="currentColor" />
-            </span>
-            {running ? 'Running...' : 'Run report'}
-          </button>
-        </div>
       </div>
 
       <div className="border-t border-slate-100 px-4 py-3 sm:px-5">
@@ -158,7 +165,6 @@ export default function ReportFiltersPanel({
               type="text"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              onKeyDown={onSearchKeyDown}
               placeholder="Filter rows in the report..."
               className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-slate-300 focus:border-[#1A56DB] focus:ring-2 focus:ring-[#1A56DB]/12"
             />

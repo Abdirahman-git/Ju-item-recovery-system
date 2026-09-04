@@ -23,19 +23,19 @@ const CUSTOM_META = {
   },
   '/admin/drafts': {
     title: 'Drafts',
-    subtitle: 'Saved lost, found, and secure notices that are not published yet.',
+    subtitle: 'Saved lost and secure notices that are not published yet.',
   },
   '/admin/lost': {
     title: 'Report Lost Item',
     subtitle: 'Enter lost property details, visual evidence, and last-seen context.',
   },
   '/admin/found': {
-    title: 'Report Found Item',
-    subtitle: 'Log recovered campus property with a clear photo and location.',
+    title: 'Report Lost Item',
+    subtitle: 'Found reporting is closed — all new campus reports are Lost until returned.',
   },
   '/admin/secure-found': {
-    title: 'Secure Found Hold',
-    subtitle: 'Post a short secure notice with name and description.',
+    title: 'Secure Lost Hold',
+    subtitle: 'Post a short secure lost notice with name and description.',
   },
   '/admin/my-items': {
     title: 'My Items',

@@ -64,10 +64,11 @@ export default function AdminItemDetailScreen() {
     );
   }
 
+  const isSecure = isSecureFoundItem(item);
   const isLost = item.type === 'LOST' || item.hasOwnProperty('ownerName') || item.hasOwnProperty('dateLost');
-  const typeLabel = isLost ? 'LOST' : 'FOUND';
-  const themeColor = isLost ? LOST_COLOR : FOUND_COLOR;
-  const lightThemeColor = isLost ? '#EFF6FF' : '#D1FAE5';
+  const typeLabel = 'LOST';
+  const themeColor = isSecure ? '#D97706' : LOST_COLOR;
+  const lightThemeColor = isSecure ? '#FFFBEB' : '#EFF6FF';
 
   const personName = item.isArchive ? item.original_reporter : (isLost ? item.ownerName : item.finderName);
   const itemDate = isLost ? item.dateLost : item.dateFound;

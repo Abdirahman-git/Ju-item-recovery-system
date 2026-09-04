@@ -137,7 +137,7 @@ export default function ClaimDetailsPage() {
           <View style={styles.typeRow}>
             <View style={[styles.typePill, isLost ? styles.typePillLost : styles.typePillFound]}>
               <Text style={[styles.typePillText, isLost ? styles.typeTextLost : styles.typeTextFound]}>
-                {isLost ? 'LOST REPORT' : 'FOUND REPORT'}
+                LOST REPORT
               </Text>
             </View>
             <Text style={styles.createdAt}>{formatDate(claim.created_at)}</Text>

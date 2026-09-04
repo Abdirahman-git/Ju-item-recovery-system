@@ -6,7 +6,6 @@ import {
   Box,
   ClipboardList,
   Database,
-  Download,
   FileText,
   Gift,
   Hourglass,
@@ -16,16 +15,59 @@ import {
   Shield,
   Users,
 } from 'lucide-react';
-import { fetchSystemReportsData } from '@/lib/supabase';
+import { collectCategoriesFromItems, resolveSystemCategories } from '@/lib/categories';
+import { enrichContributorsWithUsers, fetchSystemReportsData } from '@/lib/supabase';
 import { buildReportsPageSparklinesFromRecords } from '@/lib/pageSparklines';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useSession } from '@/context/SessionProvider';
 import { isSuperAdmin as checkSuperAdmin } from '@/lib/session';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import StatCard from '@/components/admin/StatCard';
+import ItemThumbnail from '@/components/admin/ItemThumbnail';
 import ReportFiltersPanel from '@/components/admin/reports/ReportFiltersPanel';
+import ReportExportMenu, { SummaryExportMenu } from '@/components/admin/reports/ReportExportMenu';
 import ClaimsTrackingChart from '@/components/admin/reports/ClaimsTrackingChart';
 import CategoriesBreakdownPanel from '@/components/admin/reports/CategoriesBreakdownPanel';
+import TopContributorsPanel from '@/components/admin/reports/TopContributorsPanel';
+
+const CONTRIBUTOR_SOURCES = new Set(['inventory', 'lost', 'found', 'drafts', 'secure', 'pending']);
+
+function fieldsFromPosterKey(key = '') {
+  if (key.startsWith('email:')) return { posterEmail: key.slice(6), studentId: '—' };
+  if (key.startsWith('sid:')) return { posterEmail: '', studentId: key.slice(4) };
+  return { posterEmail: '', studentId: '—' };
+}
+
+function aggregateContributorsFromRows(rows) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const key = row.posterKey || row.reporter || 'unknown';
+    if (!map.has(key)) {
+      const fromKey = fieldsFromPosterKey(key);
+      map.set(key, {
+        key,
+        name: row.reporter || 'Unknown',
+        faculty: row.faculty || 'Unassigned',
+        studentId: row.studentId && row.studentId !== '—' ? row.studentId : fromKey.studentId,
+        email: row.posterEmail || fromKey.posterEmail || '',
+        count: 0,
+        lost: 0,
+        found: 0,
+      });
+    }
+    const entry = map.get(key);
+    entry.count += 1;
+    if (entry.faculty === 'Unassigned' && row.faculty) entry.faculty = row.faculty;
+    if ((!entry.studentId || entry.studentId === '—') && row.studentId && row.studentId !== '—') {
+      entry.studentId = row.studentId;
+    }
+    if (!entry.email && row.posterEmail) entry.email = row.posterEmail;
+    const type = String(row.type || '').toLowerCase();
+    if (type === 'found') entry.found += 1;
+    else entry.lost += 1;
+  });
+  return Array.from(map.values()).sort((a, b) => b.count - a.count);
+}
 
 function getLocalDateKey(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -99,6 +141,12 @@ function filterReportRows(rows, filters) {
       }
     }
 
+    if (filters.category && filters.category !== 'all') {
+      if (String(row.category || 'Other') !== filters.category) {
+        return false;
+      }
+    }
+
     if (filters.from || filters.to) {
       if (!row.dateKey) return false;
       if (filters.from && row.dateKey < filters.from) return false;
@@ -165,9 +213,13 @@ const EMPTY_REPORTS = {
     approvedClaims: 0,
     rejectedClaims: 0,
     recoveryRate: 0,
+    maxUserActivityCount: 0,
+    maxUserActivityName: '—',
+    maxUserActivityMeta: 'No item posts yet',
   },
   categories: [],
   faculties: [],
+  topContributors: [],
   dataSources: [],
   records: {},
   generatedAt: null,
@@ -199,35 +251,38 @@ const REPORT_COLUMNS = {
     { key: 'joined', label: 'Joined' },
   ],
   inventory: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'type', label: 'Type' },
     { key: 'status', label: 'Status' },
+    { key: 'reporter', label: 'Posted by' },
     { key: 'reportedAt', label: 'Reported' },
   ],
   lost: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'status', label: 'Status' },
+    { key: 'reporter', label: 'Posted by' },
     { key: 'reportedAt', label: 'Reported' },
   ],
   found: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'status', label: 'Status' },
+    { key: 'reporter', label: 'Posted by' },
     { key: 'reportedAt', label: 'Reported' },
   ],
   returned: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
@@ -236,7 +291,7 @@ const REPORT_COLUMNS = {
     { key: 'returnedAt', label: 'Returned' },
   ],
   pending: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
@@ -245,7 +300,7 @@ const REPORT_COLUMNS = {
     { key: 'reportedAt', label: 'Submitted' },
   ],
   claims: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'item', label: 'Item' },
     { key: 'claimer', label: 'Claimer' },
     { key: 'studentId', label: 'Student ID' },
@@ -254,25 +309,27 @@ const REPORT_COLUMNS = {
     { key: 'requestedAt', label: 'Requested' },
   ],
   drafts: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'type', label: 'Type' },
     { key: 'status', label: 'Status' },
+    { key: 'reporter', label: 'Posted by' },
     { key: 'reportedAt', label: 'Saved' },
   ],
   secure: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'location', label: 'Location' },
     { key: 'status', label: 'Status' },
+    { key: 'reporter', label: 'Posted by' },
     { key: 'reportedAt', label: 'Posted' },
   ],
   recycle: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Deleted Entity' },
     { key: 'category', label: 'Summary' },
     { key: 'type', label: 'Type' },
@@ -280,7 +337,7 @@ const REPORT_COLUMNS = {
     { key: 'reportedAt', label: 'Deleted At' },
   ],
   archived: [
-    { key: 'ref', label: 'Ref' },
+    { key: 'imageUrl', label: 'Photo' },
     { key: 'name', label: 'Item' },
     { key: 'category', label: 'Category' },
     { key: 'faculty', label: 'Faculty' },
@@ -357,121 +414,6 @@ function statusTone(value) {
   return 'bg-slate-100 text-slate-600';
 }
 
-function exportCsv(filename, columns, rows) {
-  const header = columns.map((column) => column.label);
-  const body = rows.map((row) => columns.map((column) => row[column.key] ?? ''));
-  const csv = [header, ...body]
-    .map((line) =>
-      line
-        .map((cell) => {
-          const value = String(cell ?? '');
-          return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-        })
-        .join(',')
-    )
-    .join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function exportReportsCsv(view) {
-  const rows = [
-    ['JU LOFO — System Reports Export'],
-    ['Generated', formatGeneratedAt(view.generatedAt)],
-    [],
-    ['Summary Metric', 'Value'],
-    ['Total Users', view.summary.totalUsers],
-    ['Total Items', view.summary.totalItems],
-    ['Returned Items', view.summary.returnedItems],
-    ['Pending Reports', view.summary.pendingReports],
-    ['Ownership Claims', view.summary.totalClaims],
-    ['Recovery Rate %', view.summary.recoveryRate],
-    ['Contact Messages', view.summary.contactMessages ?? 0],
-    ['Contact New', view.summary.contactNew ?? 0],
-    ['Contact Read', view.summary.contactRead ?? 0],
-    ['Contact Archived', view.summary.contactArchived ?? 0],
-    [],
-    ['Department', 'Students'],
-    ...(Array.isArray(view.faculties) && view.faculties.length
-      ? view.faculties.map((row) => [row.name, row.count])
-      : [['Unassigned', view.summary.students ?? 0]]),
-  ];
-
-  const csv = rows
-    .map((row) =>
-      row
-        .map((cell) => {
-          const value = String(cell ?? '');
-          return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-        })
-        .join(',')
-    )
-    .join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `ju-lofo-system-reports-${new Date().toISOString().slice(0, 10)}.csv`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function ExportConfirmModal({ count, sourceLabel, summary = false, onCancel, onConfirm }) {
-  const canExport = summary || count > 0;
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-md">
-      <div className="glass-modal w-full max-w-md overflow-hidden p-6 text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-[#1A56DB] shadow-inner">
-          <Download size={28} />
-        </div>
-        <h3 className="mt-5 text-2xl font-black text-slate-950">
-          {summary ? 'Export summary?' : 'Export report?'}
-        </h3>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
-          {summary ? (
-            <>Campus-wide summary metrics will be downloaded as a CSV file.</>
-          ) : canExport ? (
-            <>
-              <span className="font-bold text-slate-700">{count.toLocaleString()}</span> row
-              {count === 1 ? '' : 's'} from <span className="font-bold text-slate-700">{sourceLabel}</span> will be
-              downloaded as a CSV file.
-            </>
-          ) : (
-            <>No rows match your current filters. Adjust filters before exporting.</>
-          )}
-        </p>
-
-        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="glass-button flex-1 rounded-2xl px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-white"
-          >
-            Cancel
-          </button>
-          {canExport ? (
-            <button
-              type="button"
-              onClick={onConfirm}
-              className="flex-1 rounded-2xl bg-[#1A56DB] px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:bg-[#1E40AF]"
-            >
-              OK, Export
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ResetConfirmModal({ onCancel, onConfirm }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-md">
@@ -481,7 +423,7 @@ function ResetConfirmModal({ onCancel, onConfirm }) {
         </div>
         <h3 className="mt-5 text-2xl font-black text-slate-950">Reset filters?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          Date range, status, faculty, search, and data source will return to defaults (Global Inventory · All time).
+          Date range, status, faculty, category, search, and data source will return to defaults (Global Inventory · All time).
         </p>
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
@@ -503,6 +445,23 @@ function ResetConfirmModal({ onCancel, onConfirm }) {
       </div>
     </div>
   );
+}
+
+function ReportItemPhoto({ row }) {
+  if (row.isSecure) {
+    return (
+      <div
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600"
+        title="Secure hold — photo hidden"
+      >
+        <span className="text-lg font-black leading-none">!</span>
+      </div>
+    );
+  }
+
+  const itemType = String(row.type || row.reportType || '').toLowerCase() === 'found' ? 'found' : 'lost';
+
+  return <ItemThumbnail src={row.imageUrl} alt={row.name || row.item || 'Item photo'} itemType={itemType} />;
 }
 
 function ReportTable({ columns, rows, onResetFilters, loading = false }) {
@@ -542,7 +501,11 @@ function ReportTable({ columns, rows, onResetFilters, loading = false }) {
                 <th
                   key={column.key}
                   className={`px-4 py-3.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-600 ${
-                    column.key === 'name' || column.key === 'item' ? 'min-w-[180px]' : 'whitespace-nowrap'
+                    column.key === 'imageUrl'
+                      ? 'w-[72px]'
+                      : column.key === 'name' || column.key === 'item'
+                        ? 'min-w-[180px]'
+                        : 'whitespace-nowrap'
                   }`}
                 >
                   {column.label}
@@ -560,19 +523,32 @@ function ReportTable({ columns, rows, onResetFilters, loading = false }) {
               >
                 {columns.map((column) => {
                   const raw = row[column.key] ?? '—';
+                  const isPhoto = column.key === 'imageUrl';
                   const isStatus = column.key === 'status' || column.key === 'role';
                   const isType = column.key === 'type';
                   const value = isStatus ? formatStatusLabel(raw) : raw;
-                  const wrapCell = column.key === 'name' || column.key === 'item' || column.key === 'email' || column.key === 'location' || column.key === 'faculty';
+                  const wrapCell =
+                    column.key === 'name' ||
+                    column.key === 'item' ||
+                    column.key === 'email' ||
+                    column.key === 'location' ||
+                    column.key === 'faculty' ||
+                    column.key === 'reporter';
 
                   return (
                     <td
                       key={column.key}
                       className={`px-4 py-3.5 text-slate-800 ${
-                        wrapCell ? 'min-w-[140px] max-w-[240px] whitespace-normal font-semibold' : 'whitespace-nowrap font-medium'
-                      } ${column.key === 'ref' ? 'font-mono text-xs text-slate-500' : ''}`}
+                        isPhoto
+                          ? 'w-[72px]'
+                          : wrapCell
+                            ? 'min-w-[140px] max-w-[240px] whitespace-normal font-semibold'
+                            : 'whitespace-nowrap font-medium'
+                      }`}
                     >
-                      {isStatus ? (
+                      {isPhoto ? (
+                        <ReportItemPhoto row={row} />
+                      ) : isStatus ? (
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black uppercase ${statusTone(raw)}`}>
                           {value}
                         </span>
@@ -611,14 +587,12 @@ export default function SystemReportsClient() {
     sourceId: 'inventory',
     status: 'all',
     faculty: 'all',
+    category: 'all',
     from: DEFAULT_RANGE.from,
     to: DEFAULT_RANGE.to,
     search: '',
   });
   const [searchDraft, setSearchDraft] = useState('');
-  const [running, setRunning] = useState(false);
-  const [confirmExport, setConfirmExport] = useState(false);
-  const [confirmSummaryExport, setConfirmSummaryExport] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [sparkPlayKey, setSparkPlayKey] = useState(0);
 
@@ -634,7 +608,7 @@ export default function SystemReportsClient() {
   );
 
   const view = data ?? EMPTY_REPORTS;
-  const { summary, categories, dataSources, records, generatedAt } = view;
+  const { summary, categories, topContributors, dataSources, records, generatedAt } = view;
 
   const sparklines = useMemo(() => buildReportsPageSparklinesFromRecords(records), [records]);
 
@@ -672,6 +646,20 @@ export default function SystemReportsClient() {
 
   const statusOptions = useMemo(() => buildStatusOptions(allRows), [allRows]);
 
+  const showCategoryFilter = useMemo(
+    () => (REPORT_COLUMNS[filters.sourceId] || []).some((column) => column.key === 'category'),
+    [filters.sourceId]
+  );
+
+  const categoryOptions = useMemo(() => {
+    const fromRows = collectCategoriesFromItems(allRows, 'category');
+    const list = resolveSystemCategories({ forAdmin: true, extras: fromRows });
+    return [
+      { value: 'all', label: 'All categories' },
+      ...list.map((value) => ({ value, label: value })),
+    ];
+  }, [allRows]);
+
   const sourceOptions = useMemo(
     () =>
       dataSources.map((source) => ({
@@ -702,6 +690,37 @@ export default function SystemReportsClient() {
     [filteredCategories]
   );
 
+  const filteredContributors = useMemo(() => {
+    if (!CONTRIBUTOR_SOURCES.has(filters.sourceId)) {
+      return topContributors || [];
+    }
+    if (!filteredRows.length) return [];
+    return aggregateContributorsFromRows(filteredRows);
+  }, [filteredRows, filters.sourceId, topContributors]);
+
+  const contributorTotalPosts = useMemo(
+    () => filteredContributors.reduce((sum, row) => sum + row.count, 0),
+    [filteredContributors]
+  );
+
+  const registeredUsersForIdentity = useMemo(
+    () =>
+      (records.users || []).map((row) => ({
+        name: row.name,
+        email: row.email,
+        student_id: row.studentId,
+        studentId: row.studentId,
+        faculty: row.faculty,
+        role: row.role === 'Admin' ? 'admin' : 'user',
+      })),
+    [records.users]
+  );
+
+  const displayContributors = useMemo(
+    () => enrichContributorsWithUsers(filteredContributors, registeredUsersForIdentity),
+    [filteredContributors, registeredUsersForIdentity]
+  );
+
   const categoriesAreFiltered = useMemo(
     () =>
       ['inventory', 'lost', 'found', 'drafts', 'secure', 'pending', 'returned', 'recycle', 'archived'].includes(
@@ -710,7 +729,29 @@ export default function SystemReportsClient() {
     [filters.sourceId, filteredRows.length]
   );
 
+  const contributorsAreFiltered = useMemo(
+    () => CONTRIBUTOR_SOURCES.has(filters.sourceId) && filteredRows.length > 0,
+    [filters.sourceId, filteredRows.length]
+  );
+
   const SelectedIcon = SOURCE_ICONS[filters.sourceId] || Database;
+
+  const exportMetaLines = useMemo(
+    () =>
+      [
+        `${filteredRows.length} of ${allRows.length} rows`,
+        `${formatFilterDate(filters.from)} → ${formatFilterDate(filters.to)}`,
+        filters.status === 'all' ? 'All statuses' : formatStatusLabel(filters.status),
+        filters.faculty === 'all' ? 'All faculties' : filters.faculty,
+        showCategoryFilter
+          ? filters.category === 'all'
+            ? 'All categories'
+            : filters.category
+          : null,
+        filters.search ? `Search: "${filters.search}"` : null,
+      ].filter(Boolean),
+    [filteredRows.length, allRows.length, filters, showCategoryFilter]
+  );
 
   function updateFilters(patch) {
     setFilters((current) => ({ ...current, ...patch }));
@@ -730,26 +771,15 @@ export default function SystemReportsClient() {
       sourceId: 'inventory',
       status: 'all',
       faculty: 'all',
+      category: 'all',
       from: range.from,
       to: range.to,
       search: '',
     });
   }
 
-  async function handleRunReport() {
-    setRunning(true);
-    setFilters((current) => ({ ...current, search: searchDraft.trim() }));
-    try {
-      await refresh();
-      replaySparklines();
-    } finally {
-      setRunning(false);
-      document.getElementById('report-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }
-
   function handleSourceChange(sourceId) {
-    updateFilters({ sourceId, status: 'all', faculty: 'all' });
+    updateFilters({ sourceId, status: 'all', faculty: 'all', category: 'all' });
   }
 
   function jumpToSource(sourceId) {
@@ -759,6 +789,7 @@ export default function SystemReportsClient() {
       sourceId,
       status: 'all',
       faculty: 'all',
+      category: 'all',
       from: '',
       to: '',
       search: '',
@@ -787,6 +818,18 @@ export default function SystemReportsClient() {
   }, [filters.sourceId, facultyOptions, filters.faculty]);
 
   useEffect(() => {
+    if (!showCategoryFilter && filters.category !== 'all') {
+      updateFilters({ category: 'all' });
+    }
+  }, [showCategoryFilter, filters.category]);
+
+  useEffect(() => {
+    if (filters.category !== 'all' && !categoryOptions.some((option) => option.value === filters.category)) {
+      updateFilters({ category: 'all' });
+    }
+  }, [filters.sourceId, categoryOptions, filters.category]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setFilters((current) => {
         const nextSearch = searchDraft.trim();
@@ -796,21 +839,6 @@ export default function SystemReportsClient() {
     }, 280);
     return () => window.clearTimeout(timer);
   }, [searchDraft]);
-
-  const handleExportSummary = useCallback(() => {
-    exportReportsCsv(view);
-    setConfirmSummaryExport(false);
-  }, [view]);
-
-  const handleExportSelected = useCallback(() => {
-    if (!selectedSource || filteredRows.length === 0) return;
-    exportCsv(
-      `ju-lofo-${selectedSource.id}-report-${new Date().toISOString().slice(0, 10)}.csv`,
-      columns,
-      filteredRows
-    );
-    setConfirmExport(false);
-  }, [selectedSource, columns, filteredRows]);
 
   const handleRefresh = useCallback(async () => {
     await refresh();
@@ -828,18 +856,11 @@ export default function SystemReportsClient() {
           <RefreshCw size={13} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setConfirmSummaryExport(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-        >
-          <Download size={13} />
-          <span className="hidden sm:inline">Summary CSV</span>
-        </button>
+        <SummaryExportMenu view={view} formatGeneratedAt={formatGeneratedAt} />
       </>
     );
     return () => clearActions();
-  }, [setActions, clearActions, handleRefresh]);
+  }, [setActions, clearActions, handleRefresh, view]);
 
   return (
     <div className="w-full space-y-5 pb-6">
@@ -875,7 +896,12 @@ export default function SystemReportsClient() {
           label="Total Inventory"
           value={summary.totalItems}
           icon="package"
-          trendLabel={`${summary.lostItems} lost · ${summary.foundItems} found`}
+          trendLabel={`${summary.lostItems} lost · ${summary.foundItems} holds`}
+          subLabel={
+            summary.maxUserActivityCount > 0
+              ? `Most active: ${summary.maxUserActivityName} (${summary.maxUserActivityCount})`
+              : undefined
+          }
           sparkData={sparklines.inventory}
         />
         <StatCard
@@ -929,13 +955,12 @@ export default function SystemReportsClient() {
           facultyOptions={facultyOptions}
           facultyValue={filters.faculty}
           onFacultyChange={(faculty) => updateFilters({ faculty })}
+          showCategoryFilter={showCategoryFilter}
+          categoryOptions={categoryOptions}
+          categoryValue={filters.category}
+          onCategoryChange={(category) => updateFilters({ category })}
           searchQuery={searchDraft}
           onSearchChange={setSearchDraft}
-          onSearchKeyDown={(event) => {
-            if (event.key === 'Enter') handleRunReport();
-          }}
-          onRunReport={handleRunReport}
-          running={running}
         />
 
         {selectedSource ? (
@@ -954,6 +979,11 @@ export default function SystemReportsClient() {
                       `${formatFilterDate(filters.from)} → ${formatFilterDate(filters.to)}`,
                       filters.status === 'all' ? 'All statuses' : formatStatusLabel(filters.status),
                       filters.faculty === 'all' ? 'All faculties' : filters.faculty,
+                      showCategoryFilter
+                        ? filters.category === 'all'
+                          ? 'All categories'
+                          : filters.category
+                        : null,
                       filters.search ? `"${filters.search}"` : null,
                     ]
                       .filter(Boolean)
@@ -968,26 +998,30 @@ export default function SystemReportsClient() {
                   </div>
                 </div>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setConfirmReset(true)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
                 >
                   Reset
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmExport(true)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#1A56DB] px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-500/20 transition hover:bg-[#1648c7]"
-                >
-                  <Download size={15} />
-                  Export CSV
-                </button>
+                <ReportExportMenu
+                  disabled={filteredRows.length === 0}
+                  filename={`ju-lofo-${selectedSource.id}-report-${new Date().toISOString().slice(0, 10)}`}
+                  title={selectedSource.label}
+                  subtitle={selectedSource.description}
+                  generatedAt={generatedAt}
+                  metaLines={exportMetaLines}
+                  columns={columns}
+                  rows={filteredRows}
+                  formatStatusLabel={formatStatusLabel}
+                  buttonLabel="Export report"
+                />
               </div>
             </div>
 
-            <ReportTable columns={columns} rows={filteredRows} onResetFilters={() => setConfirmReset(true)} loading={running} />
+            <ReportTable columns={columns} rows={filteredRows} onResetFilters={() => setConfirmReset(true)} />
 
             <p className="mt-3 text-right text-xs font-semibold text-slate-400">
               Updated {formatGeneratedAt(generatedAt)}
@@ -996,48 +1030,41 @@ export default function SystemReportsClient() {
         ) : null}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.65fr_0.85fr]">
+      <div className="space-y-4">
         <ClaimsTrackingChart
           rows={allRows}
           sourceId={filters.sourceId}
           sourceLabel={selectedSource?.label}
         />
 
-        <CategoriesBreakdownPanel
-          categories={filteredCategories}
-          title={
-            filters.sourceId === 'inventory' || filters.sourceId === 'lost' || filters.sourceId === 'found'
-              ? 'Filtered Categories'
-              : 'Inventory by Category'
-          }
-          subtitle={
-            categoriesAreFiltered
-              ? 'Based on current report filters'
-              : 'Breakdown of items across campus categories'
-          }
-          totalItems={categoryTotalItems || filteredRows.length || summary.totalItems}
-          onViewAll={() => jumpToSource('inventory')}
-        />
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <TopContributorsPanel
+            contributors={displayContributors}
+            title={
+              contributorsAreFiltered ? 'Filtered Top Contributors' : 'Top Contributors'
+            }
+            subtitle="Most item reports by person across campus inventory"
+            totalPosts={contributorTotalPosts || summary.totalItems}
+            filtered={contributorsAreFiltered}
+          />
+
+          <CategoriesBreakdownPanel
+            categories={filteredCategories}
+            title={
+              filters.sourceId === 'inventory' || filters.sourceId === 'lost' || filters.sourceId === 'found'
+                ? 'Filtered Categories'
+                : 'Inventory by Category'
+            }
+            subtitle={
+              categoriesAreFiltered
+                ? 'Based on current report filters'
+                : 'Breakdown of items across campus categories'
+            }
+            totalItems={categoryTotalItems || filteredRows.length || summary.totalItems}
+            onViewAll={() => jumpToSource('inventory')}
+          />
+        </div>
       </div>
-
-      {confirmExport ? (
-        <ExportConfirmModal
-          count={filteredRows.length}
-          sourceLabel={selectedSource?.label || 'Report'}
-          onCancel={() => setConfirmExport(false)}
-          onConfirm={handleExportSelected}
-        />
-      ) : null}
-
-      {confirmSummaryExport ? (
-        <ExportConfirmModal
-          count={0}
-          sourceLabel=""
-          summary
-          onCancel={() => setConfirmSummaryExport(false)}
-          onConfirm={handleExportSummary}
-        />
-      ) : null}
 
       {confirmReset ? (
         <ResetConfirmModal

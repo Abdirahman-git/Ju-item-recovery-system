@@ -30,8 +30,6 @@ const PAGE_SIZE = 6;
 
 const TYPE_TABS = [
   { id: 'all', label: 'All Items' },
-  { id: 'FOUND', label: 'Found' },
-  { id: 'LOST', label: 'Lost' },
 ];
 
 function formatDate(value, options = {}) {

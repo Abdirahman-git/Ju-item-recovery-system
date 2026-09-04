@@ -48,15 +48,16 @@ export function isRepeatedCharSpam(value) {
   // Entire value is one character repeated
   if (/^(.)\1+$/u.test(compact)) return true;
 
-  // 4+ identical characters in a row
-  if (/(.)\1{3,}/u.test(compact)) return true;
+  // 4+ identical letter characters in a row (e.g. "hhhh", "aaaa") or 5+ identical characters
+  if (/([\p{L}])\1{3,}/u.test(compact)) return true;
+  if (/(.)\1{4,}/u.test(compact)) return true;
 
-  // Very low variety (≤2 unique chars) on a longer string
+  // Very low variety (≤2 unique chars) on a string of 6+ chars
   const unique = new Set([...compact]);
-  if (compact.length >= 4 && unique.size <= 2) return true;
+  if (compact.length >= 6 && unique.size <= 2) return true;
 
   // Alternating 2-char spam: abababab / 12121212
-  if (compact.length >= 6 && /^(..)\1+$/u.test(compact)) return true;
+  if (compact.length >= 6 && /^(..)\1{2,}$/u.test(compact)) return true;
 
   return false;
 }
@@ -65,13 +66,14 @@ export function isRepeatedCharSpam(value) {
 export function isNumbersOrSymbolsOnly(value) {
   const text = normalizeText(value);
   if (!text) return true;
-  return !hasLetters(text);
+  return false;
 }
 
 /** Too few real letters vs length (e.g. "ab!!!!!!!!!!"). */
-export function hasTooFewLetters(value, { minLetters = 2 } = {}) {
+export function hasTooFewLetters(value, { minLetters = 0 } = {}) {
   const text = normalizeText(value);
   if (!text) return true;
+  if (minLetters <= 0) return false;
   return letterCount(text) < minLetters;
 }
 
@@ -89,8 +91,8 @@ export function containsBlockedPattern(value, extraBlocked = []) {
 export function validateMeaningfulText(value, options = {}) {
   const {
     fieldLabel = 'Field',
-    minLength = 3,
-    minLetters = 2,
+    minLength = 2,
+    minLetters = 0,
     allowEmpty = false,
   } = options;
 
@@ -113,20 +115,15 @@ export function validateMeaningfulText(value, options = {}) {
     };
   }
 
-  if (isNumbersOrSymbolsOnly(text)) {
-    return {
-      valid: false,
-      title: `Invalid ${fieldLabel.toLowerCase()}`,
-      message: `${fieldLabel} must include real letters — not only numbers or symbols.`,
-    };
-  }
-
-  if (hasTooFewLetters(text, { minLetters })) {
-    return {
-      valid: false,
-      title: `Invalid ${fieldLabel.toLowerCase()}`,
-      message: `${fieldLabel} needs clearer wording with real letters.`,
-    };
+  if (minLetters > 0) {
+    const letterCount = (text.match(/\p{L}/gu) || []).length;
+    if (letterCount < minLetters) {
+      return {
+        valid: false,
+        title: `Invalid ${fieldLabel.toLowerCase()}`,
+        message: `${fieldLabel} must include at least ${minLetters} letters (not only numbers or symbols).`,
+      };
+    }
   }
 
   if (isRepeatedCharSpam(text)) {

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, MapPin, Package, Shield, Smartphone, Tag } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
+import PublicOwnershipChallengeClaim from '@/components/public/PublicOwnershipChallengeClaim';
 import {
   fetchPublicLiveItemById,
   formatPublicDate,
@@ -23,8 +24,8 @@ export async function generateMetadata({ params }) {
     return {
       title: item.title,
       description: item.isSecure
-        ? `Secure campus hold · ${item.category}`
-        : `${item.itemType === 'found' ? 'Found' : 'Lost'} on campus, ${item.category}`,
+        ? `Lost on campus · ${item.category}`
+        : `Lost on campus · ${item.category}`,
     };
   } catch {
     return { title: 'Item' };
@@ -96,10 +97,10 @@ export default async function PublicItemDetailPage({ params }) {
           )}
           <span
             className={`absolute left-3 top-3 z-[2] rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.18)] ${
-              isSecure ? 'bg-amber-600' : isFound ? 'bg-[#1A56DB]' : 'bg-amber-500'
+              isSecure ? 'bg-amber-600' : 'bg-red-600'
             }`}
           >
-            {isSecure ? 'Secure' : isFound ? 'Found' : 'Lost'}
+            Lost
           </span>
         </div>
 
@@ -141,15 +142,16 @@ export default async function PublicItemDetailPage({ params }) {
             </h3>
             <p className="public-detail-claim-text mt-1.5 text-pretty text-sm font-medium leading-relaxed">
               {isSecure
-                ? 'Photos stay private for safety. Open the JU LOFO app to follow up with the Lost & Found desk.'
-                : 'Contact details stay private for safety. Open the JU LOFO mobile app to claim this item.'}
+                ? 'Photos stay private for safety. Prove ownership with the challenge below, or open the JU LOFO app.'
+                : 'Contact details stay private. Prove ownership with the Ownership Challenge, or open the mobile app.'}
             </p>
+            <PublicOwnershipChallengeClaim item={item} />
             <a
               href="/#get-app"
-              className="public-detail-cta public-press mt-4 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full pl-5 pr-4 text-sm font-black shadow-[0_1px_0_rgba(255,255,255,0.18)_inset,0_10px_24px_rgba(26,86,219,0.28)] transition-[transform,background-color,box-shadow] duration-200 hover:bg-[#1E40AF]"
+              className="public-press mt-3 inline-flex min-h-10 cursor-pointer items-center gap-2 text-sm font-bold text-slate-600 transition hover:text-[#1A56DB]"
             >
-              <Smartphone size={16} />
-              Open in app to claim / contact
+              <Smartphone size={15} />
+              Prefer the app? Get JU LOFO
             </a>
           </div>
         </div>

@@ -94,7 +94,7 @@ export default function SystemReportsScreen() {
             <View style={styles.statsGrid}>
               <StatCard icon="people-outline" label="Users" value={summary?.users ?? 0} bg="#EEF2FF" color="#4338CA" />
               <StatCard icon="help-buoy-outline" label="Lost" value={summary?.lost ?? 0} bg="#FEF2F2" color={Colors.error} />
-              <StatCard icon="checkmark-circle-outline" label="Found" value={summary?.found ?? 0} bg="#ECFDF5" color={Colors.success} />
+              <StatCard icon="checkmark-circle-outline" label="Lost" value={(summary?.found ?? 0) + (summary?.lost ?? 0)} bg="#FEF2F2" color={Colors.error} />
               <StatCard icon="archive-outline" label="Returned" value={summary?.returned ?? 0} bg="#EFF6FF" color={Colors.primary} />
             </View>
 

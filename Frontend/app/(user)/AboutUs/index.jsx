@@ -77,7 +77,7 @@ export default function AboutUsPage() {
         </View>
         <View style={styles.stepRow}>
           <View style={styles.stepNum}><Text style={styles.stepNumText}>3</Text></View>
-          <Text style={styles.stepText}>Others search, contact the reporter, or submit a claim</Text>
+          <Text style={styles.stepText}>Others search the feed and submit an ownership claim for admin review</Text>
         </View>
         <View style={styles.stepRow}>
           <View style={[styles.stepNum, styles.stepNumLast]}><Text style={styles.stepNumText}>4</Text></View>
