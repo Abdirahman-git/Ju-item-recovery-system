@@ -13,13 +13,13 @@ const SLATE_400 = '#94A3B8';
 const SLATE_600 = '#475569';
 const PRIMARY = '#1A56DB';
 const LOST_COLOR = '#1D4ED8';
-const FOUND_COLOR = '#10B981';
+const REQUESTS_COLOR = '#0D9488';
 const ITEMS_COLOR = '#7C3AED';
 const PROFILE_COLOR = '#0F172A';
 
 const LEFT_TABS = [
   { name: 'LOST', icon: 'magnify', route: '/(user)/Lost', color: LOST_COLOR },
-  { name: 'FOUND', icon: 'cube-outline', route: '/(user)/Found', color: FOUND_COLOR },
+  { name: 'REQUESTS', icon: 'clipboard-text-outline', route: '/(user)/MyRequests', color: REQUESTS_COLOR },
 ];
 
 const HOME_TAB = {
@@ -39,6 +39,7 @@ function isTabActive(pathname, tab) {
   if (tab.name === 'HOME') return path.includes('dashboard');
   if (tab.name === 'ITEMS') return path.includes('myitems');
   if (tab.name === 'PROFILE') return path.includes('myprofile');
+  if (tab.name === 'REQUESTS') return path.includes('myrequests');
   return path.includes(tab.name.toLowerCase());
 }
 

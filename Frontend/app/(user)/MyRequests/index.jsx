@@ -36,6 +36,7 @@ const FOUND_GREEN = '#10B981';
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
   { key: CLAIM_STATUS.PENDING, label: 'Pending' },
+  { key: CLAIM_STATUS.PHYSICAL, label: 'Visit office' },
   { key: CLAIM_STATUS.APPROVED, label: 'Approved' },
   { key: CLAIM_STATUS.REJECTED, label: 'Rejected' },
 ];
@@ -64,8 +65,8 @@ function ClaimCard({ claim, index, onPress }) {
   const status = normalizeClaimStatus(claim);
   const badge = getClaimStatusBadgeConfig(status);
   const isLost = item.type === 'LOST' || claim.itemType === 'lost';
-  const typeColor = isLost ? LOST_BLUE : FOUND_GREEN;
-  const typeLabel = isLost ? 'LOST' : 'FOUND';
+  const typeColor = LOST_BLUE;
+  const typeLabel = 'LOST';
   const canOpenItem = item.id && !item.archived && status !== CLAIM_STATUS.REJECTED;
 
   return (
@@ -134,17 +135,35 @@ function ClaimCard({ claim, index, onPress }) {
           <View style={styles.noteBoxApproved}>
             <Ionicons name="checkmark-circle" size={16} color="#15803D" />
             <Text style={styles.noteTextApproved}>
-              Your ownership was confirmed. Visit campus Lost & Found office to collect the item.
+              {claim.challenge_score != null && claim.challenge_score > 0
+                ? `Challenge score ${claim.challenge_score}%. Visit campus Lost & Found office to collect the item.`
+                : 'Your ownership was confirmed. Visit campus Lost & Found office to collect the item.'}
             </Text>
           </View>
         )}
 
-        {status === CLAIM_STATUS.REJECTED && claim.admin_note ? (
+        {status === CLAIM_STATUS.PHYSICAL && (
+          <View style={styles.noteBoxPhysical}>
+            <Ionicons name="business" size={16} color="#4338CA" />
+            <Text style={styles.noteTextPhysical}>
+              {claim.challenge_score != null
+                ? `Score ${claim.challenge_score}%. Visit the campus office so staff can verify ownership.`
+                : 'Visit the campus Lost & Found office for physical verification.'}
+            </Text>
+          </View>
+        )}
+
+        {status === CLAIM_STATUS.REJECTED && (
           <View style={styles.noteBoxRejected}>
             <Ionicons name="information-circle" size={16} color="#DC2626" />
-            <Text style={styles.noteTextRejected}>{claim.admin_note}</Text>
+            <Text style={styles.noteTextRejected}>
+              {claim.admin_note ||
+                (claim.challenge_score != null
+                  ? `Challenge score ${claim.challenge_score}%. Ownership was not matched.`
+                  : 'Ownership request was rejected.')}
+            </Text>
           </View>
-        ) : null}
+        )}
 
         {status === CLAIM_STATUS.PENDING && (
           <View style={styles.noteBoxPending}>
@@ -489,6 +508,18 @@ const styles = StyleSheet.create({
     borderColor: '#FDE68A',
   },
   noteTextPending: { flex: 1, fontSize: 12, fontWeight: '600', color: '#B45309', lineHeight: 17 },
+  noteBoxPhysical: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  noteTextPhysical: { flex: 1, fontSize: 12, fontWeight: '600', color: '#4338CA', lineHeight: 17 },
   openHint: {
     flexDirection: 'row',
     alignItems: 'center',

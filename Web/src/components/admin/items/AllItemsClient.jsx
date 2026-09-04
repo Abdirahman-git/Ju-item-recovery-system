@@ -25,6 +25,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldQuestion,
   Trash2,
   X,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ import { getAdminCacheData, setAdminCache, invalidateAdminCaches } from '@/lib/a
 import { categoriesForFilter } from '@/lib/categories';
 import { canMarkInventoryItemReturned, filterInventoryItems, getInventoryCardMeta, sortInventoryItems } from '@/lib/inventory';
 import { isSecureFoundItem, ITEM_STATUS, normalizeItemStatus } from '@/lib/itemStatus';
+import OwnershipChallengeEditor from '@/components/admin/OwnershipChallengeEditor';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useSession } from '@/context/SessionProvider';
@@ -51,7 +53,6 @@ const STATUS_TABS = [
   { id: 'all', label: 'All Items' },
   { id: 'draft', label: 'Draft' },
   { id: 'secure', label: 'Secure' },
-  { id: 'found', label: 'Found' },
   { id: 'lost', label: 'Lost' },
   { id: 'stale', label: 'Stale 60d+', superAdminOnly: true },
 ];
@@ -349,26 +350,47 @@ function ItemCard({ item, onDetails, onDelete, onMarkReturned, onArchive }) {
   );
 }
 
-function ItemDetailModal({ item, onClose, onMarkReturned, markingReturned, onDelete, onArchive }) {
+function ItemDetailModal({
+  item,
+  onClose,
+  onMarkReturned,
+  markingReturned,
+  onDelete,
+  onArchive,
+  onSetChallenge,
+}) {
   if (!item) return null;
   const meta = getInventoryCardMeta(item);
   const isSecure = isSecureFoundItem(item);
   const showReturn = canMarkInventoryItemReturned(item);
   const stale = isStaleItem(item);
+  const statusRaw = String(item.status || '').toLowerCase();
+  const normalized = normalizeItemStatus(item);
+  // Only after admin approves (live). Pending Reports must be reviewed first.
+  const canSetChallenge =
+    normalized === ITEM_STATUS.LIVE &&
+    meta.filterStatus !== 'draft' &&
+    meta.filterStatus !== 'returned' &&
+    statusRaw !== 'returned' &&
+    statusRaw !== 'claim_pending' &&
+    statusRaw !== 'awaiting_pickup' &&
+    statusRaw !== 'matched';
+  const statusDisplay =
+    normalized === ITEM_STATUS.PENDING_REVIEW
+      ? 'pending_review'
+      : meta.badge.label;
   const typeLabel = isSecure
-    ? normalizeItemStatus(item) === ITEM_STATUS.DRAFT
+    ? normalized === ITEM_STATUS.DRAFT
       ? 'Secure draft'
-      : 'Secure found hold'
-    : item.itemType === 'found'
-      ? 'Found item'
-      : 'Lost report';
+      : 'Lost (secure hold)'
+    : 'Lost report';
   const publicNotice = item.public_notice || item.publicNotice || item.displayDescription;
   const details = [
     { label: 'Category', value: item.displayCategory },
     { label: 'Type', value: typeLabel },
     { label: 'Location', value: item.displayLocation },
     { label: 'Reported', value: formatReportDate(item.reportedAt) },
-    { label: 'Status', value: meta.badge.label },
+    { label: 'Status', value: statusDisplay },
   ];
 
   return (
@@ -459,6 +481,16 @@ function ItemDetailModal({ item, onClose, onMarkReturned, markingReturned, onDel
               Delete
             </button>
           ) : null}
+          {canSetChallenge ? (
+            <button
+              type="button"
+              onClick={() => onSetChallenge?.(item)}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#1A56DB] py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 hover:bg-[#1E40AF]"
+            >
+              <ShieldQuestion size={16} />
+              Set Ownership Challenge
+            </button>
+          ) : null}
           {showReturn ? (
             <button
               type="button"
@@ -471,7 +503,7 @@ function ItemDetailModal({ item, onClose, onMarkReturned, markingReturned, onDel
           ) : meta.action.href ? (
             <Link
               href={meta.action.href}
-              className="flex-1 rounded-2xl bg-[#1A56DB] py-3 text-center text-sm font-bold text-white shadow-lg shadow-blue-500/25 hover:bg-[#1E40AF]"
+              className="flex-1 rounded-2xl border border-slate-200 bg-white py-3 text-center text-sm font-bold text-slate-700 hover:bg-slate-50"
             >
               {meta.action.label}
             </Link>
@@ -522,7 +554,7 @@ function MarkReturnedConfirmModal({
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-black uppercase tracking-wider text-slate-500">
-                Student ID (optional)
+                Student ID
               </span>
               <input
                 value={recipientId}
@@ -727,6 +759,7 @@ export default function AllItemsClient() {
   const [deletingItem, setDeletingItem] = useState(false);
   const [archivingItem, setArchivingItem] = useState(false);
   const [returnResult, setReturnResult] = useState(null);
+  const [challengeItem, setChallengeItem] = useState(null);
 
   const visibleTabs = useMemo(
     () => STATUS_TABS.filter((tab) => !tab.superAdminOnly || isSuperAdmin),
@@ -742,12 +775,13 @@ export default function AllItemsClient() {
           all: counts.all + 1,
           draft: counts.draft + (meta.filterStatus === 'draft' ? 1 : 0),
           secure: counts.secure + (meta.filterStatus === 'secure' ? 1 : 0),
-          found: counts.found + (meta.filterStatus === 'found' ? 1 : 0),
-          lost: counts.lost + (meta.filterStatus === 'lost' ? 1 : 0),
+          lost:
+            counts.lost +
+            (meta.filterStatus === 'lost' || meta.filterStatus === 'found' ? 1 : 0),
           stale: counts.stale + (isStaleItem(item) ? 1 : 0),
         };
       },
-      { all: 0, draft: 0, secure: 0, found: 0, lost: 0, stale: 0 }
+      { all: 0, draft: 0, secure: 0, lost: 0, stale: 0 }
     );
   }, [items]);
 
@@ -964,7 +998,7 @@ export default function AllItemsClient() {
     setActions(
       <>
         <Link
-          href="/admin/found"
+          href="/admin/lost"
           className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1A56DB] to-[#1E40AF] px-3 py-1.5 text-xs font-bold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-110"
         >
           <Plus size={14} />
@@ -1182,6 +1216,16 @@ export default function AllItemsClient() {
         markingReturned={markingSecureReturned}
         onDelete={isSuperAdmin ? requestDeleteItem : undefined}
         onArchive={isSuperAdmin ? requestArchiveItem : undefined}
+        onSetChallenge={(item) => {
+          setChallengeItem(item);
+          setSelected(null);
+        }}
+      />
+      <OwnershipChallengeEditor
+        item={challengeItem}
+        open={Boolean(challengeItem)}
+        onClose={() => setChallengeItem(null)}
+        onSaved={() => setChallengeItem(null)}
       />
       {archiveConfirmItem ? (
         <ArchiveItemConfirmModal

@@ -1,14 +1,19 @@
 export const CLAIM_STATUS = {
   PENDING: 'pending',
+  PHYSICAL: 'physical',
   APPROVED: 'approved',
   REJECTED: 'rejected',
 };
 
 export function normalizeClaimStatus(claim) {
-  const raw = claim?.status;
-  if (raw === CLAIM_STATUS.APPROVED || raw === CLAIM_STATUS.REJECTED || raw === CLAIM_STATUS.PENDING) {
-    return raw;
-  }
+  const raw = String(claim?.status || '').toLowerCase();
+  if (raw === CLAIM_STATUS.APPROVED) return CLAIM_STATUS.APPROVED;
+  if (raw === CLAIM_STATUS.REJECTED) return CLAIM_STATUS.REJECTED;
+  if (raw === CLAIM_STATUS.PHYSICAL) return CLAIM_STATUS.PHYSICAL;
+  if (raw === CLAIM_STATUS.PENDING) return CLAIM_STATUS.PENDING;
+  if (claim?.challenge_result === 'auto_pass') return CLAIM_STATUS.APPROVED;
+  if (claim?.challenge_result === 'physical') return CLAIM_STATUS.PHYSICAL;
+  if (claim?.challenge_result === 'reject') return CLAIM_STATUS.REJECTED;
   return CLAIM_STATUS.PENDING;
 }
 
@@ -27,6 +32,13 @@ export function getClaimStatusBadgeConfig(status) {
         bg: '#FEE2E2',
         color: '#DC2626',
         icon: 'close-circle',
+      };
+    case CLAIM_STATUS.PHYSICAL:
+      return {
+        label: 'Visit office',
+        bg: '#E0E7FF',
+        color: '#4338CA',
+        icon: 'business',
       };
     case CLAIM_STATUS.PENDING:
     default:

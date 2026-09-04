@@ -1,14 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Platform, Dimensions, StatusBar } from 'react-native';
-import ReAnimated, { FadeInDown, Layout } from 'react-native-reanimated';
-import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { supabase, normalizeItemRow, getUserPendingClaimCount } from '../../../src/services/supabase';
-import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import CustomBottomTab from '../../../src/components/CustomBottomTab';
-import { useFocusEffect } from '@react-navigation/native';
-import { useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 import { ITEM_STATUS, normalizeItemStatus } from '../../../src/utils/itemStatus';
@@ -94,7 +84,13 @@ export default function MyItemsPage() {
     }, [])
   );
 
-  const tabItems = activeTab === 'lost' ? lostItems : foundItems;
+  const tabItems = useMemo(
+    () => [
+      ...lostItems.map((item) => ({ ...item, listType: 'lost' })),
+      ...foundItems.map((item) => ({ ...item, listType: 'found' })),
+    ],
+    [lostItems, foundItems]
+  );
   const pendingCountForTab = tabItems.filter(isMyItemsPending).length;
   const liveCountForTab = tabItems.filter(isMyItemsLive).length;
   const visibleItems = tabItems.filter((item) =>
@@ -173,28 +169,31 @@ export default function MyItemsPage() {
 
     showAppConfirm({
       title: 'Withdraw recent items',
-      message: `Withdraw ${withdrawableItems.length} ${activeTab} item(s)? ${skippedCount > 0 ? `${skippedCount} old item(s) will be kept.` : ''}`,
+      message: `Withdraw ${withdrawableItems.length} item(s)? ${skippedCount > 0 ? `${skippedCount} old item(s) will be kept.` : ''}`,
       confirmText: 'Withdraw',
       destructive: true,
       onConfirm: async () => {
         try {
-          const table = activeTab === 'lost' ? 'lost_items' : 'found_items';
-          const withdrawIds = withdrawableItems.map((item) => item.id);
-          const { error } = await supabase.from(table).delete().in('id', withdrawIds);
-          if (error) throw error;
+          const lostIds = withdrawableItems.filter((i) => i.listType === 'lost').map((i) => i.id);
+          const foundIds = withdrawableItems.filter((i) => i.listType === 'found').map((i) => i.id);
+          if (lostIds.length) {
+            const { error } = await supabase.from('lost_items').delete().in('id', lostIds);
+            if (error) throw error;
+          }
+          if (foundIds.length) {
+            const { error } = await supabase.from('found_items').delete().in('id', foundIds);
+            if (error) throw error;
+          }
 
           toastRef.current?.show(
             'Withdraw Complete',
             skippedCount > 0
               ? `${withdrawableItems.length} withdrawn. ${skippedCount} older item(s) were not changed.`
-              : `All eligible ${activeTab} items were withdrawn.`
+              : `All eligible items were withdrawn.`
           );
 
-          if (activeTab === 'lost') {
-            setLostItems((prev) => prev.filter((i) => !withdrawIds.includes(i.id)));
-          } else {
-            setFoundItems((prev) => prev.filter((i) => !withdrawIds.includes(i.id)));
-          }
+          if (lostIds.length) setLostItems((prev) => prev.filter((i) => !lostIds.includes(i.id)));
+          if (foundIds.length) setFoundItems((prev) => prev.filter((i) => !foundIds.includes(i.id)));
         } catch (error) {
           showAppError('Withdraw failed', 'Could not withdraw items.');
         }
@@ -347,19 +346,13 @@ export default function MyItemsPage() {
           </View>
         </View>
 
-        {/* Lost / Found */}
+        {/* My lost items (all live reports until returned) */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'lost' && styles.activeTab]}
+            style={[styles.tab, styles.activeTab]}
             onPress={() => setActiveTab('lost')}
           >
-            <Text style={[styles.tabLabel, activeTab === 'lost' && styles.activeTabLabel]}>My Lost Items</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'found' && styles.activeTab]}
-            onPress={() => setActiveTab('found')}
-          >
-            <Text style={[styles.tabLabel, activeTab === 'found' && styles.activeTabLabel]}>My Found Items</Text>
+            <Text style={[styles.tabLabel, styles.activeTabLabel]}>My Lost Items</Text>
           </TouchableOpacity>
         </View>
 
@@ -389,7 +382,7 @@ export default function MyItemsPage() {
           <View style={styles.itemsList}>
             {visibleItems.length > 0 ? (
               visibleItems.map((item, index) => (
-                <ItemCard key={item.id} item={item} type={activeTab} index={index} />
+                <ItemCard key={`${item.listType}-${item.id}`} item={item} type={item.listType || 'lost'} index={index} />
               ))
             ) : (
               <View style={styles.emptyState}>
@@ -400,8 +393,8 @@ export default function MyItemsPage() {
                 />
                 <Text style={styles.emptyText}>
                   {statusFilter === 'pending'
-                    ? `No ${activeTab} reports waiting for admin review.`
-                    : `No live ${activeTab} items yet.`}
+                    ? 'No reports waiting for admin review.'
+                    : 'No live lost items yet.'}
                 </Text>
                 {statusFilter === 'live' && pendingCountForTab > 0 ? (
                   <TouchableOpacity onPress={() => setStatusFilter('pending')} style={styles.emptyLinkBtn}>

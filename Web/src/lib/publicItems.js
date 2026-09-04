@@ -103,8 +103,8 @@ function errorText(error) {
 }
 
 function mapPublicFeedRows(lostData = [], foundData = []) {
-  const mappedLost = lostData.map((item) => mapInventoryItem(item, 'lost'));
-  const mappedFound = foundData.map((item) => mapInventoryItem(item, 'found'));
+  const mappedLost = lostData.filter(isPublicLiveRow).map((item) => mapInventoryItem(item, 'lost'));
+  const mappedFound = foundData.filter(isPublicLiveRow).map((item) => mapInventoryItem(item, 'found'));
   return [...mappedLost, ...mappedFound].sort((a, b) => b.sortKey - a.sortKey);
 }
 
@@ -112,7 +112,8 @@ function liveFeedQuery(table, columns, limit) {
   return supabase
     .from(table)
     .select(columns)
-    .or('status.in.(live,matched,claim_pending),is_approved.eq.true')
+    // claim_pending / awaiting_pickup stay off the public board while Ownership Challenge is open
+    .or('status.eq.live,is_approved.eq.true')
     .order('id', { ascending: false })
     .limit(limit);
 }
@@ -259,11 +260,12 @@ export async function fetchPublicLiveItems(options = {}) {
 
 function isPublicLiveRow(data) {
   if (!data) return false;
+  const raw = String(data.status || '').trim().toLowerCase();
+  // Hidden while an ownership claim is in progress
+  if (raw === 'claim_pending' || raw === 'awaiting_pickup' || raw === 'matched') return false;
   const normalized = String(normalizeItemStatus(data) || '').trim().toLowerCase();
-  if (normalized === ITEM_STATUS.LIVE || normalized === 'matched' || normalized === 'claim_pending') {
-    return true;
-  }
-  return data.is_approved === true;
+  if (normalized === ITEM_STATUS.LIVE) return true;
+  return data.is_approved === true && !raw;
 }
 
 async function selectPublicItemById(table, columns, id) {

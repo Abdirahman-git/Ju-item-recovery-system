@@ -24,7 +24,7 @@ import { resolveItemImageUrl } from '@/lib/itemImage';
 import { ADMIN_CATEGORY_OPTIONS } from '@/components/admin/categoryOptions';
 import ReportSelect from '@/components/admin/ReportSelect';
 import { invalidateInventoryCaches } from '@/lib/adminDataCache';
-import { validateSecureNoticeContent } from '@/lib/contentValidation';
+import { validateMeaningfulText } from '@/lib/contentValidation';
 
 function getLocalDateValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -113,6 +113,7 @@ export default function SecureFoundClient() {
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const ownerName = session?.userName || 'JU System Admin';
   const ownerEmail = session?.email || 'admin@ju.edu.so';
@@ -158,6 +159,13 @@ export default function SecureFoundClient() {
     };
   }, [draftParam, router]);
 
+  function updateField(key, value) {
+    setForm((current) => ({ ...current, [key]: value }));
+    if (fieldErrors[key]) {
+      setFieldErrors((current) => ({ ...current, [key]: null }));
+    }
+  }
+
   function buildPayload() {
     const name = form.name.trim();
     const description = form.description.trim();
@@ -181,45 +189,52 @@ export default function SecureFoundClient() {
     };
   }
 
-  function validateDraft() {
-    if (!form.category) {
-      return { valid: false, title: 'Category required', message: 'Select a category for this secure hold.' };
+  function validateFormFields() {
+    const errors = {};
+
+    if (!form.name.trim()) {
+      errors.name = 'Item name is required.';
+    } else {
+      const nameCheck = validateMeaningfulText(form.name, {
+        fieldLabel: 'Item name',
+        minLength: 3,
+        minLetters: 2,
+      });
+      if (!nameCheck.valid) errors.name = nameCheck.message;
     }
 
-    return validateSecureNoticeContent({
-      name: form.name,
-      description: form.description,
-      requireDescription: true,
-    });
-  }
-
-  function validatePublish() {
     if (!form.category) {
-      return { valid: false, title: 'Category required', message: 'Select a category for this secure hold.' };
+      errors.category = 'Select a category.';
     }
 
-    return validateSecureNoticeContent({
-      name: form.name,
-      description: form.description,
-      requireDescription: true,
-    });
+    if (!form.description.trim()) {
+      errors.description = 'Description / notice is required.';
+    } else {
+      const descCheck = validateMeaningfulText(form.description, {
+        fieldLabel: 'Description',
+        minLength: 10,
+        minLetters: 4,
+      });
+      if (!descCheck.valid) errors.description = descCheck.message;
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   }
 
   function resetToBlankForm({ stripDraftQuery = false } = {}) {
     setForm(createInitialForm());
     setEditingDraftId(null);
     setExistingImageUrl('');
+    setFieldErrors({});
     if (stripDraftQuery && draftParam) {
       router.replace('/admin/secure-found');
     }
   }
 
   async function saveDraft() {
-    const validation = validateDraft();
-    if (!validation.valid) {
-      setNotice({ type: 'error', title: validation.title, message: validation.message });
-      return;
-    }
+    const isValid = validateFormFields();
+    if (!isValid) return;
 
     setSubmitting(true);
     try {
@@ -239,12 +254,10 @@ export default function SecureFoundClient() {
       }
 
       if (wasUpdating) {
-        // After editing a draft, open All Items so the change is visible.
         router.push('/admin/items');
         return;
       }
 
-      // New draft — leave a blank Secure Found page.
       resetToBlankForm({ stripDraftQuery: true });
       setNotice({
         type: 'success',
@@ -264,18 +277,14 @@ export default function SecureFoundClient() {
 
   async function handlePublish(event) {
     event.preventDefault();
-    const validation = validatePublish();
-    if (!validation.valid) {
-      setNotice({ type: 'error', title: validation.title, message: validation.message });
-      return;
-    }
+    const isValid = validateFormFields();
+    if (!isValid) return;
 
     setSubmitting(true);
     try {
       const payload = buildPayload();
       const wasEditingDraft = Boolean(editingDraftId);
       if (editingDraftId) {
-        // Keep any existing photo on the draft — do not pass null/null
         await publishAdminSecureFoundDraft(editingDraftId, payload, null, existingImageUrl || null);
       } else {
         await createAdminSecureFoundItem(payload, null);
@@ -338,7 +347,7 @@ export default function SecureFoundClient() {
             !
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-950">Secure Found Hold</h1>
+            <h1 className="text-2xl font-extrabold text-slate-950">Secure Lost Hold</h1>
             <p className="text-sm font-medium text-slate-500">
               {editingDraftId
                 ? `Editing draft #${editingDraftId} — save or publish when ready.`
@@ -361,19 +370,29 @@ export default function SecureFoundClient() {
             <Field label="Item name" hint="Short name students must see first — e.g. Mobile phone, Gold, Wallet">
               <input
                 value={form.name}
-                onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
+                onChange={(e) => updateField('name', e.target.value)}
                 placeholder="e.g. Mobile phone"
-                className={formInputClass('h-12 w-full rounded-[18px] px-4 text-sm')}
+                className={formInputClass(`h-12 w-full rounded-[18px] px-4 text-sm ${fieldErrors.name ? '!border-red-500 !ring-2 !ring-red-500/20' : ''}`)}
               />
+              {fieldErrors.name ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                  <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.name}
+                </p>
+              ) : null}
             </Field>
             <Field label="Category" hint="Admin categories — includes Financial for high-value holds">
               <ReportSelect
                 value={form.category}
-                onChange={(category) => setForm((current) => ({ ...current, category }))}
+                onChange={(category) => updateField('category', category)}
                 options={ADMIN_CATEGORY_OPTIONS}
                 placeholder="Select category"
                 theme="amber"
               />
+              {fieldErrors.category ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                  <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.category}
+                </p>
+              ) : null}
             </Field>
             <Field
               label="Description / notice"
@@ -381,11 +400,20 @@ export default function SecureFoundClient() {
             >
               <textarea
                 value={form.description}
-                onChange={(e) => setForm((current) => ({ ...current, description: e.target.value.slice(0, 280) }))}
+                onChange={(e) => updateField('description', e.target.value.slice(0, 280))}
                 placeholder="Short message for students..."
-                className={formInputClass('min-h-[148px] w-full resize-none rounded-[18px] px-4 py-3 text-sm leading-6')}
+                className={formInputClass(`min-h-[148px] w-full resize-none rounded-[18px] px-4 py-3 text-sm leading-6 ${fieldErrors.description ? '!border-red-500 !ring-2 !ring-red-500/20' : ''}`)}
               />
-              <span className="mt-1 block text-right text-xs text-slate-400">{form.description.length}/280</span>
+              <div className="flex items-center justify-between">
+                <div>
+                  {fieldErrors.description ? (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                      <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.description}
+                    </p>
+                  ) : null}
+                </div>
+                <span className="mt-1 block text-right text-xs text-slate-400">{form.description.length}/280</span>
+              </div>
             </Field>
           </div>
         </div>

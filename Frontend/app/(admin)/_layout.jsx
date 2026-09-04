@@ -60,15 +60,15 @@ export default function AdminLayout() {
       <Drawer.Screen
         name="Found/index"
         options={{
-          drawerLabel: 'Report Found',
-          title: 'Report Found',
+          drawerItemStyle: { display: 'none' },
+          title: 'Legacy Found Draft',
         }}
       />
       <Drawer.Screen
         name="SecureFound/index"
         options={{
-          drawerLabel: 'Secure Found',
-          title: 'Secure Found Hold',
+          drawerLabel: 'Secure Lost',
+          title: 'Secure Lost Hold',
         }}
       />
       <Drawer.Screen

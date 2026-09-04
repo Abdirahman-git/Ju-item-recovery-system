@@ -15,12 +15,8 @@ export default function ItemCard({ item, index = 0, reveal = true }) {
     setFailed(false);
   }, [item.imageUrl]);
 
-  const badgeClass = isSecure
-    ? 'bg-amber-600'
-    : isFound
-      ? 'bg-[#1A56DB]'
-      : 'bg-amber-500';
-  const badgeLabel = isSecure ? 'Secure' : isFound ? 'Found' : 'Lost';
+  const badgeClass = 'bg-red-600';
+  const badgeLabel = 'Lost';
 
   return (
     <Link

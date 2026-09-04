@@ -39,7 +39,7 @@ import { resolveItemImageUrl } from '@/lib/itemImage';
 import { ADMIN_CATEGORY_OPTIONS } from '@/components/admin/categoryOptions';
 import ReportSelect from '@/components/admin/ReportSelect';
 import { invalidateAdminCaches, invalidateInventoryCaches } from '@/lib/adminDataCache';
-import { validateItemReportContent } from '@/lib/contentValidation';
+import { validateMeaningfulText } from '@/lib/contentValidation';
 
 const CATEGORY_OPTIONS = ADMIN_CATEGORY_OPTIONS;
 
@@ -570,6 +570,7 @@ export default function ReportLostClient({ mode = 'lost' }) {
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const ownerName = session?.userName || 'JU System Admin';
   const ownerEmail = session?.email || 'admin@ju.edu.so';
@@ -578,18 +579,18 @@ export default function ReportLostClient({ mode = 'lost' }) {
   const toneBg = isFound ? 'bg-emerald-500' : 'bg-[#1A56DB]';
   const pageTitle = editingDraftId
     ? isFound
-      ? 'Continue Found Draft'
+      ? 'Continue Lost Hold Draft'
       : 'Continue Lost Draft'
     : isFound
-      ? 'Report Found Item'
+      ? 'Lost Hold Draft'
       : 'Report Lost Item';
   const pageSubtitle = editingDraftId
     ? 'Review and finish this saved draft before publishing it to the inventory.'
     : isFound
-      ? 'Log recovered campus property with a clear photo and location.'
+      ? 'Legacy found drafts only — new public found reports are closed.'
       : 'Log missing campus property. A photo is optional but helps with identification.';
-  const dateLabel = isFound ? 'Date Found' : 'Date Lost';
-  const timeLabel = isFound ? 'Time Found' : 'Time Lost';
+  const dateLabel = isFound ? 'Date Held' : 'Date Lost';
+  const timeLabel = isFound ? 'Time Held' : 'Time Lost';
   const personKey = isFound ? 'finderName' : 'ownerName';
   const todayValue = getLocalDateValue();
   const currentTimeValue = getLocalTimeValue();
@@ -654,118 +655,91 @@ export default function ReportLostClient({ mode = 'lost' }) {
 
   function updateField(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
+    if (fieldErrors[key]) {
+      setFieldErrors((current) => ({ ...current, [key]: null }));
+    }
   }
 
   function handleImageChange(event) {
     const file = event.target.files?.[0] || null;
     setImageFile(file);
     setImagePreview(file ? URL.createObjectURL(file) : '');
+    if (fieldErrors.image) {
+      setFieldErrors((current) => ({ ...current, image: null }));
+    }
   }
 
-  function validateReportDateTime() {
-    if (form.reportDate && form.reportDate > todayValue) {
-      return {
-        valid: false,
-        title: `${dateLabel} cannot be in the future`,
-        message: `Please choose today (${todayValue}) or an earlier date.`,
-      };
+  function validateFormFields(isPublish = true) {
+    const errors = {};
+
+    // 1. Item Name
+    if (!form.itemName.trim()) {
+      errors.itemName = 'Item name is required.';
+    } else {
+      const nameCheck = validateMeaningfulText(form.itemName, {
+        fieldLabel: 'Item name',
+        minLength: 3,
+        minLetters: 2,
+      });
+      if (!nameCheck.valid) {
+        errors.itemName = nameCheck.message;
+      }
     }
 
-    if (form.reportDate === todayValue && form.reportTime && form.reportTime > currentTimeValue) {
-      return {
-        valid: false,
-        title: `${timeLabel} cannot be in the future`,
-        message: `Please choose ${currentTimeValue} or an earlier time for today's report.`,
-      };
-    }
-
-    return { valid: true };
-  }
-
-  function validateDraft() {
-    const meaningfulValues = [
-      form.itemName,
-      form.description,
-      form.location,
-      form.reportDate,
-      form.reportTime,
-      form.phone,
-    ];
-    const isEmpty = meaningfulValues.every((value) => !String(value || '').trim());
-    if (isEmpty) {
-      return {
-        valid: false,
-        title: 'Draft is empty',
-        message: 'Please add item details before saving a draft.',
-      };
-    }
-
-    const missing = [];
-    if (!form.itemName.trim()) missing.push('item name');
-    if (!form.category) missing.push('category');
-    if (!form.location.trim()) missing.push('location');
-    if (!form.description.trim()) missing.push('description');
-    if (!form.reportDate) missing.push(dateLabel.toLowerCase());
-    if (!form.reportTime) missing.push(timeLabel.toLowerCase());
-
-    if (missing.length > 0) {
-      return {
-        valid: false,
-        title: 'Draft not complete',
-        message: `Please complete ${missing.join(', ')} before saving this draft.`,
-      };
-    }
-
-    const contentCheck = validateItemReportContent({
-      itemName: form.itemName,
-      location: form.location,
-      description: form.description,
-    });
-    if (!contentCheck.valid) return contentCheck;
-
-    const dateTimeValidation = validateReportDateTime();
-    if (!dateTimeValidation.valid) return dateTimeValidation;
-
-    return { valid: true };
-  }
-
-  function validatePublish() {
-    if (!form.itemName.trim() || !form.location.trim() || !form.description.trim() || !form.reportDate || !form.reportTime) {
-      return {
-        valid: false,
-        title: 'Missing details',
-        message: isFound
-          ? `Please add the item name, location, description, ${dateLabel.toLowerCase()}, ${timeLabel.toLowerCase()}, and one photo.`
-          : `Please add the item name, location, description, ${dateLabel.toLowerCase()}, and ${timeLabel.toLowerCase()}.`,
-      };
-    }
+    // 2. Category
     if (!form.category) {
-      return {
-        valid: false,
-        title: 'Category required',
-        message: 'Select a category before publishing.',
-      };
+      errors.category = 'Select a category.';
     }
 
-    const contentCheck = validateItemReportContent({
-      itemName: form.itemName,
-      location: form.location,
-      description: form.description,
-    });
-    if (!contentCheck.valid) return contentCheck;
-
-    const dateTimeValidation = validateReportDateTime();
-    if (!dateTimeValidation.valid) return dateTimeValidation;
-
-    if (isFound && !imageFile && !existingImageUrl) {
-      return {
-        valid: false,
-        title: 'Photo required',
-        message: 'Please upload one clear photo before publishing.',
-      };
+    // 3. Location
+    if (!form.location.trim()) {
+      errors.location = isFound ? 'Found location is required.' : 'Last seen location is required.';
+    } else {
+      const locCheck = validateMeaningfulText(form.location, {
+        fieldLabel: 'Location',
+        minLength: 5,
+        minLetters: 2,
+      });
+      if (!locCheck.valid) {
+        errors.location = locCheck.message;
+      }
     }
 
-    return { valid: true };
+    // 4. Report Date
+    if (!form.reportDate) {
+      errors.reportDate = `${dateLabel} is required.`;
+    } else if (form.reportDate > todayValue) {
+      errors.reportDate = `${dateLabel} cannot be in the future.`;
+    }
+
+    // 5. Report Time
+    if (!form.reportTime) {
+      errors.reportTime = `${timeLabel} is required.`;
+    } else if (form.reportDate === todayValue && form.reportTime > currentTimeValue) {
+      errors.reportTime = `${timeLabel} cannot be in the future.`;
+    }
+
+    // 6. Description
+    if (!form.description.trim()) {
+      errors.description = 'Description is required.';
+    } else {
+      const descCheck = validateMeaningfulText(form.description, {
+        fieldLabel: 'Description',
+        minLength: 10,
+        minLetters: 4,
+      });
+      if (!descCheck.valid) {
+        errors.description = descCheck.message;
+      }
+    }
+
+    // 7. Photo (for Found Item on Publish)
+    if (isFound && isPublish && !imageFile && !existingImageUrl) {
+      errors.image = 'One clear photo is required before publishing found items.';
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   }
 
   function buildPayload() {
@@ -781,15 +755,8 @@ export default function ReportLostClient({ mode = 'lost' }) {
   }
 
   async function saveDraft() {
-    const validation = validateDraft();
-    if (!validation.valid) {
-      setNotice({
-        type: 'error',
-        title: validation.title,
-        message: validation.message,
-      });
-      return;
-    }
+    const isValid = validateFormFields(false);
+    if (!isValid) return;
 
     setSubmitting(true);
     try {
@@ -809,6 +776,7 @@ export default function ReportLostClient({ mode = 'lost' }) {
       setImageFile(null);
       setImagePreview('');
       setExistingImageUrl('');
+      setFieldErrors({});
       setNotice({
         type: 'success',
         title: 'Draft saved',
@@ -845,6 +813,7 @@ export default function ReportLostClient({ mode = 'lost' }) {
     setImagePreview('');
     setExistingImageUrl('');
     setEditingDraftId(null);
+    setFieldErrors({});
     if (draftParam) {
       router.replace(reportPath);
     }
@@ -859,15 +828,8 @@ export default function ReportLostClient({ mode = 'lost' }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    const validation = validatePublish();
-    if (!validation.valid) {
-      setNotice({
-        type: 'error',
-        title: validation.title,
-        message: validation.message,
-      });
-      return;
-    }
+    const isValid = validateFormFields(true);
+    if (!isValid) return;
 
     setSubmitting(true);
     try {
@@ -887,6 +849,7 @@ export default function ReportLostClient({ mode = 'lost' }) {
       setImageFile(null);
       setImagePreview('');
       setExistingImageUrl('');
+      setFieldErrors({});
       setNotice({
         type: 'success',
         title: isFound ? 'Found item published' : 'Lost item published',
@@ -941,7 +904,7 @@ export default function ReportLostClient({ mode = 'lost' }) {
               ) : null}
             </div>
 
-            <label className={`report-form-upload relative flex min-h-[280px] flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-[20px] p-3 text-center lg:min-h-[430px] ${isFound ? 'report-form-upload-emerald' : 'report-form-upload-blue'}`}>
+            <label className={`report-form-upload relative flex min-h-[280px] flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-[20px] p-3 text-center lg:min-h-[430px] ${isFound ? 'report-form-upload-emerald' : 'report-form-upload-blue'} ${fieldErrors.image ? '!border-red-500 !bg-red-50/20' : ''}`}>
               {imagePreview ? (
                 <span className="relative flex h-full min-h-[270px] w-full items-center justify-center overflow-hidden rounded-[18px] bg-white/70 lg:min-h-[420px]">
                   <SafeRemoteImage src={imagePreview} alt="Lost item preview" fill className="object-contain p-2" sizes="(max-width: 1024px) 100vw, 420px" priority />
@@ -963,6 +926,11 @@ export default function ReportLostClient({ mode = 'lost' }) {
               )}
               <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleImageChange} />
             </label>
+            {fieldErrors.image ? (
+              <p className="mt-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-red-600">
+                <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.image}
+              </p>
+            ) : null}
           </section>
         </div>
 
@@ -978,8 +946,13 @@ export default function ReportLostClient({ mode = 'lost' }) {
                   value={form.itemName}
                   onChange={(event) => updateField('itemName', event.target.value)}
                   placeholder="e.g., MacBook Pro 16-inch Space Gray"
-                  className={formInputClass(isFound, 'h-12 w-full rounded-[18px] px-4 text-sm')}
+                  className={formInputClass(isFound, `h-12 w-full rounded-[18px] px-4 text-sm ${fieldErrors.itemName ? '!border-red-500 !ring-2 !ring-red-500/20' : ''}`)}
                 />
+                {fieldErrors.itemName ? (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                    <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.itemName}
+                  </p>
+                ) : null}
               </Field>
               <Field label="Category">
                 <ReportSelect
@@ -989,6 +962,11 @@ export default function ReportLostClient({ mode = 'lost' }) {
                   placeholder="Select category"
                   theme={isFound ? 'emerald' : 'blue'}
                 />
+                {fieldErrors.category ? (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                    <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.category}
+                  </p>
+                ) : null}
               </Field>
             </div>
           </section>
@@ -1006,9 +984,14 @@ export default function ReportLostClient({ mode = 'lost' }) {
                     value={form.location}
                     onChange={(event) => updateField('location', event.target.value)}
                     placeholder="Enter campus location or building name..."
-                    className={formInputClass(isFound, 'h-12 w-full rounded-[18px] pl-11 pr-4 text-sm')}
+                    className={formInputClass(isFound, `h-12 w-full rounded-[18px] pl-11 pr-4 text-sm ${fieldErrors.location ? '!border-red-500 !ring-2 !ring-red-500/20' : ''}`)}
                   />
                 </div>
+                {fieldErrors.location ? (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                    <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.location}
+                  </p>
+                ) : null}
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={dateLabel}>
@@ -1024,6 +1007,11 @@ export default function ReportLostClient({ mode = 'lost' }) {
                       }
                     }}
                   />
+                  {fieldErrors.reportDate ? (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                      <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.reportDate}
+                    </p>
+                  ) : null}
                 </Field>
                 <Field label={timeLabel}>
                   <GlassTimePicker
@@ -1033,6 +1021,11 @@ export default function ReportLostClient({ mode = 'lost' }) {
                     isFound={isFound}
                     onChange={(value) => updateField('reportTime', value)}
                   />
+                  {fieldErrors.reportTime ? (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                      <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.reportTime}
+                    </p>
+                  ) : null}
                 </Field>
               </div>
               <Field label="Description">
@@ -1042,10 +1035,19 @@ export default function ReportLostClient({ mode = 'lost' }) {
                     value={form.description}
                     onChange={(event) => updateField('description', event.target.value.slice(0, 500))}
                     placeholder={isFound ? 'Describe where it was found and any visible details...' : 'Describe unique identifiers, scratches, or last-known condition...'}
-                    className={formInputClass(isFound, 'min-h-[148px] w-full resize-none rounded-[18px] py-3 pl-11 pr-4 text-sm leading-6')}
+                    className={formInputClass(isFound, `min-h-[148px] w-full resize-none rounded-[18px] py-3 pl-11 pr-4 text-sm leading-6 ${fieldErrors.description ? '!border-red-500 !ring-2 !ring-red-500/20' : ''}`)}
                   />
                 </div>
-                <span className="mt-1 block text-right text-xs font-semibold text-slate-400">{form.description.length}/500</span>
+                <div className="flex items-center justify-between">
+                  <div>
+                    {fieldErrors.description ? (
+                      <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">
+                        <TriangleAlert size={14} className="shrink-0 text-red-500" /> {fieldErrors.description}
+                      </p>
+                    ) : null}
+                  </div>
+                  <span className="mt-1 block text-right text-xs font-semibold text-slate-400">{form.description.length}/500</span>
+                </div>
               </Field>
             </div>
           </section>

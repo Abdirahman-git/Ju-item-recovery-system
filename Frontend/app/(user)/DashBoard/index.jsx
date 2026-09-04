@@ -220,15 +220,15 @@ export default function DashboardScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.quickActionCard, { backgroundColor: '#F0FDF4' }]}
-            onPress={() => router.push('/(user)/Found')}
+            style={[styles.quickActionCard, { backgroundColor: '#F5F3FF' }]}
+            onPress={() => router.push('/(user)/MyItems')}
           >
-            <View style={[styles.actionIconCircle, { backgroundColor: '#10B981' }]}>
-              <Ionicons name="checkmark-circle-outline" size={24} color="#FFF" />
+            <View style={[styles.actionIconCircle, { backgroundColor: '#7C3AED' }]}>
+              <Ionicons name="folder-open-outline" size={24} color="#FFF" />
             </View>
             <View>
-              <Text style={[styles.actionTitle, { color: '#065F46' }]}>Report Found</Text>
-              <Text style={styles.actionSubtitle}>I found something</Text>
+              <Text style={[styles.actionTitle, { color: '#5B21B6' }]}>My Items</Text>
+              <Text style={styles.actionSubtitle}>Track your reports</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -236,7 +236,7 @@ export default function DashboardScreen() {
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <Text style={styles.sectionSubtitle}>Discover latest lost and found items</Text>
+            <Text style={styles.sectionSubtitle}>Latest lost items on campus</Text>
           </View>
           <TouchableOpacity onPress={() => router.push('/(user)/AllItems')}>
             <Text style={styles.viewAllText}>View All</Text>

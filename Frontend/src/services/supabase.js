@@ -960,7 +960,7 @@ export const getUserPendingClaimCount = async (claimerEmail) => {
       .from('item_claims')
       .select('*', { count: 'exact', head: true })
       .eq('claimer_email', email)
-      .eq('status', 'pending');
+      .in('status', ['pending', 'physical']);
     if (error) throw error;
     return count || 0;
   } catch (e) {
@@ -999,9 +999,10 @@ export const getUserPendingClaimForItem = async (itemId, itemType, claimerEmail)
       .eq('claimer_email', email)
       .eq('item_id', id)
       .eq('item_type', type)
-      .eq('status', 'pending')
-      .maybeSingle();
-    if (!error && data) return data;
+      .in('status', ['pending', 'physical'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (!error && data?.[0]) return data[0];
   } catch (e) {
     /* item_id / item_type columns may be missing */
   }
@@ -1013,7 +1014,7 @@ export const getUserPendingClaimForItem = async (itemId, itemType, claimerEmail)
       .select('id, status, created_at, item_type, item_id, match_breakdown')
       .eq('claimer_email', email)
       .eq('item_id', id)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'physical'])
       .limit(5);
     if (!error && data?.length) {
       const match = data.find((row) => claimRowMatchesItemType(row, type));
@@ -1029,7 +1030,7 @@ export const getUserPendingClaimForItem = async (itemId, itemType, claimerEmail)
     .select('id, status, created_at, item_type, item_id, match_breakdown, lost_item_id, found_item_id')
     .eq('claimer_email', email)
     .eq(fkCol, id)
-    .eq('status', 'pending')
+    .in('status', ['pending', 'physical'])
     .limit(8);
 
   if (legacyError || !legacyRows?.length) return null;
@@ -1038,6 +1039,252 @@ export const getUserPendingClaimForItem = async (itemId, itemType, claimerEmail)
 
 export const CLAIM_ALREADY_PENDING_MSG =
   'You already sent a request for this item. Wait for admin review.';
+
+export const CHALLENGE_NOT_READY_MSG =
+  'Ownership Challenge is not ready yet. Please wait for admin.';
+
+async function setItemLifecycleStatus(itemType, itemId, status) {
+  const table = itemType === 'found' ? 'found_items' : 'lost_items';
+  const { error } = await supabase.from(table).update({ status }).eq('id', itemId);
+  if (error) throw new Error(error.message || 'Could not update item status.');
+}
+
+/** Public Ownership Challenge (no correct answers). */
+export const fetchPublicOwnershipChallenge = async (itemType, itemId) => {
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const id = Number(itemId);
+  if (!id) return null;
+
+  const { data: challenge, error } = await supabase
+    .from('ownership_challenges')
+    .select('id, item_type, item_id, status')
+    .eq('item_type', type)
+    .eq('item_id', id)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (error) {
+    const msg = String(error.message || '');
+    if (/ownership_challenges|does not exist|schema cache/i.test(msg)) {
+      throw new Error('Ownership Challenge is not set up yet. Ask admin to run ownership_challenge.sql.');
+    }
+    throw new Error(error.message || 'Failed to load Ownership Challenge.');
+  }
+  if (!challenge) return null;
+
+  const { data: questions, error: qErr } = await supabase
+    .from('ownership_challenge_questions')
+    .select('id, prompt, options, sort_order')
+    .eq('challenge_id', challenge.id)
+    .order('sort_order', { ascending: true });
+
+  if (qErr) throw new Error(qErr.message || 'Failed to load challenge questions.');
+
+  const rows = questions || [];
+  return {
+    ...challenge,
+    questions: rows.map((q, i) => ({
+      id: q.id,
+      prompt: q.prompt,
+      options: Array.isArray(q.options) ? q.options : [],
+      sort_order: q.sort_order ?? i,
+    })),
+    questionCount: rows.length,
+    hasChallenge: rows.length > 0,
+  };
+};
+
+async function fetchChallengeWithAnswers(itemType, itemId) {
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const id = Number(itemId);
+  const { data: challenge, error } = await supabase
+    .from('ownership_challenges')
+    .select('*')
+    .eq('item_type', type)
+    .eq('item_id', id)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (error) throw new Error(error.message || 'Failed to load challenge.');
+  if (!challenge) return null;
+
+  const { data: questions, error: qErr } = await supabase
+    .from('ownership_challenge_questions')
+    .select('*')
+    .eq('challenge_id', challenge.id)
+    .order('sort_order', { ascending: true });
+  if (qErr) throw new Error(qErr.message || 'Failed to load questions.');
+  return { ...challenge, questions: questions || [] };
+}
+
+async function getOpenClaimForItem(itemType, itemId) {
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const id = Number(itemId);
+  const { data, error } = await supabase
+    .from('item_claims')
+    .select('id, status, claimer_email')
+    .eq('item_type', type)
+    .eq('item_id', id)
+    .in('status', ['pending', 'physical'])
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) return null;
+  return data?.[0] || null;
+}
+
+/**
+ * Submit Ownership Challenge answers. Locks live listing; applies score bands.
+ */
+export const submitOwnershipChallengeClaim = async (item, itemType, form) => {
+  if (!item?.id) throw new Error('Item data is missing.');
+  const selectedIndexes = Array.isArray(form?.selectedIndexes) ? form.selectedIndexes : [];
+  const identity = await withTimeout(
+    resolveClaimantIdentity(form.claimerEmail),
+    12000,
+    'Could not verify your account. Check your connection and try again.'
+  );
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const itemId = Number(item.id);
+
+  const open = await getOpenClaimForItem(type, itemId);
+  if (open) {
+    if (String(open.claimer_email || '').toLowerCase() === identity.claimer_email) {
+      throw new Error(CLAIM_ALREADY_PENDING_MSG);
+    }
+    throw new Error('This item already has an ownership request under review.');
+  }
+
+  const alreadyPending = await getUserPendingClaimForItem(itemId, type, identity.claimer_email);
+  if (alreadyPending) throw new Error(CLAIM_ALREADY_PENDING_MSG);
+
+  const challenge = await fetchChallengeWithAnswers(type, itemId);
+  if (!challenge?.questions?.length) throw new Error(CHALLENGE_NOT_READY_MSG);
+
+  const { scoreChallengeAnswers, getChallengeResultFromScore } = await import(
+    '../utils/ownershipChallenge'
+  );
+  const { score, correct, total } = scoreChallengeAnswers(challenge.questions, selectedIndexes);
+  const result = getChallengeResultFromScore(score);
+  const itemName = item.itemName || item.item_name || 'Item';
+  const description = `Ownership Challenge · ${score}% (${correct}/${total}) · ${result}`;
+
+  const payload = {
+    lost_item_id: itemId,
+    found_item_id: itemId,
+    item_type: type,
+    item_id: itemId,
+    claimer_name: identity.claimer_name,
+    claimer_email: identity.claimer_email,
+    claimer_student_id: identity.claimer_student_id,
+    description,
+    match_score: score,
+    match_breakdown: {
+      source: 'ownership_challenge',
+      item_type: type,
+      item_name: itemName,
+      category: item.category || null,
+      image_uri: item.imageURI || item.imageuri || null,
+      location: item.location || null,
+      challenge_id: challenge.id,
+      score,
+      correct,
+      total,
+      result,
+    },
+    challenge_id: challenge.id,
+    challenge_score: score,
+    challenge_result: result,
+    challenge_answers: selectedIndexes,
+    status: result === 'reject' ? 'rejected' : result === 'physical' ? 'physical' : 'pending',
+  };
+
+  await setItemLifecycleStatus(type, itemId, result === 'physical' ? 'awaiting_pickup' : 'claim_pending');
+
+  let current = { ...payload };
+  let inserted;
+  let error;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const res = await withTimeout(
+        supabase.from('item_claims').insert(current).select().single(),
+        15000,
+        'Request timed out while sending to admin.'
+      );
+      inserted = res.data;
+      error = res.error;
+    } catch (e) {
+      error = e;
+    }
+    if (!error) break;
+    const missingCol = parseMissingColumn(error);
+    if (missingCol && Object.prototype.hasOwnProperty.call(current, missingCol)) {
+      const next = { ...current };
+      delete next[missingCol];
+      current = next;
+      continue;
+    }
+    break;
+  }
+
+  if (error) {
+    await setItemLifecycleStatus(type, itemId, 'live').catch(() => {});
+    if (isRlsError(error) || isNetworkLikeError(error)) {
+      try {
+        const row = await persistClaimViaBackend(current);
+        if (row) inserted = row;
+        else throw error;
+      } catch (backendErr) {
+        throw new Error(formatClaimPersistError(backendErr));
+      }
+    } else {
+      throw new Error(formatClaimPersistError(error));
+    }
+  }
+
+  if (result === 'auto_pass') {
+    try {
+      await approveItemClaim({
+        ...inserted,
+        itemType: type,
+        itemId,
+        targetItem: item,
+        claimer_name: identity.claimer_name,
+        claimer_student_id: identity.claimer_student_id,
+      });
+    } catch (approveErr) {
+      // Claim saved; admin can still approve if auto-archive failed
+      console.warn('Auto-pass archive failed:', approveErr?.message);
+    }
+    return {
+      claim: { ...inserted, status: 'approved' },
+      score,
+      result,
+      message: 'Approved — visit Lost & Found office to collect your item.',
+    };
+  }
+
+  if (result === 'reject') {
+    await setItemLifecycleStatus(type, itemId, 'live');
+    if (inserted?.id) {
+      await supabase
+        .from('item_claims')
+        .update({ status: 'rejected', reviewed_at: new Date().toISOString(), challenge_result: 'reject' })
+        .eq('id', inserted.id);
+    }
+    return {
+      claim: { ...inserted, status: 'rejected' },
+      score,
+      result,
+      message: 'Score too low — item is live on the board again.',
+    };
+  }
+
+  return {
+    claim: { ...inserted, status: 'physical' },
+    score,
+    result,
+    message: 'Visit campus Lost & Found office for physical verification.',
+  };
+};
 
 export const submitItemClaim = async (item, itemType, claimForm) => {
   if (!item?.id) throw new Error('Item data is missing.');

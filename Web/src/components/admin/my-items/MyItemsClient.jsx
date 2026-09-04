@@ -38,7 +38,6 @@ const PAGE_SIZE = 8;
 const STATUS_TABS = [
   { id: 'all', label: 'All Items' },
   { id: 'secure', label: 'Secure' },
-  { id: 'found', label: 'Found' },
   { id: 'lost', label: 'Lost' },
 ];
 
@@ -131,9 +130,9 @@ function ItemDetailModal({ item, onClose, onDelete }) {
   const typeLabel = isSecure
     ? normalizeItemStatus(item) === ITEM_STATUS.DRAFT
       ? 'Secure draft'
-      : 'Secure found hold'
+      : 'Lost (secure hold)'
     : item.itemType === 'found'
-      ? 'Found item'
+      ? 'Lost item'
       : 'Lost report';
   const publicNotice = item.public_notice || item.publicNotice || item.displayDescription;
   const details = [
@@ -282,9 +281,9 @@ function ItemCard({ item, onDetails, onDelete }) {
   const reportLabel = isSecure
     ? normalizeItemStatus(item) === ITEM_STATUS.DRAFT
       ? 'Secure draft'
-      : 'Secure hold'
+      : 'Lost'
     : item.itemType === 'found'
-      ? 'Found report'
+      ? 'Lost'
       : 'Lost report';
 
   const openCard = () => onDetails?.(item);
@@ -403,11 +402,12 @@ export default function MyItemsClient() {
         return {
           all: counts.all + 1,
           secure: counts.secure + (meta.filterStatus === 'secure' ? 1 : 0),
-          found: counts.found + (meta.filterStatus === 'found' ? 1 : 0),
-          lost: counts.lost + (meta.filterStatus === 'lost' ? 1 : 0),
+          lost:
+            counts.lost +
+            (meta.filterStatus === 'lost' || meta.filterStatus === 'found' ? 1 : 0),
         };
       },
-      { all: 0, secure: 0, found: 0, lost: 0 }
+      { all: 0, secure: 0, lost: 0 }
     );
   }, [items]);
 
@@ -497,11 +497,11 @@ export default function MyItemsClient() {
           <span className="hidden sm:inline">Report Lost</span>
         </Link>
         <Link
-          href="/admin/found"
+          href="/admin/secure-found"
           className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#1A56DB] to-[#1E40AF] px-3 py-1.5 text-xs font-bold text-white shadow-sm shadow-blue-900/20 transition hover:brightness-110"
         >
           <Sparkles size={14} />
-          <span className="hidden sm:inline">Report Found</span>
+          <span className="hidden sm:inline">Secure Lost</span>
         </Link>
         <button
           type="button"
@@ -544,7 +544,7 @@ export default function MyItemsClient() {
           icon="package"
           value={items.length}
           label="My Admin Items"
-          trendLabel={`${tabCounts.found} found · ${tabCounts.lost} lost`}
+          trendLabel={`${tabCounts.lost} lost · ${tabCounts.secure} secure`}
           subLabel="Posted by you"
           sparkData={sparklines.total}
         />
@@ -552,10 +552,10 @@ export default function MyItemsClient() {
           compact
           playKey={sparkPlayKey}
           sparkIndex={1}
-          icon="check"
-          value={tabCounts.found}
-          label="Found Posted"
-          trendLabel="Campus found reports"
+          icon="shield"
+          value={tabCounts.secure}
+          label="Secure"
+          trendLabel="High-value holds"
           sparkData={sparklines.found}
         />
         <StatCard
@@ -652,14 +652,14 @@ export default function MyItemsClient() {
           </div>
           <h3 className="text-lg font-black text-slate-900">No admin items yet</h3>
           <p className="mt-1 max-w-md text-sm text-slate-500">
-            Items posted by this admin account from Report Lost or Report Found will appear here.
+            Items posted by this admin account from Report Lost or Secure Lost will appear here.
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Link href="/admin/lost" className="rounded-2xl border border-white/70 bg-white/60 px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-white">
               Report Lost
             </Link>
-            <Link href="/admin/found" className="rounded-2xl bg-[#1A56DB] px-4 py-2 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:bg-[#1E40AF]">
-              Report Found
+            <Link href="/admin/secure-found" className="rounded-2xl bg-[#1A56DB] px-4 py-2 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:bg-[#1E40AF]">
+              Secure Lost
             </Link>
           </div>
         </div>

@@ -12,7 +12,7 @@ import {
 
 const ACTIONS = [
   { href: '/admin/lost', label: 'Report Lost', icon: FilePlus2, tone: 'rose' },
-  { href: '/admin/found', label: 'Report Found', icon: Archive, tone: 'teal' },
+  { href: '/admin/secure-found', label: 'Secure Lost', icon: Archive, tone: 'amber' },
   { href: '/admin/pending', label: 'Pending', icon: ClipboardList, tone: 'amber' },
   { href: '/admin/claims', label: 'Claims', icon: Shield, tone: 'violet' },
   { href: '/admin/users', label: 'Users', icon: Users, tone: 'blue' },

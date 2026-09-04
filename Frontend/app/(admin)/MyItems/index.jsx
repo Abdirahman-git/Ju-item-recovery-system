@@ -15,7 +15,6 @@ import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 const STATUS_TABS = [
   { id: 'all', label: 'All' },
   { id: 'secure', label: 'Secure' },
-  { id: 'found', label: 'Found' },
   { id: 'lost', label: 'Lost' },
 ];
 
@@ -41,8 +40,10 @@ function getCardMeta(item) {
   const itemType = item.itemType || (String(item.type || '').toUpperCase() === 'LOST' ? 'lost' : 'found');
   const isSecure = isSecureFoundItem(item);
 
-  if (isSecure && status === ITEM_STATUS.LIVE) return { filter: 'secure', badge: { label: 'Secure', bg: '#F59E0B', color: '#FFF' } };
-  if (itemType === 'found') return { filter: 'found', badge: { label: 'Found', bg: Colors.success, color: '#FFF' } };
+  if (isSecure && status === ITEM_STATUS.LIVE) {
+    return { filter: 'secure', badge: { label: 'Lost', bg: Colors.error, color: '#FFF' } };
+  }
+  if (itemType === 'found') return { filter: 'lost', badge: { label: 'Lost', bg: Colors.error, color: '#FFF' } };
   return { filter: 'lost', badge: { label: 'Lost', bg: Colors.error, color: '#FFF' } };
 }
 
@@ -87,7 +88,7 @@ export default function AdminMyItemsPage() {
   );
 
   const counts = useMemo(() => {
-    const c = { all: items.length, secure: 0, found: 0, lost: 0 };
+    const c = { all: items.length, secure: 0, lost: 0 };
     items.forEach((item) => {
       const meta = getCardMeta(item);
       if (c[meta.filter] != null) c[meta.filter] += 1;
@@ -142,7 +143,7 @@ export default function AdminMyItemsPage() {
         <AdminPageHero
           eyebrow="My Property"
           title="My Items"
-          subtitle="Manage every report you created across lost, found, and secure holds."
+          subtitle="Manage every report you created — all live items are Lost until returned."
         />
 
         <View style={styles.statsRow}>
@@ -153,10 +154,6 @@ export default function AdminMyItemsPage() {
           <View style={[styles.statCard, styles.statCardSecure]}>
             <Text style={styles.statNum}>{counts.secure}</Text>
             <Text style={styles.statLabel}>Secure</Text>
-          </View>
-          <View style={[styles.statCard, styles.statCardFound]}>
-            <Text style={styles.statNum}>{counts.found}</Text>
-            <Text style={styles.statLabel}>Found</Text>
           </View>
           <View style={[styles.statCard, styles.statCardLost]}>
             <Text style={styles.statNum}>{counts.lost}</Text>

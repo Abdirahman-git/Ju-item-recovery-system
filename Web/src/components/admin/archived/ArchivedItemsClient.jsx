@@ -38,7 +38,6 @@ const PAGE_SIZE = 8;
 const TYPE_TABS = [
   { id: 'all', label: 'All Archived' },
   { id: 'LOST', label: 'Lost' },
-  { id: 'FOUND', label: 'Found' },
 ];
 
 function formatDate(value) {
@@ -312,7 +311,10 @@ export default function ArchivedItemsClient() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const next = items.filter((item) => {
-      const matchesTab = tab === 'all' || item.displayType === tab;
+      const matchesTab =
+        tab === 'all' ||
+        (tab === 'LOST' && (item.displayType === 'LOST' || item.displayType === 'FOUND')) ||
+        item.displayType === tab;
       const matchesCategory = category === 'all' || item.displayCategory === category;
       const haystack = [
         item.displayName,

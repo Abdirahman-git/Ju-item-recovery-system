@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import {
   RefreshCw,
@@ -24,6 +24,7 @@ import {
 } from '@/lib/supabase';
 import { buildPendingPageSparklines } from '@/lib/pageSparklines';
 import ReviewModal from './ReviewModal';
+import OwnershipChallengeEditor from '@/components/admin/OwnershipChallengeEditor';
 import ValidationTrendsPanel from './ValidationTrendsPanel';
 import StatCard from '@/components/admin/StatCard';
 import { categoriesForFilter, isHighValueCategory } from '@/lib/categories';
@@ -67,17 +68,10 @@ function formatDate(value) {
   }
 }
 
-function ReportTypeBadge({ type }) {
-  const isLost = type === 'lost';
+function ReportTypeBadge() {
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold capitalize backdrop-blur-sm ${
-        isLost
-          ? 'border-red-200/60 bg-red-500/10 text-red-700'
-          : 'border-emerald-200/60 bg-emerald-500/10 text-emerald-700'
-      }`}
-    >
-      {isLost ? 'Lost' : 'Found'}
+    <span className="inline-flex items-center rounded-full border border-red-200/60 bg-red-500/10 px-2.5 py-0.5 text-[11px] font-bold capitalize text-red-700 backdrop-blur-sm">
+      Lost
     </span>
   );
 }
@@ -146,8 +140,15 @@ export default function PendingReportsClient() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
+  const [challengeItem, setChallengeItem] = useState(null);
+  const challengeItemRef = useRef(null);
   const [processing, setProcessing] = useState(false);
   const [rejectConfirm, setRejectConfirm] = useState(null);
+  const [approveError, setApproveError] = useState('');
+
+  useEffect(() => {
+    challengeItemRef.current = challengeItem;
+  }, [challengeItem]);
 
   const categories = useMemo(
     () => ['all', ...categoriesForFilter(reports)],
@@ -157,7 +158,7 @@ export default function PendingReportsClient() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reports.filter((item) => {
-      const matchTab = tab === 'all' || item.reportType === tab;
+      const matchTab = tab === 'all' || tab === 'lost';
       const matchCat = category === 'all' || item.displayCategory === category;
       const matchSearch =
         !q ||
@@ -173,8 +174,7 @@ export default function PendingReportsClient() {
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const highValueCount = reports.filter((r) => isHighValueCategory(r.displayCategory)).length;
-  const lostCount = reports.filter((r) => r.reportType === 'lost').length;
-  const foundCount = reports.filter((r) => r.reportType === 'found').length;
+  const lostCount = reports.length;
 
   const sparklines = useMemo(() => buildPendingPageSparklines(reports), [reports]);
 
@@ -183,15 +183,43 @@ export default function PendingReportsClient() {
     setSparkPlayKey((k) => k + 1);
   };
 
-  const handleApprove = async () => {
+  /** Step 1: close review → open Ownership Challenge page. */
+  const handleApprove = () => {
     if (!selected) return;
+    setApproveError('');
+    const next = {
+      ...selected,
+      itemType: selected.reportType === 'found' ? 'found' : 'lost',
+      reportType: selected.reportType === 'found' ? 'found' : selected.reportType || 'lost',
+      displayName: selected.displayName || selected.itemName || 'Item',
+    };
+    challengeItemRef.current = next;
+    setChallengeItem(next);
+    setSelected(null);
+  };
+
+  /** Step 2: after challenge saved → publish item. */
+  const finishApproveAfterChallenge = async () => {
+    const item = challengeItemRef.current;
+    if (!item?.id) {
+      throw new Error('Pending report was lost — reopen Review and try again.');
+    }
     setProcessing(true);
+    setApproveError('');
     try {
-      await approvePendingReport(selected.reportType, selected.id);
+      await approvePendingReport(item.reportType, item.id);
       invalidateAdminCaches('admin:items', 'admin:dashboard', 'admin:reports', 'admin:pending');
       bumpBadge('pending', -1);
-      patchData((prev) => prev.filter((r) => !(r.id === selected.id && r.reportType === selected.reportType)));
-      setSelected(null);
+      patchData((prev) =>
+        prev.filter((r) => !(r.id === item.id && r.reportType === item.reportType))
+      );
+      setChallengeItem(null);
+    } catch (err) {
+      const message =
+        err?.message ||
+        'Challenge saved, but publish failed. Open the item again or check All Items.';
+      setApproveError(message);
+      throw new Error(message);
     } finally {
       setProcessing(false);
     }
@@ -221,7 +249,6 @@ export default function PendingReportsClient() {
           {[
             { id: 'all', label: `All Reports (${reports.length})` },
             { id: 'lost', label: `Lost (${lostCount})` },
-            { id: 'found', label: `Found (${foundCount})` },
           ].map((t) => (
             <button
               key={t.id}
@@ -401,7 +428,7 @@ export default function PendingReportsClient() {
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap items-center gap-2">
-                          <ReportTypeBadge type={item.reportType} />
+                          <ReportTypeBadge />
                           <span className={`glass-badge inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${catClass}`}>
                             {item.displayCategory}
                           </span>
@@ -486,11 +513,32 @@ export default function PendingReportsClient() {
 
       <ReviewModal
         item={selected}
-        onClose={() => setSelected(null)}
+        onClose={() => {
+          setSelected(null);
+          setApproveError('');
+        }}
         onApprove={handleApprove}
         onReject={() => setRejectConfirm(selected)}
         processing={processing}
       />
+      <OwnershipChallengeEditor
+        item={challengeItem}
+        open={Boolean(challengeItem)}
+        onClose={() => {
+          if (!processing) {
+            setChallengeItem(null);
+            setApproveError('');
+          }
+        }}
+        onSaved={finishApproveAfterChallenge}
+        saveLabel="Save & publish"
+        subtitle="Required to approve this pending report. Item goes live after you save."
+      />
+      {approveError ? (
+        <div className="fixed bottom-6 left-1/2 z-[100] w-[min(92vw,480px)] -translate-x-1/2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-lg">
+          {approveError}
+        </div>
+      ) : null}
       <SweetConfirm
         report={rejectConfirm}
         processing={processing}

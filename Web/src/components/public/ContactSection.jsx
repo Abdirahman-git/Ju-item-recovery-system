@@ -6,6 +6,7 @@ import { MapPin, Package } from 'lucide-react';
 import Swal from 'sweetalert2';
 import RevealOnScroll from '@/components/public/RevealOnScroll';
 import { submitContactMessage } from '@/lib/supabase';
+import { validateMeaningfulText } from '@/lib/contentValidation';
 
 const inputClass = 'public-contact-input';
 
@@ -111,6 +112,19 @@ export default function ContactSection() {
     const email = form.email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       await showWarning('Invalid email', 'Please enter a valid student or staff email address.');
+      return;
+    }
+
+    const contentChecks = [
+      validateMeaningfulText(form.firstName, { fieldLabel: 'First name', minLength: 2, minLetters: 2 }),
+      validateMeaningfulText(form.lastName, { fieldLabel: 'Last name', minLength: 2, minLetters: 2 }),
+      validateMeaningfulText(form.itemName, { fieldLabel: 'Item name', minLength: 3, minLetters: 2 }),
+      validateMeaningfulText(form.place, { fieldLabel: 'Campus place', minLength: 5, minLetters: 2 }),
+      validateMeaningfulText(form.message, { fieldLabel: 'Message', minLength: 10, minLetters: 4 }),
+    ];
+    const failedCheck = contentChecks.find((check) => !check.valid);
+    if (failedCheck) {
+      await showWarning(failedCheck.title || 'Invalid input', failedCheck.message);
       return;
     }
 

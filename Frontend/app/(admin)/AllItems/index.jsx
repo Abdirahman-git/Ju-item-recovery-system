@@ -31,7 +31,6 @@ const STATUS_TABS = [
   { id: 'all', label: 'All', icon: 'grid-outline' },
   { id: 'draft', label: 'Draft', icon: 'document-text-outline' },
   { id: 'secure', label: 'Secure', icon: 'shield-checkmark-outline' },
-  { id: 'found', label: 'Found', icon: 'checkmark-circle-outline' },
   { id: 'lost', label: 'Lost', icon: 'help-buoy-outline' },
 ];
 
@@ -46,7 +45,6 @@ const STAT_META = {
   all: { label: 'Total', icon: 'albums-outline', tint: Colors.primary, soft: Colors.primaryLight },
   draft: { label: 'Draft', icon: 'create-outline', tint: '#7C3AED', soft: '#EDE9FE' },
   secure: { label: 'Secure', icon: 'lock-closed-outline', tint: '#D97706', soft: '#FEF3C7' },
-  found: { label: 'Found', icon: 'checkmark-done-outline', tint: Colors.success, soft: '#ECFDF5' },
   lost: { label: 'Lost', icon: 'alert-circle-outline', tint: Colors.error, soft: '#FEF2F2' },
 };
 
@@ -67,14 +65,14 @@ function getCardMeta(item) {
   if (isSecure && status === ITEM_STATUS.LIVE) {
     return {
       filter: 'secure',
-      badge: { label: 'Secure', bg: '#FFFBEB', color: '#B45309', border: '#FCD34D' },
+      badge: { label: 'Lost', bg: '#FEF2F2', color: '#B91C1C', border: '#FECACA' },
     };
   }
 
   if (itemType === 'found') {
     return {
-      filter: 'found',
-      badge: { label: 'Found', bg: '#ECFDF5', color: '#047857', border: '#A7F3D0' },
+      filter: 'lost',
+      badge: { label: 'Lost', bg: '#FEF2F2', color: '#B91C1C', border: '#FECACA' },
     };
   }
 
@@ -121,7 +119,7 @@ export default function AllItemsScreen() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(
-    ['all', 'draft', 'secure', 'found', 'lost'].includes(initialTab) ? initialTab : 'all'
+    ['all', 'draft', 'secure', 'lost'].includes(initialTab) ? initialTab : 'all'
   );
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
@@ -156,7 +154,7 @@ export default function AllItemsScreen() {
   }, [items]);
 
   const counts = useMemo(() => {
-    const c = { all: items.length, draft: 0, secure: 0, found: 0, lost: 0 };
+    const c = { all: items.length, draft: 0, secure: 0, lost: 0 };
     items.forEach((item) => {
       const meta = getCardMeta(item);
       if (c[meta.filter] != null) c[meta.filter] += 1;

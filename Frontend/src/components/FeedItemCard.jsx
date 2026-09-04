@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { isSecureListing } from '../utils/itemStatus';
+import { isSecureListing, normalizeItemStatus, ITEM_STATUS } from '../utils/itemStatus';
 import { getSecureItemDisplay } from '../utils/secureItemDisplay';
 
 const LOST_BLUE = '#3B82F6';
-const FOUND_GREEN = '#10B981';
 const SECURE_AMBER = '#D97706';
+const RETURNED_SLATE = '#64748B';
 
 function isAdminPosted(item) {
   return item.email && (
@@ -17,11 +17,11 @@ function isAdminPosted(item) {
 }
 
 export default function FeedItemCard({ item, onPress }) {
-  const isLost = item.type === 'LOST';
-  const isSecure = !isLost && isSecureListing(item);
+  const isSecure = isSecureListing(item);
+  const isReturned = normalizeItemStatus(item) === ITEM_STATUS.RETURNED;
   const secureDisplay = isSecure ? getSecureItemDisplay(item) : null;
-  const typeColor = isLost ? LOST_BLUE : isSecure ? SECURE_AMBER : FOUND_GREEN;
-  const typeLabel = isSecure ? 'SECURE' : item.type;
+  const typeColor = isReturned ? RETURNED_SLATE : LOST_BLUE;
+  const typeLabel = isReturned ? 'RETURNED' : 'LOST';
   const displayName = isSecure ? secureDisplay.name : item.itemName;
   const displayLocation = isSecure
     ? (item.security_location || item.location || 'Campus Security Office')
@@ -47,7 +47,7 @@ export default function FeedItemCard({ item, onPress }) {
               </View>
             ) : (
               <MaterialCommunityIcons
-                name={isLost ? 'magnify-scan' : 'check-circle-outline'}
+                name="magnify-scan"
                 size={34}
                 color={typeColor}
               />

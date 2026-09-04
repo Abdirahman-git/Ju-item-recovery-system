@@ -204,7 +204,7 @@ export default function OwnershipRequestsScreen() {
                 <View style={styles.cardTop}>
                   <View style={[styles.typePillWrap, isLost ? styles.typePillLost : styles.typePillFound]}>
                     <Text style={[styles.typePillText, isLost ? styles.typePillTextLost : styles.typePillTextFound]}>
-                      {isLost ? 'LOST REPORT' : 'FOUND REPORT'}
+                      LOST REPORT
                     </Text>
                   </View>
                   <View style={styles.cardTopRight}>

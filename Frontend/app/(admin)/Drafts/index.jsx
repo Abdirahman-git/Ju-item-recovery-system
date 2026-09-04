@@ -23,7 +23,6 @@ import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 const TABS = [
   { id: 'all', label: 'All' },
   { id: 'lost', label: 'Lost' },
-  { id: 'found', label: 'Found' },
   { id: 'secure', label: 'Secure' },
 ];
 
@@ -37,7 +36,6 @@ function isPublicFoundDraft(draft) {
 
 function draftBadge(draft) {
   if (isSecureDraft(draft)) return { label: 'Secure Draft', bg: '#FEF3C7', color: '#B45309' };
-  if (draft.itemType === 'found') return { label: 'Found Draft', bg: '#D1FAE5', color: '#047857' };
   return { label: 'Lost Draft', bg: '#FEE2E2', color: '#B91C1C' };
 }
 
@@ -88,8 +86,7 @@ export default function DraftsScreen() {
   const counts = useMemo(
     () => ({
       all: drafts.length,
-      lost: drafts.filter((d) => d.itemType === 'lost').length,
-      found: drafts.filter(isPublicFoundDraft).length,
+      lost: drafts.filter((d) => d.itemType === 'lost' || isPublicFoundDraft(d)).length,
       secure: drafts.filter(isSecureDraft).length,
     }),
     [drafts]
@@ -97,8 +94,7 @@ export default function DraftsScreen() {
 
   const filteredDrafts = useMemo(() => {
     const tabFiltered = drafts.filter((draft) => {
-      if (activeTab === 'lost') return draft.itemType === 'lost';
-      if (activeTab === 'found') return isPublicFoundDraft(draft);
+      if (activeTab === 'lost') return draft.itemType === 'lost' || isPublicFoundDraft(draft);
       if (activeTab === 'secure') return isSecureDraft(draft);
       return true;
     });
@@ -162,7 +158,7 @@ export default function DraftsScreen() {
         <AdminPageHero
           eyebrow="Work in progress"
           title="Continue where you left off"
-          subtitle="Drafts from Report Lost, Report Found, or Secure Found appear here before they are published."
+          subtitle="Drafts from Report Lost or Secure Lost appear here before they are published."
         />
 
         <View style={styles.statsRow}>
@@ -173,10 +169,6 @@ export default function DraftsScreen() {
           <View style={[styles.statCard, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
             <Text style={[styles.statNum, { color: '#B91C1C' }]}>{counts.lost}</Text>
             <Text style={styles.statLabel}>Lost</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: '#D1FAE5', borderColor: '#A7F3D0' }]}>
-            <Text style={[styles.statNum, { color: '#047857' }]}>{counts.found}</Text>
-            <Text style={styles.statLabel}>Found</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
             <Text style={[styles.statNum, { color: '#B45309' }]}>{counts.secure}</Text>
@@ -292,7 +284,7 @@ export default function DraftsScreen() {
             <Ionicons name="document-text-outline" size={56} color={Colors.slate300} />
             <Text style={styles.emptyTitle}>No draft items found</Text>
             <Text style={styles.emptyText}>
-              {searchQuery.trim() ? 'Try another search term or switch tabs.' : 'Save a draft from Lost, Found, or Secure Found to see it here.'}
+              {searchQuery.trim() ? 'Try another search term or switch tabs.' : 'Save a draft from Lost or Secure Lost to see it here.'}
             </Text>
           </View>
         )}

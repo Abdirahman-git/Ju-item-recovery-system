@@ -29,7 +29,6 @@ const FOUND_GREEN = '#10B981';
 const STATUS_OPTIONS = [
   { id: 'all', label: 'All', icon: 'view-grid-outline', color: PRIMARY },
   { id: 'LOST', label: 'Lost', icon: 'magnify', color: LOST_BLUE },
-  { id: 'FOUND', label: 'Found', icon: 'cube-outline', color: FOUND_GREEN },
 ];
 
 function formatTimeAgo(dateString) {
@@ -85,7 +84,8 @@ export default function AllItemsPage() {
       (item.description || '').toLowerCase().includes(q) ||
       item.type.toLowerCase().includes(q);
 
-    const matchesStatus = statusFilter === 'all' || item.type === statusFilter;
+    // Live board: everything is Lost (including legacy found_items / secure).
+    const matchesStatus = statusFilter === 'all' || statusFilter === 'LOST';
 
     const itemCategory = String(item.category || item.public_category || '').trim().toLowerCase();
     const matchesCategory =

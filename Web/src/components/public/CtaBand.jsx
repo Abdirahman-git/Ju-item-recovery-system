@@ -22,7 +22,7 @@ function PlayMark() {
 }
 
 const HIGHLIGHTS = [
-  { icon: Search, title: 'Report', text: 'Lost or found in minutes' },
+  { icon: Search, title: 'Report', text: 'Lost items in minutes' },
   { icon: ShieldCheck, title: 'Verified', text: 'Admin-approved listings' },
   { icon: BadgeCheck, title: 'Recover', text: 'Claim on campus, securely' },
 ];

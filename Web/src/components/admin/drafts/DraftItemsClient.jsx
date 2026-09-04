@@ -28,7 +28,6 @@ import { isSuperAdmin as checkSuperAdmin } from '@/lib/session';
 const TABS = [
   { id: 'all', label: 'All Drafts' },
   { id: 'lost', label: 'Lost Drafts' },
-  { id: 'found', label: 'Found Drafts' },
   { id: 'secure', label: 'Secure Drafts' },
 ];
 
@@ -120,7 +119,7 @@ function DraftImage({ draft }) {
 function DeleteDraftModal({ draft, deleting, onCancel, onConfirm }) {
   if (!draft) return null;
 
-  const kind = isSecureDraft(draft) ? 'Secure draft' : draft.itemType === 'found' ? 'Found draft' : 'Lost draft';
+  const kind = isSecureDraft(draft) ? 'Secure Lost draft' : 'Lost draft';
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-md">
@@ -167,7 +166,7 @@ function DraftCard({ draft, onDelete }) {
     : isFound
       ? 'bg-emerald-600/95 text-white'
       : 'bg-red-600/95 text-white';
-  const label = secure ? 'Secure Draft' : isFound ? 'Found Draft' : 'Lost Draft';
+  const label = secure ? 'Lost Draft' : 'Lost Draft';
   const href = secure
     ? `/admin/secure-found?draft=${draft.id}`
     : isFound
@@ -263,8 +262,7 @@ export default function DraftItemsClient() {
   const counts = useMemo(
     () => ({
       all: drafts.length,
-      lost: drafts.filter((draft) => draft.itemType === 'lost').length,
-      found: drafts.filter(isPublicFoundDraft).length,
+      lost: drafts.filter((draft) => draft.itemType === 'lost' || isPublicFoundDraft(draft)).length,
       secure: drafts.filter(isSecureDraft).length,
     }),
     [drafts]
@@ -292,18 +290,11 @@ export default function DraftItemsClient() {
           <span className="hidden sm:inline">New Lost Draft</span>
         </Link>
         <Link
-          href="/admin/found"
-          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
-        >
-          <Plus size={14} />
-          <span className="hidden sm:inline">New Found Draft</span>
-        </Link>
-        <Link
           href="/admin/secure-found"
           className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100"
         >
           <Plus size={14} />
-          <span className="hidden sm:inline">New Secure Draft</span>
+          <span className="hidden sm:inline">New Secure Lost</span>
         </Link>
         <button
           type="button"
@@ -319,8 +310,9 @@ export default function DraftItemsClient() {
   }, [setActions, clearActions, handleRefresh]);
 
   const tabDrafts = useMemo(() => {
-    if (activeTab === 'lost') return drafts.filter((draft) => draft.itemType === 'lost');
-    if (activeTab === 'found') return drafts.filter(isPublicFoundDraft);
+    if (activeTab === 'lost') {
+      return drafts.filter((draft) => draft.itemType === 'lost' || isPublicFoundDraft(draft));
+    }
     if (activeTab === 'secure') return drafts.filter(isSecureDraft);
     return drafts;
   }, [drafts, activeTab]);
@@ -389,7 +381,7 @@ export default function DraftItemsClient() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard
           compact
           playKey={sparkPlayKey}
@@ -397,8 +389,8 @@ export default function DraftItemsClient() {
           icon="package"
           value={counts.all}
           label="Total Drafts"
-          trendLabel={`${counts.found} found`}
-          subLabel={`${counts.lost} lost`}
+          trendLabel={`${counts.lost} lost · ${counts.secure} secure`}
+          subLabel="Unpublished reports"
           sparkData={sparklines.total}
         />
         <StatCard
@@ -416,21 +408,10 @@ export default function DraftItemsClient() {
           compact
           playKey={sparkPlayKey}
           sparkIndex={2}
-          icon="check"
-          value={counts.found}
-          label="Found Drafts"
-          trendLabel="Found drafts"
-          subLabel="Public found"
-          sparkData={sparklines.found}
-        />
-        <StatCard
-          compact
-          playKey={sparkPlayKey}
-          sparkIndex={3}
           icon="laptop"
           value={counts.secure}
           label="Secure Drafts"
-          trendLabel="Secure found"
+          trendLabel="Secure holds"
           subLabel="High-value drafts"
           sparkData={sparklines.secure}
         />
@@ -489,7 +470,7 @@ export default function DraftItemsClient() {
           <p className="mt-1 max-w-md text-sm text-slate-500">
             {search.trim()
               ? 'Try another search term or switch tabs.'
-              : 'Drafts from Report Lost, Report Found, or Secure Found appear here before publish.'}
+              : 'Drafts from Report Lost or Secure Lost appear here before publish.'}
           </p>
         </div>
       ) : (

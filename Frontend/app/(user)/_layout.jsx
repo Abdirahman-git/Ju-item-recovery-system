@@ -37,7 +37,7 @@ export default function UserLayout() {
         <Drawer.Screen
           name="Found/index"
           options={{
-            drawerLabel: 'Found Item',
+            drawerItemStyle: { display: 'none' },
             title: 'Found Item',
           }}
         />
