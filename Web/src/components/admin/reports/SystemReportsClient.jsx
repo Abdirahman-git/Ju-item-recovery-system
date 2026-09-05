@@ -26,11 +26,29 @@ import StatCard from '@/components/admin/StatCard';
 import ItemThumbnail from '@/components/admin/ItemThumbnail';
 import ReportFiltersPanel from '@/components/admin/reports/ReportFiltersPanel';
 import ReportExportMenu, { SummaryExportMenu } from '@/components/admin/reports/ReportExportMenu';
+import { exportOfficialExecutivePdf } from '@/lib/reportExport';
 import ClaimsTrackingChart from '@/components/admin/reports/ClaimsTrackingChart';
 import CategoriesBreakdownPanel from '@/components/admin/reports/CategoriesBreakdownPanel';
 import TopContributorsPanel from '@/components/admin/reports/TopContributorsPanel';
 
 const CONTRIBUTOR_SOURCES = new Set(['inventory', 'lost', 'found', 'drafts', 'secure', 'pending']);
+
+/** Item-based report sources — show Category filter and item insight panels */
+const ITEM_REPORT_SOURCES = new Set([
+  'inventory',
+  'lost',
+  'found',
+  'returned',
+  'pending',
+  'claims',
+  'drafts',
+  'secure',
+  'recycle',
+  'archived',
+]);
+
+/** Non-item sources (e.g. Registered Users) — hide category + item breakdowns */
+const NON_ITEM_REPORT_SOURCES = new Set(['users', 'contact']);
 
 function fieldsFromPosterKey(key = '') {
   if (key.startsWith('email:')) return { posterEmail: key.slice(6), studentId: '—' };
@@ -174,8 +192,9 @@ function buildStatusOptions(rows = []) {
     live: 'Live',
     draft: 'Draft',
     pending_review: 'Pending review',
-    pending: 'Pending',
+    pending: 'Approved',
     approved: 'Approved',
+    physical: 'Physical',
     rejected: 'Rejected',
     active: 'Active',
     admin: 'Admin',
@@ -210,6 +229,7 @@ const EMPTY_REPORTS = {
     secureItems: 0,
     totalClaims: 0,
     pendingClaims: 0,
+    physicalClaims: 0,
     approvedClaims: 0,
     rejectedClaims: 0,
     recoveryRate: 0,
@@ -244,7 +264,7 @@ const REPORT_COLUMNS = {
   users: [
     { key: 'name', label: 'Name' },
     { key: 'email', label: 'Email' },
-    { key: 'studentId', label: 'Student ID' },
+    { key: 'studentId', label: 'ID' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'role', label: 'Role' },
     { key: 'status', label: 'Status' },
@@ -302,10 +322,13 @@ const REPORT_COLUMNS = {
   claims: [
     { key: 'imageUrl', label: 'Photo' },
     { key: 'item', label: 'Item' },
+    { key: 'category', label: 'Category' },
     { key: 'claimer', label: 'Claimer' },
-    { key: 'studentId', label: 'Student ID' },
+    { key: 'studentId', label: 'ID' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'status', label: 'Status' },
+    { key: 'score', label: 'Score' },
+    { key: 'result', label: 'Result' },
     { key: 'requestedAt', label: 'Requested' },
   ],
   drafts: [
@@ -351,7 +374,7 @@ const REPORT_COLUMNS = {
     { key: 'name', label: 'Sender' },
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
-    { key: 'studentId', label: 'Student ID' },
+    { key: 'studentId', label: 'ID' },
     { key: 'faculty', label: 'Faculty' },
     { key: 'subject', label: 'Subject' },
     { key: 'item', label: 'Item' },
@@ -384,8 +407,9 @@ function formatStatusLabel(value) {
   if (normalized === 'returned') return 'Returned';
   if (normalized === 'archived') return 'Archived';
   if (normalized === 'deleted') return 'Deleted';
-  if (normalized === 'pending') return 'Pending';
+  if (normalized === 'pending') return 'Approved';
   if (normalized === 'approved') return 'Approved';
+  if (normalized === 'physical') return 'Physical';
   if (normalized === 'rejected') return 'Rejected';
   if (normalized === 'active') return 'Active';
   if (normalized === 'admin') return 'Admin';
@@ -398,6 +422,9 @@ function statusTone(value) {
   const normalized = String(value || '').toLowerCase();
   if (normalized === 'active' || normalized === 'approved' || normalized === 'live' || normalized === 'read') {
     return 'bg-emerald-50 text-emerald-700';
+  }
+  if (normalized === 'physical') {
+    return 'bg-indigo-50 text-indigo-700';
   }
   if (
     normalized === 'pending' ||
@@ -647,9 +674,32 @@ export default function SystemReportsClient() {
   const statusOptions = useMemo(() => buildStatusOptions(allRows), [allRows]);
 
   const showCategoryFilter = useMemo(
-    () => (REPORT_COLUMNS[filters.sourceId] || []).some((column) => column.key === 'category'),
+    () => ITEM_REPORT_SOURCES.has(filters.sourceId),
     [filters.sourceId]
   );
+
+  const showItemInsightPanels = useMemo(
+    () => !NON_ITEM_REPORT_SOURCES.has(filters.sourceId),
+    [filters.sourceId]
+  );
+
+  /** Chart lifecycle: Lost = still missing, Found = returned/recovered */
+  const chartRows = useMemo(() => {
+    if (NON_ITEM_REPORT_SOURCES.has(filters.sourceId)) return [];
+
+    const asLost = (rows = []) => rows.map((row) => ({ ...row, lifecycle: 'lost', type: 'Lost' }));
+    const asFound = (rows = []) => rows.map((row) => ({ ...row, lifecycle: 'found', type: 'Returned' }));
+
+    if (filters.sourceId === 'inventory' || filters.sourceId === 'lost' || filters.sourceId === 'found') {
+      return [...asLost(records.inventory || []), ...asFound(records.returned || [])];
+    }
+
+    if (filters.sourceId === 'returned') {
+      return asFound(allRows);
+    }
+
+    return asLost(allRows);
+  }, [filters.sourceId, records, allRows]);
 
   const categoryOptions = useMemo(() => {
     const fromRows = collectCategoriesFromItems(allRows, 'category');
@@ -671,8 +721,9 @@ export default function SystemReportsClient() {
   );
 
   const filteredCategories = useMemo(() => {
-    if (!filteredRows.length || filters.sourceId === 'users' || filters.sourceId === 'claims' || filters.sourceId === 'contact') {
-      return categories.slice(0, 8);
+    if (!showItemInsightPanels) return [];
+    if (!filteredRows.length) {
+      return ITEM_REPORT_SOURCES.has(filters.sourceId) ? [] : categories.slice(0, 8);
     }
     const map = {};
     filteredRows.forEach((row) => {
@@ -683,7 +734,7 @@ export default function SystemReportsClient() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([name, count]) => ({ name, count }));
-  }, [filteredRows, filters.sourceId, categories]);
+  }, [filteredRows, filters.sourceId, categories, showItemInsightPanels]);
 
   const categoryTotalItems = useMemo(
     () => filteredCategories.reduce((sum, row) => sum + row.count, 0),
@@ -722,10 +773,7 @@ export default function SystemReportsClient() {
   );
 
   const categoriesAreFiltered = useMemo(
-    () =>
-      ['inventory', 'lost', 'found', 'drafts', 'secure', 'pending', 'returned', 'recycle', 'archived'].includes(
-        filters.sourceId
-      ) && filteredRows.length > 0,
+    () => ITEM_REPORT_SOURCES.has(filters.sourceId) && filteredRows.length > 0,
     [filters.sourceId, filteredRows.length]
   );
 
@@ -856,11 +904,19 @@ export default function SystemReportsClient() {
           <RefreshCw size={13} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
+        <button
+          type="button"
+          onClick={() => exportOfficialExecutivePdf(view, formatGeneratedAt, session)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600/30 bg-gradient-to-r from-emerald-600 to-emerald-800 px-3 py-1.5 text-xs font-black text-white shadow-md shadow-emerald-700/20 transition hover:brightness-110"
+        >
+          <FileText size={13} />
+          <span>Official Executive PDF</span>
+        </button>
         <SummaryExportMenu view={view} formatGeneratedAt={formatGeneratedAt} />
       </>
     );
     return () => clearActions();
-  }, [setActions, clearActions, handleRefresh, view]);
+  }, [setActions, clearActions, handleRefresh, view, session]);
 
   return (
     <div className="w-full space-y-5 pb-6">
@@ -896,7 +952,7 @@ export default function SystemReportsClient() {
           label="Total Inventory"
           value={summary.totalItems}
           icon="package"
-          trendLabel={`${summary.lostItems} lost · ${summary.foundItems} holds`}
+          trendLabel={`${summary.lostItems} still missing · ${summary.foundItems} found`}
           subLabel={
             summary.maxUserActivityCount > 0
               ? `Most active: ${summary.maxUserActivityName} (${summary.maxUserActivityCount})`
@@ -927,7 +983,7 @@ export default function SystemReportsClient() {
           value={summary.pendingReports + summary.pendingClaims}
           icon="alert"
           urgent={summary.pendingReports + summary.pendingClaims > 0}
-          trendLabel={`${summary.pendingReports} reports · ${summary.pendingClaims} claims`}
+          trendLabel={`${summary.pendingReports} reports · ${summary.physicalClaims || 0} physical · ${summary.pendingClaims} open claims`}
           sparkData={sparklines.action}
         />
       </div>
@@ -1030,41 +1086,47 @@ export default function SystemReportsClient() {
         ) : null}
       </div>
 
-      <div className="space-y-4">
-        <ClaimsTrackingChart
-          rows={allRows}
-          sourceId={filters.sourceId}
-          sourceLabel={selectedSource?.label}
-        />
-
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          <TopContributorsPanel
-            contributors={displayContributors}
-            title={
-              contributorsAreFiltered ? 'Filtered Top Contributors' : 'Top Contributors'
+      {showItemInsightPanels ? (
+        <div className="space-y-4">
+          <ClaimsTrackingChart
+            rows={chartRows}
+            sourceId={
+              filters.sourceId === 'lost' || filters.sourceId === 'found'
+                ? 'inventory'
+                : filters.sourceId
             }
-            subtitle="Most item reports by person across campus inventory"
-            totalPosts={contributorTotalPosts || summary.totalItems}
-            filtered={contributorsAreFiltered}
+            sourceLabel={selectedSource?.label}
           />
 
-          <CategoriesBreakdownPanel
-            categories={filteredCategories}
-            title={
-              filters.sourceId === 'inventory' || filters.sourceId === 'lost' || filters.sourceId === 'found'
-                ? 'Filtered Categories'
-                : 'Inventory by Category'
-            }
-            subtitle={
-              categoriesAreFiltered
-                ? 'Based on current report filters'
-                : 'Breakdown of items across campus categories'
-            }
-            totalItems={categoryTotalItems || filteredRows.length || summary.totalItems}
-            onViewAll={() => jumpToSource('inventory')}
-          />
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <TopContributorsPanel
+              contributors={displayContributors}
+              title={
+                contributorsAreFiltered ? 'Filtered Top Contributors' : 'Top Contributors'
+              }
+              subtitle="Most item reports by person across campus inventory"
+              totalPosts={contributorTotalPosts || summary.totalItems}
+              filtered={contributorsAreFiltered}
+            />
+
+            <CategoriesBreakdownPanel
+              categories={filteredCategories}
+              title={
+                filters.sourceId === 'inventory' || filters.sourceId === 'lost' || filters.sourceId === 'found' || filters.sourceId === 'claims'
+                  ? 'Filtered Categories'
+                  : 'Inventory by Category'
+              }
+              subtitle={
+                categoriesAreFiltered
+                  ? 'Based on current report filters'
+                  : 'Breakdown of items across campus categories'
+              }
+              totalItems={categoryTotalItems || filteredRows.length || summary.totalItems}
+              onViewAll={() => jumpToSource('inventory')}
+            />
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {confirmReset ? (
         <ResetConfirmModal

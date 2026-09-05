@@ -295,7 +295,7 @@ export default function AllUsersClient() {
           icon="check"
           value={counts.active}
           label="Active Accounts"
-          trendLabel="Approved students"
+          trendLabel="Approved users"
           sparkData={sparklines.active}
         />
         <StatCard
@@ -380,7 +380,7 @@ export default function AllUsersClient() {
             <thead>
               <tr className="border-b border-white/40 bg-white/[0.12] text-[11px] font-black uppercase tracking-wider text-slate-500">
                 <th className="px-5 py-4">User</th>
-                <th className="px-4 py-4">Student ID</th>
+                <th className="px-4 py-4">ID</th>
                 <th className="px-4 py-4">Department</th>
                 <th className="px-4 py-4">Contact</th>
                 <th className="px-4 py-4">Status</th>
@@ -407,7 +407,7 @@ export default function AllUsersClient() {
                           </div>
                           <div className="min-w-0">
                             <p className="truncate text-[15px] font-semibold text-slate-900">{user.name || 'Unnamed user'}</p>
-                            <p className="text-xs font-semibold text-slate-400">{isAdmin ? 'System administrator' : 'Student account'}</p>
+                            <p className="text-xs font-semibold text-slate-400">{isAdmin ? 'System administrator' : 'User account'}</p>
                           </div>
                         </div>
                       </td>

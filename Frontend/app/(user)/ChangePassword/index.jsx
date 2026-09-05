@@ -185,7 +185,7 @@ export default function ChangePasswordPage() {
             <View style={styles.introTextWrap}>
               <Text style={styles.introTitle}>Update your password</Text>
               <Text style={styles.introSubtitle}>
-                Choose a strong password you have not used elsewhere to keep your student account safe.
+                Choose a strong password you have not used elsewhere to keep your user account safe.
               </Text>
             </View>
           </InfoCard>
@@ -195,7 +195,7 @@ export default function ChangePasswordPage() {
               <Text style={styles.accountInitials}>{getInitials(user?.displayName)}</Text>
             </View>
             <View style={styles.accountInfo}>
-              <Text style={styles.accountName}>{user?.displayName || 'Student'}</Text>
+              <Text style={styles.accountName}>{user?.displayName || 'User'}</Text>
               <Text style={styles.accountMeta}>ID: {user?.studentId || '—'}</Text>
             </View>
             <View style={styles.verifiedBadge}>

@@ -36,12 +36,32 @@ export function shouldShowClaimSection(item, userEmail, sessionUserName = '', di
   return canShowThisIsMine(item, userEmail, sessionUserName);
 }
 
-export const dismissStorageKey = (item) => {
+export const dismissStorageKey = (item, userEmail = '') => {
   const type = isLostItemRecord(item) ? 'lost' : 'found';
-  return `claim_dismissed_${type}_${item.id}`;
+  const email = String(userEmail || '').trim().toLowerCase() || 'anon';
+  return `claim_dismissed_${email}_${type}_${item.id}`;
 };
 
-export const pendingClaimStorageKey = (item) => {
+export const pendingClaimStorageKey = (item, userEmail = '') => {
   const type = isLostItemRecord(item) ? 'lost' : 'found';
-  return `claim_pending_${type}_${item.id}`;
+  const email = String(userEmail || '').trim().toLowerCase() || 'anon';
+  return `claim_pending_${email}_${type}_${item.id}`;
 };
+
+/** Per-user only — never share reject/pending flags across accounts on one device. */
+export const rejectedClaimStorageKey = (item, userEmail = '') => {
+  const type = isLostItemRecord(item) ? 'lost' : 'found';
+  const email = String(userEmail || '').trim().toLowerCase() || 'anon';
+  return `claim_rejected_${email}_${type}_${item.id}`;
+};
+
+/** Remove old device-wide keys that blocked every account on the same phone. */
+export async function clearLegacySharedClaimFlags(item, AsyncStorage) {
+  if (!item?.id || !AsyncStorage?.removeItem) return;
+  const type = isLostItemRecord(item) ? 'lost' : 'found';
+  await Promise.all([
+    AsyncStorage.removeItem(`claim_rejected_${type}_${item.id}`),
+    AsyncStorage.removeItem(`claim_pending_${type}_${item.id}`),
+    AsyncStorage.removeItem(`claim_dismissed_${type}_${item.id}`),
+  ]);
+}

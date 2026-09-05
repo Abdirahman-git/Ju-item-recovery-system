@@ -111,7 +111,7 @@ export default function AdminTopBar() {
             id: `claim-${claim.id}`,
             type: 'claim',
             title: claim.status === 'physical' ? 'Physical verification' : 'New Ownership Claim',
-            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'Student'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
+            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'User'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
             time: claim.created_at || claim.requestedAt || null,
             link: '/admin/claims',
           });

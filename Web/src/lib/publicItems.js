@@ -72,9 +72,9 @@ let publicItemsCache = {
 let inflightRequest = null;
 let inflightLimit = 0;
 
-const CACHE_TTL_MS = 45_000;
-const DEFAULT_FETCH_TIMEOUT_MS = 12_000;
-const PREVIEW_FETCH_TIMEOUT_MS = 8_000;
+const CACHE_TTL_MS = 5_000;
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+const PREVIEW_FETCH_TIMEOUT_MS = 6_000;
 
 async function withTimeout(promise, label = 'Public feed', timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
   let timer;
@@ -93,6 +93,15 @@ async function withTimeout(promise, label = 'Public feed', timeoutMs = DEFAULT_F
   }
 }
 
+function isAbortOrTimeout(error) {
+  const name = String(error?.name || '');
+  const message = String(error?.message || error || '');
+  return (
+    name === 'AbortError' ||
+    /aborted|abort|timed out|timeout/i.test(message)
+  );
+}
+
 function errorText(error) {
   if (typeof error?.message === 'string') return error.message;
   try {
@@ -108,20 +117,35 @@ function mapPublicFeedRows(lostData = [], foundData = []) {
   return [...mappedLost, ...mappedFound].sort((a, b) => b.sortKey - a.sortKey);
 }
 
-function liveFeedQuery(table, columns, limit) {
-  return supabase
+function liveFeedQuery(table, columns, limit, signal) {
+  let query = supabase
     .from(table)
     .select(columns)
-    // claim_pending / awaiting_pickup stay off the public board while Ownership Challenge is open
-    .or('status.eq.live,is_approved.eq.true')
+    // Only true LIVE rows — claim_pending / awaiting_pickup must leave the public board
+    .eq('status', 'live')
     .order('id', { ascending: false })
     .limit(limit);
+  if (signal && typeof query.abortSignal === 'function') {
+    query = query.abortSignal(signal);
+  }
+  return query;
 }
 
 async function queryPublicTable(table, columns, limit, timeoutMs) {
-  const result = await withTimeout(liveFeedQuery(table, columns, limit), `${table} feed`, timeoutMs);
-  if (result.error) throw result.error;
-  return result.data || [];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const result = await liveFeedQuery(table, columns, limit, controller.signal);
+    if (result.error) throw result.error;
+    return result.data || [];
+  } catch (error) {
+    if (isAbortOrTimeout(error) || controller.signal.aborted) {
+      throw new Error(`${table} feed timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function queryPublicFeed({ lostColumns, foundColumns, limit, timeoutMs }) {
@@ -135,20 +159,25 @@ async function queryPublicFeed({ lostColumns, foundColumns, limit, timeoutMs }) 
   const foundData = foundSettled.status === 'fulfilled' ? foundSettled.value : [];
 
   if (lostSettled.status === 'rejected') {
-    console.warn('Public lost_items feed failed:', lostSettled.reason?.message || lostSettled.reason);
+    const reason = lostSettled.reason?.message || lostSettled.reason;
+    if (isAbortOrTimeout(lostSettled.reason)) {
+      console.warn('Public lost_items feed timed out');
+    } else {
+      console.warn('Public lost_items feed failed:', reason);
+    }
   }
   if (foundSettled.status === 'rejected') {
-    console.warn('Public found_items feed failed:', foundSettled.reason?.message || foundSettled.reason);
+    const reason = foundSettled.reason?.message || foundSettled.reason;
+    if (isAbortOrTimeout(foundSettled.reason)) {
+      console.warn('Public found_items feed timed out');
+    } else {
+      console.warn('Public found_items feed failed:', reason);
+    }
   }
 
+  // Soft-fail: never block the page when Supabase is slow/unreachable
   if (!lostData.length && !foundData.length) {
-    const reason =
-      lostSettled.status === 'rejected'
-        ? lostSettled.reason
-        : foundSettled.status === 'rejected'
-          ? foundSettled.reason
-          : new Error('Public feed returned no rows');
-    throw reason;
+    return [];
   }
 
   return mapPublicFeedRows(lostData, foundData);
@@ -165,9 +194,19 @@ function readCachedFeed(safeLimit) {
     publicItemsCache.limit >= safeLimit &&
     now - publicItemsCache.timestamp < CACHE_TTL_MS
   ) {
-    return publicItemsCache.data.slice(0, safeLimit * 2);
+    return publicItemsCache.data
+      .filter((row) => {
+        const s = String(row?.status || '').trim().toLowerCase();
+        return s !== 'claim_pending' && s !== 'awaiting_pickup' && s !== 'matched';
+      })
+      .slice(0, safeLimit * 2);
   }
   return null;
+}
+
+/** Clear in-memory public feed (e.g. after claim lock). */
+export function invalidatePublicItemsCache() {
+  publicItemsCache = { data: null, limit: 0, timestamp: 0 };
 }
 
 function writeCachedFeed(combined, safeLimit) {
@@ -179,11 +218,13 @@ function writeCachedFeed(combined, safeLimit) {
   return combined;
 }
 
-async function fetchPublicLiveItemsInternal({ limit = 48, timeoutMs } = {}) {
+async function fetchPublicLiveItemsInternal({ limit = 48, timeoutMs, skipCache = false } = {}) {
   const safeLimit = Math.min(Math.max(Number(limit) || 48, 1), 100);
   const effectiveTimeout = timeoutMs || resolveTimeoutMs(safeLimit);
-  const cached = readCachedFeed(safeLimit);
-  if (cached) return cached;
+  if (!skipCache) {
+    const cached = readCachedFeed(safeLimit);
+    if (cached) return cached;
+  }
 
   try {
     const combined = await queryPublicFeed({
@@ -231,7 +272,11 @@ async function fetchPublicLiveItemsInternal({ limit = 48, timeoutMs } = {}) {
       return publicItemsCache.data.slice(0, safeLimit * 2);
     }
 
-    console.error('Error in fetchPublicLiveItems:', error);
+    if (isAbortOrTimeout(error)) {
+      console.warn('Public feed unavailable (timeout); showing empty list.');
+    } else {
+      console.error('Error in fetchPublicLiveItems:', error);
+    }
     return [];
   }
 }
@@ -242,10 +287,12 @@ async function fetchPublicLiveItemsInternal({ limit = 48, timeoutMs } = {}) {
  */
 export async function fetchPublicLiveItems(options = {}) {
   const safeLimit = Math.min(Math.max(Number(options.limit) || 48, 1), 100);
-  const cached = readCachedFeed(safeLimit);
-  if (cached) return cached;
+  if (!options.skipCache) {
+    const cached = readCachedFeed(safeLimit);
+    if (cached) return cached;
+  }
 
-  if (inflightRequest && inflightLimit >= safeLimit) {
+  if (inflightRequest && inflightLimit >= safeLimit && !options.skipCache) {
     return inflightRequest;
   }
 

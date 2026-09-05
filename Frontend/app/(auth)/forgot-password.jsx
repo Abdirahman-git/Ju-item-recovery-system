@@ -36,7 +36,7 @@ export default function ForgotPasswordScreen() {
 
   const handleSendResetOtp = async () => {
     if (!studentId.trim()) {
-      showAppValidation('Enter your Student ID.');
+      showAppValidation('Enter your ID.');
       return;
     }
 
@@ -164,7 +164,7 @@ export default function ForgotPasswordScreen() {
   };
 
   const subtitles = {
-    1: 'Enter your Student ID. We will send a reset code to your registered phone via SMS.',
+    1: 'Enter your ID. We will send a reset code to your registered phone via SMS.',
     2: 'Enter the 6-digit code sent to your registered phone.',
     3: 'Choose a new password for your account.',
   };
@@ -205,7 +205,7 @@ export default function ForgotPasswordScreen() {
       <View style={styles.card}>
       {step === 1 && (
           <View>
-            <Text style={styles.label}>STUDENT ID</Text>
+            <Text style={styles.label}>ID</Text>
             <View style={styles.inputContainer}>
               <Ionicons name="id-card-outline" size={20} color={Colors.slate400} style={styles.icon} />
               <TextInput

@@ -203,7 +203,7 @@ export default function PendingReportsScreen() {
                   
                   <View style={styles.reporterDetails}>
                     <View style={styles.reporterNameRow}>
-                      <Text style={styles.reporterName}>{reporterName || 'Anonymous Student'}</Text>
+                      <Text style={styles.reporterName}>{reporterName || 'Anonymous'}</Text>
                       <View style={[styles.badgePill, { backgroundColor: isLost ? '#FEE2E2' : '#E0F2FE' }]}>
                         <Text style={[styles.badgePillText, { color: isLost ? '#EF4444' : '#0284C7' }]}>
                           {badgeLabel}

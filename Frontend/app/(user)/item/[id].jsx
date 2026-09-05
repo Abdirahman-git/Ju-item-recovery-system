@@ -13,8 +13,13 @@ import {
   submitOwnershipChallengeClaim,
   fetchPublicOwnershipChallenge,
   getUserPendingClaimForItem,
+  getUserRejectedClaimForItem,
+  reserveItemForClaim,
+  releaseItemClaimReserve,
   CLAIM_ALREADY_PENDING_MSG,
+  CLAIM_ALREADY_REJECTED_MSG,
   CHALLENGE_NOT_READY_MSG,
+  ITEM_BEING_CLAIMED_MSG,
   supabase,
   normalizeItemRow,
 } from '../../../src/services/supabase';
@@ -29,10 +34,13 @@ import {
   canShowNotMine,
   shouldShowClaimSection,
   pendingClaimStorageKey,
+  rejectedClaimStorageKey,
   dismissStorageKey,
+  clearLegacySharedClaimFlags,
 } from '../../../src/utils/itemClaimUi';
 import { isSecureListing } from '../../../src/utils/itemStatus';
 import { getSecureItemDisplay } from '../../../src/utils/secureItemDisplay';
+import { emitFeedSoftLock } from '../../../src/utils/feedSoftLock';
 
 const { width, height } = Dimensions.get('window');
 
@@ -57,11 +65,15 @@ export default function ItemDetailScreen() {
   const [studentId, setStudentId] = useState('');
   const [claimDismissed, setClaimDismissed] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
+  const [claimRejected, setClaimRejected] = useState(false);
   const [claimModalVisible, setClaimModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [challengeQuestions, setChallengeQuestions] = useState([]);
   const [loadingChallenge, setLoadingChallenge] = useState(false);
   const [challengeError, setChallengeError] = useState('');
+  const claimReserveRef = useRef(false);
+  const claimSubmittedRef = useRef(false);
+  const optimisticLockRef = useRef(false);
 
   useEffect(() => {
     AsyncStorage.getItem('userSession').then((raw) => {
@@ -79,37 +91,88 @@ export default function ItemDetailScreen() {
         const parsed = JSON.parse(data);
         setItem(parsed);
         setClaimPending(false);
+        setClaimRejected(false);
         setClaimDismissed(false);
       } catch (e) {
-        console.error("Failed to parse item data:", e);
+        console.error('Failed to parse item data:', e);
       }
     }
   }, [data]);
 
+  // Per-user local flags only (email required — never share reject across accounts).
+  useEffect(() => {
+    if (!item?.id || !userEmail) return;
+    let cancelled = false;
+    (async () => {
+      await clearLegacySharedClaimFlags(item, AsyncStorage);
+      if (cancelled) return;
+      const rejectedKey = rejectedClaimStorageKey(item, userEmail);
+      const pendingKey = pendingClaimStorageKey(item, userEmail);
+      const [localRejected, localPending] = await Promise.all([
+        AsyncStorage.getItem(rejectedKey),
+        AsyncStorage.getItem(pendingKey),
+      ]);
+      if (cancelled) return;
+      if (localRejected === '1') {
+        setClaimRejected(true);
+        setClaimPending(false);
+        return;
+      }
+      setClaimRejected(false);
+      if (localPending === '1') setClaimPending(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.id, item?.type, userEmail]);
+
   // "Not mine" only hides claim actions for the current visit.
-  // Reopening / returning to the item always brings Not mine + Claim Item back.
   useFocusEffect(
     React.useCallback(() => {
       setClaimDismissed(false);
-      if (!item?.id) return undefined;
-      AsyncStorage.removeItem(dismissStorageKey(item)).catch(() => {});
+      if (!item?.id || !userEmail) return undefined;
+      AsyncStorage.removeItem(dismissStorageKey(item, userEmail)).catch(() => {});
+      (async () => {
+        const rejectedKey = rejectedClaimStorageKey(item, userEmail);
+        const localRejected = await AsyncStorage.getItem(rejectedKey);
+        if (localRejected === '1') {
+          setClaimRejected(true);
+          setClaimPending(false);
+        }
+      })();
       return undefined;
-    }, [item?.id, item?.type])
+    }, [item?.id, item?.type, userEmail])
   );
 
   useEffect(() => {
     if (!item?.id || !userEmail) return;
 
     let cancelled = false;
-    const pendingKey = pendingClaimStorageKey(item);
+    const pendingKey = pendingClaimStorageKey(item, userEmail);
+    const rejectedKey = rejectedClaimStorageKey(item, userEmail);
     const type = isLostItemRecord(item) ? 'lost' : 'found';
 
     (async () => {
       try {
-        // Server is source of truth — must match item_type (lost vs found ids can collide).
-        const row = await getUserPendingClaimForItem(item.id, type, userEmail);
+        const [pendingRow, rejectedRow] = await Promise.all([
+          getUserPendingClaimForItem(item.id, type, userEmail),
+          getUserRejectedClaimForItem(item.id, type, userEmail),
+        ]);
         if (cancelled) return;
-        if (row) {
+
+        // Server is source of truth for THIS email only.
+        if (rejectedRow) {
+          setClaimRejected(true);
+          setClaimPending(false);
+          await AsyncStorage.setItem(rejectedKey, '1');
+          await AsyncStorage.removeItem(pendingKey);
+          return;
+        }
+
+        setClaimRejected(false);
+        await AsyncStorage.removeItem(rejectedKey);
+
+        if (pendingRow) {
           setClaimPending(true);
           await AsyncStorage.setItem(pendingKey, '1');
         } else {
@@ -117,10 +180,20 @@ export default function ItemDetailScreen() {
           await AsyncStorage.removeItem(pendingKey);
         }
       } catch (e) {
-        console.warn('Could not check pending claim:', e?.message);
-        // Network fallback only — never invent Pending from a wrong-item cache.
-        const local = await AsyncStorage.getItem(pendingKey);
-        if (!cancelled) setClaimPending(local === '1');
+        console.warn('Could not check claim status:', e?.message);
+        const [localPending, localRejectedAgain] = await Promise.all([
+          AsyncStorage.getItem(pendingKey),
+          AsyncStorage.getItem(rejectedKey),
+        ]);
+        if (!cancelled) {
+          if (localRejectedAgain === '1') {
+            setClaimRejected(true);
+            setClaimPending(false);
+          } else {
+            setClaimRejected(false);
+            setClaimPending(localPending === '1');
+          }
+        }
       }
     })();
 
@@ -128,6 +201,24 @@ export default function ItemDetailScreen() {
       cancelled = true;
     };
   }, [item?.id, item?.type, userEmail]);
+
+  useEffect(() => {
+    return () => {
+      if (claimSubmittedRef.current || !item?.id) return;
+      if (!claimReserveRef.current && !optimisticLockRef.current) return;
+      const type = isLostItemRecord(item) ? 'lost' : 'found';
+      const id = item.id;
+      claimReserveRef.current = false;
+      optimisticLockRef.current = false;
+      emitFeedSoftLock({
+        itemType: type,
+        itemId: id,
+        locked: false,
+        item: { ...item, status: 'live', type: type === 'found' ? 'FOUND' : 'LOST' },
+      });
+      releaseItemClaimReserve(type, id).catch(() => {});
+    };
+  }, [item?.id]);
 
   useEffect(() => {
     if (!item?.id || !isSecureListing(item)) return;
@@ -176,13 +267,15 @@ export default function ItemDetailScreen() {
 
   const isOwnItem = isOwnReportedItem(item, userEmail, userName);
   const showClaimSection =
-    !isOwnItem && // Ensure reporter can never see the claim section
+    !isOwnItem &&
+    !claimRejected &&
+    !claimPending &&
     !claimDismissed &&
     shouldShowClaimSection(item, userEmail, userName) &&
     (canShowThisIsMine(item, userEmail, userName) || canShowNotMine(item, userEmail, userName));
 
-  const showThisIsMine = canShowThisIsMine(item, userEmail, userName);
-  const showNotMine = canShowNotMine(item, userEmail, userName);
+  const showThisIsMine = !claimRejected && !claimPending && canShowThisIsMine(item, userEmail, userName);
+  const showNotMine = !claimRejected && !claimPending && canShowNotMine(item, userEmail, userName);
 
   // Reporter identity is admin-only — students never see owner/finder name or phone.
   const listingSourceLabel = isOwnItem
@@ -205,27 +298,107 @@ export default function ItemDetailScreen() {
 
   const markClaimPending = async () => {
     setClaimPending(true);
-    await AsyncStorage.setItem(pendingClaimStorageKey(item), '1');
+    await AsyncStorage.setItem(pendingClaimStorageKey(item, userEmail), '1');
+  };
+
+  const unlockLiveInstant = (snapshot) => {
+    const base = snapshot || item;
+    optimisticLockRef.current = false;
+    setItem((current) => (current ? { ...current, status: 'live' } : current));
+    if (base?.id) {
+      emitFeedSoftLock({
+        itemType,
+        itemId: base.id,
+        locked: false,
+        item: { ...base, status: 'live', type: isLostItemRecord(base) ? 'LOST' : 'FOUND' },
+      });
+    }
+  };
+
+  const lockOffLiveInstant = (snapshot) => {
+    const base = snapshot || item;
+    optimisticLockRef.current = true;
+    setItem((current) => (current ? { ...current, status: 'claim_pending' } : current));
+    if (base?.id) {
+      emitFeedSoftLock({
+        itemType,
+        itemId: base.id,
+        locked: true,
+        item: { ...base, status: 'claim_pending' },
+      });
+    }
+  };
+
+  const releaseReserveIfNeeded = () => {
+    if (claimSubmittedRef.current || !item?.id) return;
+    if (!claimReserveRef.current && !optimisticLockRef.current) return;
+    const id = item.id;
+    claimReserveRef.current = false;
+    unlockLiveInstant(item);
+    // Always best-effort DB unlock (covers cancel before reserve finished).
+    releaseItemClaimReserve(itemType, id).catch((e) => {
+      console.warn('Could not restore item to live:', e?.message);
+    });
   };
 
   const openClaimModal = async () => {
     if (!item?.id) return;
-    setClaimModalVisible(true);
-    setLoadingChallenge(true);
+    if (claimRejected) {
+      toastRef.current?.show('Cannot retry', CLAIM_ALREADY_REJECTED_MSG, 'success');
+      return;
+    }
+    if (claimPending) {
+      toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
+      return;
+    }
+
+    const snapshot = item;
+    claimSubmittedRef.current = false;
     setChallengeError('');
     setChallengeQuestions([]);
+    setClaimModalVisible(true);
+    setLoadingChallenge(true);
+
+    // Instant: leave live board the same second "Claim Item" is pressed.
+    lockOffLiveInstant(snapshot);
+
     try {
-      const challenge = await fetchPublicOwnershipChallenge(itemType, item.id);
+      const [challenge] = await Promise.all([
+        fetchPublicOwnershipChallenge(itemType, snapshot.id),
+        reserveItemForClaim(itemType, snapshot.id).then(() => {
+          claimReserveRef.current = true;
+        }),
+      ]);
+
       if (!challenge?.questions?.length) {
+        claimReserveRef.current = false;
+        unlockLiveInstant(snapshot);
+        releaseItemClaimReserve(itemType, snapshot.id).catch(() => {});
         setChallengeError(CHALLENGE_NOT_READY_MSG);
         return;
       }
+
       setChallengeQuestions(challenge.questions);
     } catch (e) {
-      setChallengeError(e?.message || CHALLENGE_NOT_READY_MSG);
+      const msg = e?.message || CHALLENGE_NOT_READY_MSG;
+      claimReserveRef.current = false;
+      unlockLiveInstant(snapshot);
+      releaseItemClaimReserve(itemType, snapshot.id).catch(() => {});
+      if (msg === ITEM_BEING_CLAIMED_MSG || /already|under review/i.test(msg)) {
+        setClaimModalVisible(false);
+        toastRef.current?.show('Item locked', msg, 'success');
+        return;
+      }
+      setChallengeError(msg);
     } finally {
       setLoadingChallenge(false);
     }
+  };
+
+  const closeClaimModal = () => {
+    if (submitting) return;
+    setClaimModalVisible(false);
+    releaseReserveIfNeeded();
   };
 
   const submitClaim = async (form) => {
@@ -235,17 +408,28 @@ export default function ItemDetailScreen() {
         showAppError('Sign in required', 'Please log in again.');
         return;
       }
-      if (claimPending) {
+      if (claimPending || claimRejected) {
         setClaimModalVisible(false);
-        toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
+        toastRef.current?.show(
+          claimRejected ? 'Cannot retry' : 'Already sent',
+          claimRejected ? CLAIM_ALREADY_REJECTED_MSG : 'Admin is reviewing your request.',
+          'success'
+        );
         return;
       }
       const outcome = await submitOwnershipChallengeClaim(item, itemType, {
-        selectedIndexes: form.selectedIndexes,
+        answers: form.answers ?? form.selectedIndexes,
         claimerEmail: userEmail,
       });
+      claimSubmittedRef.current = true;
+      claimReserveRef.current = false;
       setClaimModalVisible(false);
       if (outcome.result === 'reject') {
+        setClaimRejected(true);
+        setClaimPending(false);
+        unlockLiveInstant(item);
+        await AsyncStorage.setItem(rejectedClaimStorageKey(item, userEmail), '1');
+        await AsyncStorage.removeItem(pendingClaimStorageKey(item, userEmail));
         toastRef.current?.show(
           `Score ${outcome.score}%`,
           challengeResultLabel(outcome.result),
@@ -253,6 +437,7 @@ export default function ItemDetailScreen() {
         );
         return;
       }
+      optimisticLockRef.current = false;
       await markClaimPending();
       toastRef.current?.show(
         `Score ${outcome.score}%`,
@@ -261,8 +446,19 @@ export default function ItemDetailScreen() {
       );
     } catch (e) {
       const msg = e?.message || '';
+      if (msg === CLAIM_ALREADY_REJECTED_MSG || msg.includes('cannot submit again')) {
+        setClaimModalVisible(false);
+        claimSubmittedRef.current = true;
+        claimReserveRef.current = false;
+        setClaimRejected(true);
+        await AsyncStorage.setItem(rejectedClaimStorageKey(item, userEmail), '1');
+        showAppError('Cannot retry', CLAIM_ALREADY_REJECTED_MSG);
+        return;
+      }
       if (msg === CLAIM_ALREADY_PENDING_MSG || msg.includes('already sent')) {
         setClaimModalVisible(false);
+        claimSubmittedRef.current = true;
+        claimReserveRef.current = false;
         await markClaimPending();
         toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
         return;
@@ -348,7 +544,7 @@ export default function ItemDetailScreen() {
               </View>
             </View>
 
-            {/* Listing source — no personal reporter identity for students */}
+            {/* Listing source — no personal reporter identity for campus users */}
             <View style={styles.reporterCard}>
               <View style={styles.reporterLeft}>
                 <View style={[styles.avatarCircle, { backgroundColor: themeColor + '20' }]}>
@@ -413,7 +609,15 @@ export default function ItemDetailScreen() {
           </TouchableOpacity>
         ) : (
           <View style={styles.bottomBarStack}>
-            {claimPending ? (
+            {claimRejected ? (
+              <TouchableOpacity
+                style={[styles.primaryBtn, styles.bottomBarTopAction, { backgroundColor: '#94A3B8' }]}
+                disabled
+              >
+                <Ionicons name="close-circle" size={18} color="#FFF" />
+                <Text style={styles.primaryBtnText}>Not matched — cannot retry</Text>
+              </TouchableOpacity>
+            ) : claimPending ? (
               <TouchableOpacity
                 style={[styles.primaryBtn, styles.bottomBarTopAction, { backgroundColor: '#D97706' }]}
                 onPress={() => router.push('/(user)/MyRequests')}
@@ -450,7 +654,7 @@ export default function ItemDetailScreen() {
 
       <ItemClaimFormModal
         visible={claimModalVisible}
-        onClose={() => setClaimModalVisible(false)}
+        onClose={closeClaimModal}
         onSubmit={submitClaim}
         submitting={submitting}
         initialName={userName}

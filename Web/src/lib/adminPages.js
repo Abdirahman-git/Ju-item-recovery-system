@@ -11,11 +11,15 @@ const CUSTOM_META = {
   },
   '/admin/claims': {
     title: 'Ownership Requests',
-    subtitle: 'Review student ownership claims and approve verified returns.',
+    subtitle: 'Scores auto-decide Pass / Physical / Reject — confirm office visits when needed.',
   },
   '/admin/users': {
     title: 'All Users',
     subtitle: 'Directory of registered students and system administrators.',
+  },
+  '/admin/setup': {
+    title: 'Setup',
+    subtitle: 'Campus directory, CSV upload, and faculty program years for LOFO access.',
   },
   '/admin/items': {
     title: 'Global Inventory',
@@ -59,7 +63,7 @@ const CUSTOM_META = {
   },
   '/admin/archived': {
     title: 'Archived Items',
-    subtitle: 'Stale unclaimed items removed from the student app feed (Super Admin only).',
+    subtitle: 'Stale unclaimed items removed from the mobile app feed (Super Admin only).',
   },
   '/admin/contact-messages': {
     title: 'Contact Messages',

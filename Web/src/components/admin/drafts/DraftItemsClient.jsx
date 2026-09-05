@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
@@ -23,6 +24,7 @@ import { deleteDraftInventoryItem, fetchDraftInventoryItems } from '@/lib/supaba
 import { buildDraftsPageSparklines } from '@/lib/pageSparklines';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import { isSecureListing } from '@/lib/itemStatus';
+import { getItemReporterDisplay } from '@/lib/inventory';
 import { isSuperAdmin as checkSuperAdmin } from '@/lib/session';
 
 const TABS = [
@@ -206,6 +208,21 @@ function DraftCard({ draft, onDelete }) {
         </div>
 
         <div className="space-y-1.5 text-xs text-slate-500">
+          {(() => {
+            const reporter = getItemReporterDisplay(draft);
+            return (
+              <>
+                <p className="flex items-center gap-1.5">
+                  <UserRound size={13} className="shrink-0 text-slate-400" />
+                  <span className="line-clamp-1 font-semibold text-slate-700">{reporter.name}</span>
+                </p>
+                <p className="flex items-center gap-1.5">
+                  <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-slate-400">ID</span>
+                  <span className="line-clamp-1 font-bold tabular-nums text-slate-700">{reporter.studentId}</span>
+                </p>
+              </>
+            );
+          })()}
           <p className="flex items-center gap-1.5">
             <MapPin size={13} className="shrink-0 text-slate-400" />
             <span className="line-clamp-1">{draft.displayLocation || 'Location not added'}</span>
@@ -320,8 +337,9 @@ export default function DraftItemsClient() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return tabDrafts;
-    return tabDrafts.filter((draft) =>
-      [
+    return tabDrafts.filter((draft) => {
+      const reporter = getItemReporterDisplay(draft);
+      return [
         draft.displayName,
         draft.displayCategory,
         draft.displayLocation,
@@ -330,9 +348,11 @@ export default function DraftItemsClient() {
         draft.publicNotice,
         draft.inventoryRef,
         draft.itemType,
+        reporter.name,
+        reporter.studentId,
         isSecureDraft(draft) ? 'secure' : '',
-      ].some((value) => String(value || '').toLowerCase().includes(q))
-    );
+      ].some((value) => String(value || '').toLowerCase().includes(q));
+    });
   }, [tabDrafts, search]);
 
   const syncInventoryCache = useCallback((draft) => {
@@ -444,7 +464,7 @@ export default function DraftItemsClient() {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search draft items..."
+            placeholder="Search by item, reporter name, or ID..."
             className="glass-input h-12 w-full rounded-[24px] pl-11 pr-4 text-base text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
           />
         </label>

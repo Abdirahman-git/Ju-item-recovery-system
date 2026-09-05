@@ -24,9 +24,9 @@ const EMPTY = {
 const REQUIRED_FIELDS = [
   { key: 'firstName', label: 'First name' },
   { key: 'lastName', label: 'Last name' },
-  { key: 'email', label: 'Student / staff email' },
+  { key: 'email', label: 'Campus email' },
   { key: 'phone', label: 'Phone' },
-  { key: 'studentId', label: 'Student ID' },
+  { key: 'studentId', label: 'ID' },
   { key: 'itemName', label: 'Item name' },
   { key: 'place', label: 'Campus place' },
   { key: 'message', label: 'Tell us what happened' },
@@ -141,7 +141,7 @@ export default function ContactSection() {
       '— Lost & Found details —',
       form.itemName.trim() ? `Item: ${form.itemName.trim()}` : null,
       form.place.trim() ? `Campus place: ${form.place.trim()}` : null,
-      `Student ID: ${form.studentId.trim()}`,
+      `ID: ${form.studentId.trim()}`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -270,7 +270,7 @@ export default function ContactSection() {
 
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-bold text-slate-600">
-                Student / staff email
+                Campus email
                 <input
                   type="email"
                   name="email"
@@ -295,7 +295,7 @@ export default function ContactSection() {
             </div>
 
             <label className="mt-3 block text-xs font-bold text-slate-600">
-              Student ID
+              ID
               <input
                 name="studentId"
                 value={form.studentId}

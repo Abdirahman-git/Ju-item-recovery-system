@@ -3,6 +3,7 @@ import { ITEM_STATUS, normalizeItemStatus, isSecureFoundItem } from './itemStatu
 import { buildDashboardTrendRows } from './dashboardAnalytics';
 import { mapInventoryItem, mapRecentActivityItem, resolveItemImageUrl } from './itemImage';
 import { facultyFromStudentId, resolveFaculty } from './faculty';
+import { getChallengeResultFromScore } from './ownershipChallenge';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -118,6 +119,9 @@ async function adminApi(path, { method = 'GET', body } = {}) {
     const code = payload?.code || 'ADMIN_API_ERROR';
     const err = new Error(payload?.error || `Request failed (${response.status})`);
     err.code = code;
+    if (Array.isArray(payload?.errors)) err.errors = payload.errors;
+    if (payload?.failed != null) err.failed = payload.failed;
+    if (payload?.inserted != null) err.inserted = payload.inserted;
     if (
       response.status === 401 ||
       code === 'ADMIN_TOKEN_MISSING' ||
@@ -808,6 +812,45 @@ export async function deleteAdminUser(email, { deletedBy } = {}) {
   });
 }
 
+/** Setup — campus directory list */
+export async function fetchStudentDirectory() {
+  return adminApi('/api/admin/directory', { method: 'GET' });
+}
+
+export async function upsertStudentDirectoryRow(row) {
+  return adminApi('/api/admin/directory/upsert', { method: 'POST', body: row });
+}
+
+export async function uploadStudentDirectoryRows(rows) {
+  return adminApi('/api/admin/directory/upload', { method: 'POST', body: { rows } });
+}
+
+export async function deleteStudentDirectoryRow(studentId) {
+  return adminApi('/api/admin/directory/delete', {
+    method: 'POST',
+    body: { studentId },
+  });
+}
+
+export async function enforceDirectoryExpiry() {
+  return adminApi('/api/admin/directory/enforce-expiry', { method: 'POST', body: {} });
+}
+
+export async function fetchFacultyProgramYears() {
+  return adminApi('/api/admin/faculty-years', { method: 'GET' });
+}
+
+export async function saveFacultyProgramYears(rows) {
+  return adminApi('/api/admin/faculty-years', { method: 'PUT', body: { rows } });
+}
+
+export async function deleteFacultyProgramYear(faculty) {
+  return adminApi('/api/admin/faculty-years/delete', {
+    method: 'POST',
+    body: { faculty },
+  });
+}
+
 async function fetchPendingFromTable(table) {
   try {
     const { data, error } = await supabase
@@ -844,6 +887,7 @@ export async function fetchDashboardData() {
     recentFound,
     trendLost,
     trendFound,
+    trendReturned,
     claimsResult,
   ] = await withTimeout(
     Promise.all([
@@ -860,6 +904,7 @@ export async function fetchDashboardData() {
       fetchRecentFromTable('found_items', 8),
       fetchTrendSnapshotFromTable('lost_items').catch(() => []),
       fetchTrendSnapshotFromTable('found_items').catch(() => []),
+      fetchTrendSnapshotFromTable('returned_items').catch(() => []),
       supabase
         .from('item_claims')
         .select('id', { count: 'exact', head: true })
@@ -874,10 +919,12 @@ export async function fetchDashboardData() {
   const activeUsers = students.filter((u) => u.is_approved === true);
   const pendingUsers = students.filter((u) => u.is_approved !== true);
   const pendingReports = pendingLost.length + pendingFound.length;
-  const totalItems = lostCount + foundCount;
+  const openLostCount = lostCount + foundCount;
+  const foundRecoveredCount = returnedCount;
+  const totalItems = openLostCount;
   const recovered = returnedCount;
-  const recoveryRate = totalItems > 0 ? Math.round((recovered / totalItems) * 100) : 0;
-  const inVault = Math.max(totalItems - recovered, 0);
+  const recoveryRate = totalItems + recovered > 0 ? Math.round((recovered / (totalItems + recovered)) * 100) : 0;
+  const inVault = Math.max(totalItems, 0);
 
   const recentLostMapped = recentLost.map((item) => {
     const mapped = mapRecentActivityItem(item, 'lost');
@@ -895,13 +942,13 @@ export async function fetchDashboardData() {
     .sort((a, b) => b.sortKey - a.sortKey)
     .slice(0, 8);
 
-  const trendRows = buildDashboardTrendRows(trendLost, trendFound);
+  const trendRows = buildDashboardTrendRows(trendLost, trendFound, trendReturned);
 
   return {
     stats: {
       totalItems,
-      lostCount,
-      foundCount,
+      lostCount: openLostCount,
+      foundCount: foundRecoveredCount,
       pendingReports,
       pendingUsers: pendingUsers.length,
       successfulRecoveries: recovered,
@@ -912,8 +959,8 @@ export async function fetchDashboardData() {
       recoveryRate,
       recovered,
       inVault: Math.max(inVault, 0),
-      lostCount,
-      foundCount,
+      lostCount: openLostCount,
+      foundCount: foundRecoveredCount,
     },
     actionItems: buildActionItems({
       pendingUsers: pendingUsers.length,
@@ -945,7 +992,7 @@ function buildActionItems({ pendingUsers, pendingReports, claimsCount, recoveryR
   if (pendingUsers > 0) {
     items.push({
       title: `Verify ${pendingUsers} New User${pendingUsers > 1 ? 's' : ''}`,
-      subtitle: 'Student accounts awaiting approval',
+      subtitle: 'User accounts awaiting approval',
       href: '/admin/users',
       icon: 'users',
     });
@@ -1423,19 +1470,25 @@ async function fetchClaimItem(row) {
 function normalizeClaimRow(row, targetItem) {
   const itemType = targetItem?.itemType || row.item_type || 'found';
   const createdAt = row.created_at || null;
-  const rawStatus = row.status || 'pending';
-  const displayStatus =
-    rawStatus === 'approved'
-      ? 'Approved'
-      : rawStatus === 'rejected'
-        ? 'Rejected'
-        : rawStatus === 'physical'
-          ? 'Physical'
-          : row.challenge_result === 'auto_pass'
-            ? 'Approved'
-            : row.challenge_score > 0
-              ? 'Reviewing'
-              : 'Pending';
+  const rawStatus = String(row.status || 'pending').trim().toLowerCase();
+  const result = String(row.challenge_result || '').trim().toLowerCase();
+  const score = Number(row.challenge_score);
+  const hasScore = Number.isFinite(score) && score >= 0 && row.challenge_score != null;
+
+  // Auto outcomes from Ownership Challenge — no manual "Pending" queue for scored claims.
+  let displayStatus;
+  if (rawStatus === 'approved' || result === 'auto_pass') {
+    displayStatus = 'Approved';
+  } else if (rawStatus === 'rejected' || result === 'reject') {
+    displayStatus = 'Rejected';
+  } else if (rawStatus === 'physical' || result === 'physical') {
+    displayStatus = 'Physical';
+  } else if (hasScore && score > 0) {
+    displayStatus = score >= 90 ? 'Approved' : score >= 60 ? 'Physical' : 'Rejected';
+  } else {
+    // Legacy free-text claims (pre-challenge) — still listed under All only
+    displayStatus = 'Pending';
+  }
 
   return {
     ...row,
@@ -1561,15 +1614,41 @@ export async function deleteItemClaim(claimId) {
 }
 
 export async function fetchAllInventoryItems() {
-  const [lost, found] = await withTimeout(
-    Promise.all([fetchAllFromTable('lost_items'), fetchAllFromTable('found_items')]),
+  const [lost, found, usersResult] = await withTimeout(
+    Promise.all([
+      fetchAllFromTable('lost_items'),
+      fetchAllFromTable('found_items'),
+      supabase.from('users').select('email, student_id, name, phone').then(({ data, error }) => {
+        if (error) return [];
+        return data || [];
+      }),
+    ]),
     'All items'
   );
+
+  const identity = buildUserIdentityLookup(usersResult || []);
 
   return [
     ...lost.map((item) => mapInventoryItem(item, 'lost')),
     ...found.map((item) => mapInventoryItem(item, 'found')),
-  ].sort((a, b) => b.sortKey - a.sortKey);
+  ]
+    .map((item) => {
+      const reporterName = resolveItemReporterName(item);
+      const studentId = identity.studentIdFor(item) || '';
+      const user = identity.resolveUser({
+        email: item.email || item.userId || item.userid,
+        studentId: item.student_id || item.studentId,
+        name: reporterName,
+        posterKey: resolveItemPosterKey(item),
+      });
+
+      return {
+        ...item,
+        displayReporterName: user?.name || (reporterName && reporterName !== '?' ? reporterName : 'Unknown'),
+        displayReporterStudentId: studentId || '—',
+      };
+    })
+    .sort((a, b) => b.sortKey - a.sortKey);
 }
 
 export async function fetchDraftInventoryItems() {
@@ -1615,7 +1694,7 @@ export async function deleteDraftInventoryItem(item) {
   return deleteInventoryItem(item);
 }
 
-/** Move a live inventory item out of the student app into archived_items (Super Admin). */
+/** Move a live inventory item out of the mobile app into archived_items (Super Admin). */
 export async function archiveInventoryItem(item, { archivedBy, reason } = {}) {
   if (!item?.id || !item?.itemType) throw new Error('Invalid item.');
 
@@ -1960,8 +2039,6 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
   const contactNew = contacts.filter((m) => m.status === 'new').length;
   const contactRead = contacts.filter((m) => m.status === 'read').length;
   const contactArchived = contacts.filter((m) => m.status === 'archived').length;
-  const archivedLost = archived.filter((item) => String(item.displayType || item.type || '').toUpperCase() === 'LOST');
-  const archivedFound = archived.filter((item) => String(item.displayType || item.type || '').toUpperCase() === 'FOUND');
 
   const lostItems = items.filter((item) => item.itemType === 'lost');
   const foundItems = items.filter((item) => item.itemType === 'found');
@@ -1976,11 +2053,12 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
   const approvedStudents = students.filter((user) => user.is_approved === true);
   const pendingStudents = students.filter((user) => user.is_approved !== true);
 
+  const physicalClaims = claims.filter((claim) => claim.displayStatus === 'Physical');
   const pendingClaims = claims.filter(
-    (claim) => claim.status === 'pending' || claim.status === 'physical'
+    (claim) => claim.displayStatus === 'Physical' || claim.displayStatus === 'Pending'
   );
-  const approvedClaims = claims.filter((claim) => claim.status === 'approved');
-  const rejectedClaims = claims.filter((claim) => claim.status === 'rejected');
+  const approvedClaims = claims.filter((claim) => claim.displayStatus === 'Approved');
+  const rejectedClaims = claims.filter((claim) => claim.displayStatus === 'Rejected');
 
   const categoryMap = {};
   items.forEach((item) => {
@@ -2021,15 +2099,15 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     {
       id: 'inventory',
       label: 'Global Inventory',
-      description: 'All lost and found property records',
+      description: 'All campus property still missing (Lost until returned)',
       href: '/admin/items',
       count: totalItems,
-      meta: `${lostItems.length + foundItems.length} lost`,
+      meta: `${lostItems.length + foundItems.length} still missing`,
     },
     {
       id: 'lost',
       label: 'Lost Reports',
-      description: 'All live campus lost listings',
+      description: 'All open Lost listings (including secure holds)',
       href: '/admin/items',
       count: lostItems.length + foundItems.length,
       meta: `${liveItems.filter((item) => item.itemType === 'lost' || item.itemType === 'found').length} live listings`,
@@ -2037,7 +2115,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     {
       id: 'returned',
       label: 'Returned Items',
-      description: 'Found / recovered — reunited with owners',
+      description: 'Found — recovered and reunited with owners',
       href: '/admin/returned',
       count: recovered,
       meta: `${recoveryRate}% recovery rate`,
@@ -2045,7 +2123,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     {
       id: 'pending',
       label: 'Pending Reports',
-      description: 'Submissions waiting for admin review',
+      description: 'Lost submissions waiting for admin review',
       href: '/admin/pending',
       count: pendingData.combined?.length || 0,
       meta: 'Requires verification',
@@ -2053,15 +2131,15 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     {
       id: 'claims',
       label: 'Ownership Requests',
-      description: 'Student claims on found or lost items',
+      description: 'Ownership claims on Lost campus items',
       href: '/admin/claims',
       count: claims.length,
-      meta: `${pendingClaims.length} pending - ${approvedClaims.length} approved`,
+      meta: `${physicalClaims.length} physical · ${approvedClaims.length} approved · ${rejectedClaims.length} rejected`,
     },
     {
       id: 'drafts',
       label: 'Draft Items',
-      description: 'Saved reports not yet published',
+      description: 'Saved Lost reports not yet published',
       href: '/admin/drafts',
       count: draftItems.length,
       meta: 'Unpublished field reports',
@@ -2069,7 +2147,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     {
       id: 'secure',
       label: 'Secure Hold',
-      description: 'High-value secure campus notices',
+      description: 'High-value Lost items on secure hold',
       href: '/admin/secure-found',
       count: secureItems.length,
       meta: 'Active secure listings',
@@ -2089,10 +2167,10 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       {
         id: 'archived',
         label: 'Archived Items',
-        description: 'Stale unclaimed items removed from the student feed',
+        description: 'Stale unclaimed Lost items removed from the student feed',
         href: '/admin/archived',
         count: archived.length,
-        meta: `${archivedLost.length} lost · ${archivedFound.length} found`,
+        meta: `${archived.length} still missing (archived)`,
       },
       {
         id: 'contact',
@@ -2105,13 +2183,17 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     );
   }
 
+  const openLostCount = lostItems.length + foundItems.length;
+  const foundRecoveredCount = recovered;
+
   const facultyFor = buildFacultyResolver(users);
   const identity = buildUserIdentityLookup(users);
 
   const records = {
     users: mapSystemReportUsers(users),
     inventory: mapSystemReportItems(items, facultyFor, identity),
-    lost: mapSystemReportItems(lostItems, facultyFor, identity),
+    // All open campus listings are Lost (still missing), including secure holds.
+    lost: mapSystemReportItems([...lostItems, ...foundItems], facultyFor, identity),
     found: mapSystemReportItems(foundItems, facultyFor, identity),
     returned: mapSystemReportReturned(returnedItems, facultyFor),
     pending: mapSystemReportPending(pendingData.combined || [], facultyFor, identity),
@@ -2134,8 +2216,8 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       approvedStudents: approvedStudents.length,
       pendingStudents: pendingStudents.length,
       totalItems,
-      lostItems: lostItems.length,
-      foundItems: foundItems.length,
+      lostItems: openLostCount,
+      foundItems: foundRecoveredCount,
       returnedItems: recovered,
       pendingReports: pendingData.combined?.length || 0,
       draftItems: draftItems.length,
@@ -2148,13 +2230,14 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       contactArchived: includePrivilegedSources ? contactArchived : 0,
       totalClaims: claims.length,
       pendingClaims: pendingClaims.length,
+      physicalClaims: physicalClaims.length,
       approvedClaims: approvedClaims.length,
       rejectedClaims: rejectedClaims.length,
       recoveryRate,
       maxUserActivityCount: topContributor?.count ?? 0,
       maxUserActivityName: topContributor?.name ?? '—',
       maxUserActivityMeta: topContributor
-        ? `${topContributor.lost} lost · ${topContributor.found} found`
+        ? `${topContributor.count} report${topContributor.count === 1 ? '' : 's'}`
         : 'No item posts yet',
     },
     categories,
@@ -2277,7 +2360,7 @@ function mapSystemReportReturned(items = [], facultyFor = () => 'Unassigned') {
     category: item.displayCategory || 'General',
     faculty: facultyFor(item),
     recipient: item.displayRecipient || '?',
-    type: 'Returned',
+    type: 'Found',
     returnedAt: formatReportDate(item.returnedAt),
     dateKey: toReportDateKey(item.returnedAt),
   }));
@@ -2314,19 +2397,60 @@ function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned', ide
 
 function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
   const rawDate = (claim) => claim.requestedAt || claim.created_at;
-  return claims.map((claim) => ({
-    id: String(claim.id),
-    ref: claim.refId || `CLM-${claim.id}`,
-    imageUrl: claim.targetItem?.imageUrl || resolveItemImageUrl(claim.targetItem) || null,
-    item: claim.targetItem?.displayName || claim.item_name || 'Unknown item',
-    claimer: claim.claimer_name || claim.claimerName || '?',
-    studentId: claim.claimer_student_id || claim.claimerStudentId || '?',
-    faculty: facultyFor(claim),
-    status: claim.status || 'pending',
-    requestedAt: formatReportDate(rawDate(claim)),
-    dateKey: toReportDateKey(rawDate(claim)),
-    reviewedDateKey: toReportDateKey(claim.reviewed_at),
-  }));
+  return claims.map((claim) => {
+    const score = Number(claim.challenge_score);
+    const hasScore = Number.isFinite(score) && claim.challenge_score != null;
+    // Status always follows challenge score bands (not stale pending / manual labels).
+    let status;
+    let resultLabel;
+    if (hasScore) {
+      const band = getChallengeResultFromScore(score);
+      if (band === 'auto_pass') {
+        status = 'Approved';
+        resultLabel = 'Pass (90%+)';
+      } else if (band === 'physical') {
+        status = 'Physical';
+        resultLabel = 'Physical (60–89%)';
+      } else {
+        status = 'Rejected';
+        resultLabel = 'Reject (<60%)';
+      }
+    } else {
+      // Legacy unscored claims: no Pending — treat as Rejected until challenge is used
+      const raw = String(claim.displayStatus || claim.status || '').toLowerCase();
+      status =
+        raw === 'approved'
+          ? 'Approved'
+          : raw === 'physical'
+            ? 'Physical'
+            : raw === 'rejected' || raw === 'pending'
+              ? 'Rejected'
+              : 'Rejected';
+      resultLabel = status === 'Approved' ? 'Pass (90%+)' : status === 'Physical' ? 'Physical (60–89%)' : 'Reject (<60%)';
+    }
+
+    return {
+      id: String(claim.id),
+      ref: claim.refId || `CLM-${claim.id}`,
+      imageUrl: claim.targetItem?.imageUrl || resolveItemImageUrl(claim.targetItem) || null,
+      item: claim.targetItem?.displayName || claim.item_name || 'Unknown item',
+      category:
+        claim.targetItem?.displayCategory ||
+        claim.targetItem?.category ||
+        claim.item_category ||
+        claim.category ||
+        'General',
+      claimer: claim.claimer_name || claim.claimerName || '?',
+      studentId: claim.claimer_student_id || claim.claimerStudentId || '?',
+      faculty: facultyFor(claim),
+      status,
+      score: hasScore ? `${Math.round(score)}%` : '—',
+      result: resultLabel,
+      requestedAt: formatReportDate(rawDate(claim)),
+      dateKey: toReportDateKey(rawDate(claim)),
+      reviewedDateKey: toReportDateKey(claim.reviewed_at),
+    };
+  });
 }
 
 function mapSystemReportRecycle(items = []) {
@@ -2374,7 +2498,7 @@ function parseContactMessageExtras(message) {
     body,
     itemName: details.match(/Item:\s*(.+)/i)?.[1]?.trim() || '',
     place: details.match(/Campus place:\s*(.+)/i)?.[1]?.trim() || '',
-    studentId: details.match(/Student ID:\s*(.+)/i)?.[1]?.trim() || '',
+    studentId: details.match(/(?:Student\s+)?ID:\s*(.+)/i)?.[1]?.trim() || '',
   };
 }
 

@@ -1,4 +1,24 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  Platform,
+  Dimensions,
+  StatusBar,
+} from 'react-native';
+import ReAnimated, { FadeInDown, Layout } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { supabase, normalizeItemRow, getUserPendingClaimCount } from '../../../src/services/supabase';
+import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import CustomBottomTab from '../../../src/components/CustomBottomTab';
+import { useFocusEffect } from '@react-navigation/native';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 import { ITEM_STATUS, normalizeItemStatus } from '../../../src/utils/itemStatus';

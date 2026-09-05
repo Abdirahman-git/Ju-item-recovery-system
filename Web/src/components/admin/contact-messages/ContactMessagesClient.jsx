@@ -108,7 +108,8 @@ function parseMessageExtras(message) {
   const details = raw.slice(idx + marker.length);
   const itemName = details.match(/Item:\s*(.+)/i)?.[1]?.trim() || '';
   const place = details.match(/Campus place:\s*(.+)/i)?.[1]?.trim() || '';
-  const studentId = details.match(/Student ID:\s*(.+)/i)?.[1]?.trim() || '';
+  const studentId =
+    details.match(/(?:Student\s+)?ID:\s*(.+)/i)?.[1]?.trim() || '';
   return { body, itemName, place, studentId };
 }
 
@@ -271,7 +272,7 @@ function MessageDetailModal({
             <DetailField label="Sender" value={row.fullName} icon={UserRound} />
             <DetailField label="Email" value={row.email} icon={Mail} />
             <DetailField label="Phone" value={phoneDisplay || row.phone} icon={Phone} mono />
-            <DetailField label="Student ID" value={extras.studentId} icon={IdCard} mono />
+            <DetailField label="ID" value={extras.studentId} icon={IdCard} mono />
             <DetailField label="Item" value={extras.itemName} icon={Package} />
             <DetailField label="Campus place" value={extras.place} icon={MapPin} />
           </div>
@@ -357,7 +358,7 @@ function MessageDetailModal({
                 </p>
               ) : replyToEmail && replyToEmail !== fromEmail ? (
                 <p className="mt-2 text-[11px] font-semibold text-slate-500">
-                  Student replies will go to: {replyToEmail}
+                  Replies will go to: {replyToEmail}
                 </p>
               ) : null}
 

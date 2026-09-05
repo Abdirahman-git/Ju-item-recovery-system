@@ -6,7 +6,7 @@ function toSortTimestamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
-export function buildDashboardTrendRows(lostItems = [], foundItems = []) {
+export function buildDashboardTrendRows(lostItems = [], foundItems = [], returnedItems = []) {
   const rawDate = (item) =>
     item.created_at ||
     item.date_reported ||
@@ -14,9 +14,11 @@ export function buildDashboardTrendRows(lostItems = [], foundItems = []) {
     item.dateFound ||
     item.date_lost ||
     item.date_found ||
+    item.returned_at ||
+    item.returnedAt ||
     item.reported_at;
 
-  const mapRow = (item, type) => {
+  const mapRow = (item, lifecycle) => {
     const dateValue = rawDate(item);
     const dateKey = dateValue
       ? new Date(new Date(dateValue).getTime() - new Date(dateValue).getTimezoneOffset() * 60 * 1000)
@@ -25,17 +27,20 @@ export function buildDashboardTrendRows(lostItems = [], foundItems = []) {
       : null;
 
     return {
-      id: `${type}-${item.id}`,
-      type: type === 'found' ? 'Found' : 'Lost',
+      id: `${lifecycle}-${item.id}`,
+      type: lifecycle === 'found' ? 'Returned' : 'Lost',
+      lifecycle,
       status: String(item.status || 'live').toLowerCase(),
       dateKey,
       category: item.category || 'Other',
     };
   };
 
+  // Open inventory (both tables) = Lost (still missing). Returned = Found.
   return [
     ...lostItems.map((item) => mapRow(item, 'lost')),
-    ...foundItems.map((item) => mapRow(item, 'found')),
+    ...foundItems.map((item) => mapRow(item, 'lost')),
+    ...returnedItems.map((item) => mapRow(item, 'found')),
   ];
 }
 
@@ -63,13 +68,15 @@ export function computeDashboardKpis(stats, health, trendRows = []) {
   const itemsTrend = percentDelta(thisWeek, lastWeek);
 
   const foundShare =
-    stats.totalItems > 0 ? Math.round((stats.foundCount / stats.totalItems) * 100) : 0;
+    (stats.lostCount || 0) + (stats.foundCount || 0) > 0
+      ? Math.round(((stats.foundCount || 0) / ((stats.lostCount || 0) + (stats.foundCount || 0))) * 100)
+      : 0;
 
   return {
     totalItems: {
       trend: itemsTrend,
       trendLabel: `${thisWeek} new this week`,
-      subLabel: `${stats.foundCount || 0} found · ${stats.lostCount || 0} lost`,
+      subLabel: `${stats.lostCount || 0} still missing · ${stats.foundCount || 0} found`,
     },
     pendingReports: {
       trendLabel: stats.pendingReports > 0 ? 'Awaiting admin review' : 'Queue is clear',
@@ -82,7 +89,7 @@ export function computeDashboardKpis(stats, health, trendRows = []) {
     },
     activeUsers: {
       trendLabel: `${stats.pendingUsers || 0} pending approval`,
-      subLabel: 'Approved campus students',
+      subLabel: 'Approved campus users',
     },
     weekly,
     foundShare,
@@ -122,8 +129,11 @@ function countInPreviousWindow(rows, sourceId, period, series) {
     const key = row.dateKey;
     if (!key || key < startKey || key > endKey) return count;
     if (sourceId === 'inventory') {
-      if (series === 'primary' && row.type === 'Found') return count + 1;
-      if (series === 'secondary' && row.type === 'Lost') return count + 1;
+      const lifecycle = String(row.lifecycle || '').toLowerCase();
+      const type = String(row.type || '').toLowerCase();
+      const isFound = lifecycle === 'found' || type === 'returned';
+      if (series === 'primary' && isFound) return count + 1;
+      if (series === 'secondary' && !isFound) return count + 1;
     }
     return count;
   }, 0);

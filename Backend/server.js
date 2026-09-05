@@ -7,6 +7,26 @@ const dotenv = require('dotenv');
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws');
 const { facultyFromStudentId } = require('./faculty');
+const {
+  normalizeStudentId,
+  parseIntakeYearFromStudentId,
+  resolveProgramYears,
+  computeExpiresAt,
+  isDateExpired,
+  enrichDirectoryRow,
+  defaultFacultyYearsList,
+  resolveFacultyName,
+  normalizeFacultyName,
+  normalizeDirectoryPhone,
+  validateDirectoryFullName,
+  validateDirectoryEmail,
+  validateDirectoryStudentId,
+  DEFAULT_PROGRAM_YEARS,
+  KNOWN_FACULTIES,
+  resolveAllowedIntakeYear,
+  getCurrentAcademicYearStart,
+  formatAcademicYearLabel,
+} = require('./directoryAccess');
 
 // Load environment variables
 dotenv.config();
@@ -246,16 +266,44 @@ async function lookupStudentForActivation(studentId) {
 
   const { data: student, error } = await supabase
     .from('student_directory')
-    .select('student_id, status, full_name, phone_number, faculty, email')
+    .select('student_id, status, full_name, phone_number, faculty, email, intake_year, expires_at, access_status')
     .eq('student_id', id)
     .single();
 
   if (error || !student) {
+    // Fallback without new columns (SQL not applied yet)
+    if (error && /column|schema cache/i.test(error.message || '')) {
+      const legacy = await supabase
+        .from('student_directory')
+        .select('student_id, status, full_name, phone_number, faculty, email')
+        .eq('student_id', id)
+        .single();
+      if (legacy.error || !legacy.data) {
+        return { error: 'Student ID not found in Jazeera University directory.' };
+      }
+      return {
+        student: {
+          studentId: legacy.data.student_id,
+          fullName: legacy.data.full_name,
+          phone: legacy.data.phone_number || '',
+          faculty: legacy.data.faculty || facultyFromStudentId(legacy.data.student_id),
+          email: legacy.data.email || '',
+        },
+      };
+    }
     return { error: 'Student ID not found in Jazeera University directory.' };
   }
 
   if (student.status === 'activated') {
     return { error: 'This Student ID is already activated. Please login instead.' };
+  }
+
+  const enriched = enrichDirectoryRow(student);
+  if (enriched.is_expired) {
+    return {
+      error:
+        'This Student ID has expired for LOFO access. Contact the campus Lost & Found office.',
+    };
   }
 
   return {
@@ -955,16 +1003,48 @@ app.post('/api/auth/login', async (req, res) => {
     // Enrich phone / faculty from directory if missing on the user row
     let phone = user.phone || '';
     let faculty = String(user.faculty || '').trim();
-    if ((!phone || !faculty) && user.student_id) {
+    let directoryRow = null;
+    if (user.student_id) {
       const { data: dir } = await supabase
         .from('student_directory')
-        .select('phone_number, faculty')
+        .select('phone_number, faculty, expires_at, access_status, intake_year, status')
         .eq('student_id', String(user.student_id).toUpperCase())
         .maybeSingle();
+      directoryRow = dir;
       if (!phone) phone = dir?.phone_number || '';
       if (!faculty) faculty = String(dir?.faculty || '').trim();
     }
     if (!faculty) faculty = facultyFromStudentId(user.student_id);
+
+    if (user.role !== 'admin' && directoryRow) {
+      const enriched = enrichDirectoryRow({ ...directoryRow, student_id: user.student_id, faculty });
+      if (enriched.is_expired) {
+        // Soft-lock account so mobile session guard also fails
+        if (user.email) {
+          try {
+            await supabase
+              .from('users')
+              .update({ is_approved: false })
+              .eq('email', normalizeEmail(user.email));
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          await supabase
+            .from('student_directory')
+            .update({ access_status: 'expired' })
+            .eq('student_id', String(user.student_id).toUpperCase());
+        } catch {
+          /* columns may be missing */
+        }
+        return res.status(403).json({
+          error:
+            'Your LOFO access has expired (program years ended). Contact the campus Lost & Found office.',
+          code: 'ACCOUNT_EXPIRED',
+        });
+      }
+    }
 
     const session = {
       email: (user.email || '').trim().toLowerCase(),
@@ -1930,6 +2010,434 @@ app.post('/api/admin/contact-messages/delete', async (req, res) => {
   } catch (err) {
     console.error('contact delete error:', err.message);
     res.status(500).json({ error: err.message || 'Could not delete message.' });
+  }
+});
+
+// ─── Setup: Student Directory + Faculty years ───────────────────────────────
+
+async function loadFacultyYearsMap() {
+  try {
+    const { data, error } = await supabase
+      .from('faculty_program_years')
+      .select('faculty, program_years');
+    if (error) throw error;
+    const map = { ...DEFAULT_PROGRAM_YEARS };
+    (data || []).forEach((row) => {
+      const name = String(row.faculty || '').trim();
+      const years = Number(row.program_years);
+      if (name && Number.isFinite(years)) map[name] = years;
+    });
+    return map;
+  } catch {
+    return { ...DEFAULT_PROGRAM_YEARS };
+  }
+}
+
+function buildDirectoryUpsertRow(raw, yearsMap) {
+  const student_id = validateDirectoryStudentId(raw.student_id || raw.studentId);
+  const full_name = validateDirectoryFullName(raw.full_name || raw.fullName, student_id);
+  const phone_number = normalizeDirectoryPhone(raw.phone_number || raw.phone);
+  const email = validateDirectoryEmail(raw.email);
+
+  const facultyRaw = String(raw.faculty || '').trim();
+  const namedFaculty = normalizeFacultyName(facultyRaw, yearsMap);
+  if (facultyRaw && !namedFaculty) {
+    const known = [
+      ...KNOWN_FACULTIES,
+      ...Object.keys(yearsMap || {}).filter((k) => !KNOWN_FACULTIES.includes(k)),
+    ];
+    throw new Error(
+      `Unknown faculty "${facultyRaw}". Register it under Setup → Faculty years, or use: ${known.join(', ')}.`
+    );
+  }
+  const faculty = namedFaculty || facultyFromStudentId(student_id);
+  if (!faculty) {
+    throw new Error(
+      'faculty is required (or use a known student_id prefix: CS, BA, EN, MD…).'
+    );
+  }
+
+  const intake_year = resolveAllowedIntakeYear(raw.intake_year ?? raw.intakeYear, {
+    strict: true,
+  });
+  const program_years = resolveProgramYears(faculty, yearsMap);
+  const expires_at =
+    raw.expires_at ||
+    raw.expiresAt ||
+    computeExpiresAt(intake_year, program_years);
+  const expired = isDateExpired(expires_at);
+  const statusRaw = String(raw.status || 'pending').trim().toLowerCase();
+  const status = statusRaw === 'activated' ? 'activated' : 'pending';
+  const access_status = expired
+    ? 'expired'
+    : String(raw.access_status || raw.accessStatus || 'active').trim().toLowerCase() ||
+      'active';
+
+  return {
+    student_id,
+    full_name,
+    phone_number,
+    faculty,
+    email,
+    status,
+    intake_year,
+    expires_at,
+    access_status,
+  };
+}
+
+app.get('/api/admin/directory', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const yearsMap = await loadFacultyYearsMap();
+    let { data, error } = await supabase
+      .from('student_directory')
+      .select(
+        'student_id, full_name, phone_number, faculty, email, status, intake_year, expires_at, access_status'
+      )
+      .order('student_id', { ascending: true });
+
+    if (error && /column|schema cache/i.test(error.message || '')) {
+      const legacy = await supabase
+        .from('student_directory')
+        .select('student_id, full_name, phone_number, faculty, email, status')
+        .order('student_id', { ascending: true });
+      data = legacy.data;
+      error = legacy.error;
+    }
+    if (error) throw error;
+
+    const students = (data || []).map((row) => enrichDirectoryRow(row, yearsMap));
+    const summary = {
+      total: students.length,
+      pending: students.filter((s) => s.status === 'pending').length,
+      activated: students.filter((s) => s.status === 'activated').length,
+      expired: students.filter((s) => s.is_expired).length,
+      missingPhone: students.filter((s) => !s.phone_number).length,
+    };
+
+    res.json({ success: true, students, summary, facultyYears: yearsMap });
+  } catch (err) {
+    console.error('directory list error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not load student directory.' });
+  }
+});
+
+app.post('/api/admin/directory/upsert', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const yearsMap = await loadFacultyYearsMap();
+    const row = buildDirectoryUpsertRow(req.body || {}, yearsMap);
+    const { data, error } = await supabase
+      .from('student_directory')
+      .upsert(row, { onConflict: 'student_id' })
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    res.json({ success: true, student: enrichDirectoryRow(data || row, yearsMap) });
+  } catch (err) {
+    console.error('directory upsert error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not save student.' });
+  }
+});
+
+app.post('/api/admin/directory/upload', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) {
+      return res.status(400).json({ error: 'No rows to upload. Expected { rows: [...] }.' });
+    }
+    if (rows.length > 2000) {
+      return res.status(400).json({ error: 'Upload limit is 2000 rows per batch.' });
+    }
+
+    const yearsMap = await loadFacultyYearsMap();
+    const prepared = [];
+    const rowErrors = [];
+    const seenInFile = new Set();
+
+    rows.forEach((raw, index) => {
+      try {
+        const row = buildDirectoryUpsertRow(raw, yearsMap);
+        const id = row.student_id;
+        if (seenInFile.has(id)) {
+          throw new Error('Duplicate in this CSV — already listed above.');
+        }
+        seenInFile.add(id);
+        prepared.push({ ...row, _index: index });
+      } catch (e) {
+        rowErrors.push({ index, student_id: raw?.student_id || raw?.studentId, error: e.message });
+      }
+    });
+
+    let existingIds = new Set();
+    if (prepared.length) {
+      const ids = prepared.map((r) => r.student_id);
+      const { data: existing, error: existErr } = await supabase
+        .from('student_directory')
+        .select('student_id')
+        .in('student_id', ids);
+      if (existErr) throw existErr;
+      existingIds = new Set((existing || []).map((r) => normalizeStudentId(r.student_id)));
+    }
+
+    const toInsert = [];
+    prepared.forEach((row) => {
+      if (existingIds.has(row.student_id)) {
+        rowErrors.push({
+          index: row._index,
+          student_id: row.student_id,
+          error: 'Already in directory — duplicate rejected.',
+        });
+        return;
+      }
+      const { _index, ...clean } = row;
+      toInsert.push(clean);
+    });
+
+    let inserted = 0;
+    const chunkSize = 200;
+    for (let i = 0; i < toInsert.length; i += chunkSize) {
+      const chunk = toInsert.slice(i, i + chunkSize);
+      const { error } = await supabase.from('student_directory').insert(chunk);
+      if (error) throw error;
+      inserted += chunk.length;
+    }
+
+    if (!inserted && rowErrors.length) {
+      return res.status(400).json({
+        error: `All ${rowErrors.length} row(s) failed (validation or duplicates).`,
+        inserted: 0,
+        failed: rowErrors.length,
+        duplicates: rowErrors.filter((e) => /duplicate|already in directory/i.test(e.error || '')).length,
+        errors: rowErrors.slice(0, 40),
+      });
+    }
+
+    res.json({
+      success: true,
+      inserted,
+      failed: rowErrors.length,
+      duplicates: rowErrors.filter((e) => /duplicate|already in directory/i.test(e.error || '')).length,
+      errors: rowErrors.slice(0, 40),
+    });
+  } catch (err) {
+    console.error('directory upload error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not upload directory.' });
+  }
+});
+
+app.post('/api/admin/directory/delete', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const studentId = normalizeStudentId(req.body?.studentId || req.body?.student_id);
+  if (!studentId) return res.status(400).json({ error: 'student_id is required.' });
+
+  try {
+    const { error } = await supabase.from('student_directory').delete().eq('student_id', studentId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('directory delete error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete student.' });
+  }
+});
+
+/** Recompute expires_at for all directory rows and lock expired user accounts. */
+async function runDirectoryExpiryEnforce() {
+  const yearsMap = await loadFacultyYearsMap();
+  const { data, error } = await supabase
+    .from('student_directory')
+    .select('student_id, faculty, intake_year, expires_at, access_status, status');
+  if (error && /column|schema cache/i.test(error.message || '')) {
+    return {
+      success: true,
+      updated: 0,
+      refreshed: 0,
+      studentIds: [],
+      message: 'Run supabase/student_directory_setup.sql first.',
+    };
+  }
+  if (error) throw error;
+
+  const rows = data || [];
+  const expiredIds = [];
+  const chunkSize = 25;
+
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map(async (row) => {
+        const enriched = enrichDirectoryRow(
+          {
+            ...row,
+            expires_at: null,
+          },
+          yearsMap
+        );
+        if (enriched.is_expired) expiredIds.push(enriched.student_id);
+        const { error: upErr } = await supabase
+          .from('student_directory')
+          .update({
+            access_status: enriched.access_status,
+            expires_at: enriched.expires_at,
+            intake_year: enriched.intake_year,
+          })
+          .eq('student_id', enriched.student_id);
+        if (upErr) throw upErr;
+      })
+    );
+  }
+
+  if (expiredIds.length) {
+    await supabase
+      .from('users')
+      .update({ is_approved: false })
+      .in('student_id', expiredIds)
+      .eq('role', 'user');
+  }
+
+  return {
+    success: true,
+    refreshed: rows.length,
+    updated: expiredIds.length,
+    studentIds: expiredIds.slice(0, 100),
+    message: `Refreshed ${rows.length} row(s); locked ${expiredIds.length} expired account(s).`,
+  };
+}
+
+app.post('/api/admin/directory/enforce-expiry', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const result = await runDirectoryExpiryEnforce();
+    res.json(result);
+  } catch (err) {
+    console.error('enforce-expiry error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not enforce expiry.' });
+  }
+});
+
+app.get('/api/admin/faculty-years', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('faculty_program_years')
+      .select('faculty, program_years, updated_at')
+      .order('faculty', { ascending: true });
+
+    if (error && /relation|does not exist|schema cache/i.test(error.message || '')) {
+      return res.json({ success: true, rows: defaultFacultyYearsList(), seeded: false });
+    }
+    if (error) throw error;
+
+    const rows = data?.length ? data : defaultFacultyYearsList();
+    res.json({ success: true, rows, seeded: Boolean(data?.length) });
+  } catch (err) {
+    console.error('faculty-years list error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not load faculty years.' });
+  }
+});
+
+app.put('/api/admin/faculty-years', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'rows array is required.' });
+
+    const payload = [];
+    for (const row of rows) {
+      const faculty = String(row.faculty || '').trim();
+      if (!faculty) continue;
+      const years = Number(row.program_years);
+      if (!Number.isFinite(years) || years < 4 || years > 7) {
+        return res.status(400).json({
+          error: `Years for "${faculty}" must be between 4 and 7 (got ${row.program_years}).`,
+        });
+      }
+      payload.push({
+        faculty,
+        program_years: Math.trunc(years),
+        updated_at: new Date().toISOString(),
+      });
+    }
+    if (!payload.length) {
+      return res.status(400).json({ error: 'No valid faculty rows to save.' });
+    }
+
+    const { error } = await supabase
+      .from('faculty_program_years')
+      .upsert(payload, { onConflict: 'faculty' });
+    if (error) throw error;
+
+    // Auto-enforce: refresh end dates + lock expired accounts (no manual step)
+    let enforce = null;
+    try {
+      enforce = await runDirectoryExpiryEnforce();
+    } catch (enforceErr) {
+      console.error('auto enforce after faculty-years save:', enforceErr.message);
+    }
+
+    res.json({
+      success: true,
+      rows: payload,
+      enforce,
+      message: enforce?.message
+        ? `Faculty years saved. ${enforce.message}`
+        : 'Faculty years saved. Expiry refresh will apply on next login if enforce failed.',
+    });
+  } catch (err) {
+    console.error('faculty-years save error:', err.message);
+    res.status(500).json({
+      error:
+        err.message ||
+        'Could not save faculty years. Run supabase/student_directory_setup.sql first.',
+    });
+  }
+});
+
+app.post('/api/admin/faculty-years/delete', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const faculty = String(req.body?.faculty || '').trim();
+  if (!faculty) return res.status(400).json({ error: 'faculty is required.' });
+
+  try {
+    const { count, error: countErr } = await supabase
+      .from('student_directory')
+      .select('student_id', { count: 'exact', head: true })
+      .eq('faculty', faculty);
+    if (countErr) throw countErr;
+    if ((count || 0) > 0) {
+      return res.status(400).json({
+        error: `Cannot remove "${faculty}" — ${count} people are assigned in the directory (must be 0).`,
+        assigned: count,
+      });
+    }
+
+    const { error } = await supabase
+      .from('faculty_program_years')
+      .delete()
+      .eq('faculty', faculty);
+    if (error) throw error;
+    res.json({ success: true, faculty, assigned: 0 });
+  } catch (err) {
+    console.error('faculty-years delete error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete faculty.' });
   }
 });
 

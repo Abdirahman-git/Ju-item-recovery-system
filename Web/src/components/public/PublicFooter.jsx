@@ -46,7 +46,7 @@ export default function PublicFooter() {
             </Link>
 
             <p className="mt-4 max-w-sm text-sm font-medium leading-relaxed text-slate-600">
-              Helps Jazeera University students report, search, and recover lost belongings through one trusted campus system.
+              Helps the Jazeera University community report, search, and recover lost belongings through one trusted campus system.
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">

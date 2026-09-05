@@ -4,6 +4,9 @@ import { getUserProfile } from '../services/supabase';
 export const ACCOUNT_SUSPENDED_MESSAGE =
   'Your account is pending admin approval or has been suspended. Please contact the Jazeera University Lost & Found office.';
 
+export const ACCOUNT_EXPIRED_MESSAGE =
+  'Your LOFO access has expired (program years ended). Contact the campus Lost & Found office.';
+
 /** Students must be approved; admins always allowed. */
 export function canUseApp(user) {
   if (!user) return false;

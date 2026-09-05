@@ -231,7 +231,7 @@ function RecycleDetailModal({ item, busy, onClose, onRestore, onPurge }) {
                 <DetailField label="Email" value={row?.email} />
                 <DetailField label="Role" value={row?.role} />
                 <DetailField label="Phone" value={row?.phone || row?.phnum} />
-                <DetailField label="Student ID" value={row?.student_id || row?.studentId || row?.id_number} />
+                <DetailField label="ID" value={row?.student_id || row?.studentId || row?.id_number} />
               </>
             ) : isContact ? (
               <>

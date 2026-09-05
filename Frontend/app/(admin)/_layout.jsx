@@ -33,7 +33,7 @@ export default function AdminLayout() {
         name="AllUsers/index"
         options={{
           drawerLabel: 'All Users',
-          title: 'University Students',
+          title: 'Campus users',
         }}
       />
       <Drawer.Screen

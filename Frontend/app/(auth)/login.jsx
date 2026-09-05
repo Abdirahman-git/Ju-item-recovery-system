@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { loginViaBackend } from '../../src/services/supabase';
-import { ACCOUNT_SUSPENDED_MESSAGE } from '../../src/utils/userAccess';
+import { ACCOUNT_SUSPENDED_MESSAGE, ACCOUNT_EXPIRED_MESSAGE } from '../../src/utils/userAccess';
 import { Colors } from '../../src/constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -80,6 +80,12 @@ export default function LoginScreen() {
           type: 'suspended',
           title: 'Account not active',
           message: err.message || ACCOUNT_SUSPENDED_MESSAGE,
+        });
+      } else if (err.code === 'ACCOUNT_EXPIRED') {
+        setInlineNotice({
+          type: 'suspended',
+          title: 'Access expired',
+          message: err.message || ACCOUNT_EXPIRED_MESSAGE,
         });
       } else if (err.code === 'ACCOUNT_BANNED') {
         setInlineNotice({

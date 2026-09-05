@@ -28,10 +28,8 @@ const PREVIEW_AFTER_PODIUM = 5;
 const LIST_MAX_HEIGHT = 'max-h-44';
 
 function formatContributorMeta(row) {
-  const parts = [];
-  if (row.lost > 0) parts.push(`${row.lost} lost`);
-  if (row.found > 0) parts.push(`${row.found} found`);
-  return parts.length ? parts.join(' · ') : `${row.count} post${row.count === 1 ? '' : 's'}`;
+  const total = Number(row.count) || 0;
+  return `${total} report${total === 1 ? '' : 's'}`;
 }
 
 function formatIdentityLine(row) {

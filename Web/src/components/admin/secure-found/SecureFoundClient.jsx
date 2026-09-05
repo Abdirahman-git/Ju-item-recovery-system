@@ -304,7 +304,7 @@ export default function SecureFoundClient() {
       setNotice({
         type: 'success',
         title: 'Published',
-        message: 'Secure notice published to the student app.',
+        message: 'Secure notice published to the mobile app.',
       });
     } catch (error) {
       setNotice({ type: 'error', title: 'Could not publish', message: error?.message || 'Publish failed.' });
@@ -367,7 +367,7 @@ export default function SecureFoundClient() {
           </div>
 
           <div className="space-y-4">
-            <Field label="Item name" hint="Short name students must see first — e.g. Mobile phone, Gold, Wallet">
+            <Field label="Item name" hint="Short name users must see first — e.g. Mobile phone, Gold, Wallet">
               <input
                 value={form.name}
                 onChange={(e) => updateField('name', e.target.value)}
@@ -396,12 +396,12 @@ export default function SecureFoundClient() {
             </Field>
             <Field
               label="Description / notice"
-              hint='Message for students — e.g. "Hadii uu ka maqan yahay nala soo xariir"'
+              hint='Message for campus users — e.g. "Hadii uu ka maqan yahay nala soo xariir"'
             >
               <textarea
                 value={form.description}
                 onChange={(e) => updateField('description', e.target.value.slice(0, 280))}
-                placeholder="Short message for students..."
+                placeholder="Short message for campus users..."
                 className={formInputClass(`min-h-[148px] w-full resize-none rounded-[18px] px-4 py-3 text-sm leading-6 ${fieldErrors.description ? '!border-red-500 !ring-2 !ring-red-500/20' : ''}`)}
               />
               <div className="flex items-center justify-between">

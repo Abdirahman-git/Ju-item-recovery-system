@@ -211,7 +211,7 @@ function ReceiptModal({ item, onClose }) {
                   ['Category', item.displayCategory],
                   ['Location', item.displayLocation],
                   ['Returned to', item.displayRecipient],
-                  ['Student ID', item.displayRecipientId || 'Not recorded'],
+                  ['ID', item.displayRecipientId || 'Not recorded'],
                   ['Original reporter', item.displayOriginalReporter],
                   ['Reporter email', item.displayReporterEmail || 'Not recorded'],
                 ].map(([label, value]) => (
@@ -281,20 +281,17 @@ export default function ReturnedItemsClient() {
   const [selected, setSelected] = useState(null);
   const [confirmExport, setConfirmExport] = useState(false);
 
-  const foundCount = items.filter((item) => item.displayType === 'FOUND').length;
-  const lostCount = items.filter((item) => item.displayType === 'LOST').length;
+  const foundCount = items.length;
+  const lostCount = 0;
   const categories = useMemo(() => ['all', ...categoriesForFilter(items, 'displayCategory')], [items]);
   const tabCounts = {
     all: items.length,
-    FOUND: foundCount,
-    LOST: lostCount,
   };
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     const next = items.filter((item) => {
-      const matchesTab = tab === 'all' || item.displayType === tab;
       const matchesCategory = category === 'all' || item.displayCategory === category;
       const haystack = [
         item.displayName,
@@ -307,11 +304,12 @@ export default function ReturnedItemsClient() {
         .join(' ')
         .toLowerCase();
 
-      return matchesTab && matchesCategory && (!query || haystack.includes(query));
+      const matchesSearch = !query || haystack.includes(query);
+      return matchesCategory && matchesSearch;
     });
 
     return sortReturnedItems(next, sortBy);
-  }, [items, tab, category, search, sortBy]);
+  }, [items, category, search, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -337,7 +335,7 @@ export default function ReturnedItemsClient() {
       'Type',
       'Category',
       'Returned To',
-      'Student ID',
+      'ID',
       'Original Reporter',
       'Submitted',
       'Date Returned',
@@ -416,8 +414,8 @@ export default function ReturnedItemsClient() {
           icon="check"
           label="Total Returned"
           value={items.length}
-          trendLabel={`${foundCount} found`}
-          subLabel={`${lostCount} lost`}
+          trendLabel="All found / returned"
+          subLabel="Reunited with owners"
           sparkData={sparklines.total}
         />
         <StatCard
@@ -564,7 +562,7 @@ export default function ReturnedItemsClient() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-slate-800">{item.displayRecipient}</p>
-                  <p className="text-xs text-slate-500">{item.displayRecipientId || 'Student ID not recorded'}</p>
+                  <p className="text-xs text-slate-500">{item.displayRecipientId || 'ID not recorded'}</p>
                 </div>
                 <div>
                   <p className="text-sm font-bold text-slate-700">{item.displayOriginalReporter}</p>

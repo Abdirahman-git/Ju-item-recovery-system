@@ -194,7 +194,7 @@ export default function SecureFoundScreen() {
       }
 
       resetForm();
-      toastRef.current?.show('Published', 'Secure notice is now live for students.');
+      toastRef.current?.show('Published', 'Secure notice is now live for campus users.');
       fetchHolds();
     } catch (error) {
       console.error('Publish secure notice failed:', error);
@@ -241,7 +241,7 @@ export default function SecureFoundScreen() {
         <AdminPageHero
           eyebrow="Secure Lost"
           title={draftId ? `Editing draft #${draftId}` : 'Post a secure lost hold'}
-          subtitle="High-value items (money, jewelry, IDs) are kept secure without a public photo. Students only see a short notice."
+          subtitle="High-value items (money, jewelry, IDs) are kept secure without a public photo. Users only see a short notice."
         />
 
         {loadingDraft ? (
@@ -307,7 +307,7 @@ export default function SecureFoundScreen() {
                 <Ionicons name="document-text-outline" size={20} color={AMBER} style={styles.inputIcon} />
                 <TextInput
                   style={[styles.inputNew, { height: '100%', textAlignVertical: 'top' }]}
-                  placeholder='Short message for students, e.g. "Contact security to verify ownership"'
+                  placeholder='Short message for campus users, e.g. "Contact security to verify ownership"'
                   placeholderTextColor="#94A3B8"
                   multiline
                   value={form.description}

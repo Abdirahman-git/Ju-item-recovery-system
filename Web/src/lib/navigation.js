@@ -11,6 +11,7 @@ export const NAV_SECTIONS = [
     title: 'Directory & Logs',
     items: [
       { href: '/admin/users', label: 'All Users', icon: 'people' },
+      { href: '/admin/setup', label: 'Setup', icon: 'settings', superAdminOnly: true },
       { href: '/admin/items', label: 'All Items', icon: 'cube' },
       { href: '/admin/drafts', label: 'Drafts', icon: 'file-text' },
       { href: '/admin/returned', label: 'Returned Items', icon: 'gift' },

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2, Printer } from 'lucide-react';
 import {
+  exportOfficialExecutivePdf,
   exportReportCsv,
   exportReportExcel,
   exportReportPdf,
@@ -11,6 +12,7 @@ import {
   printReport,
   printSummaryReport,
 } from '@/lib/reportExport';
+import { useSession } from '@/context/SessionProvider';
 
 const FORMATS = [
   { id: 'print', label: 'Print', icon: Printer, hint: 'Opens print dialog with photos' },
@@ -128,6 +130,7 @@ export default function ReportExportMenu({
 }
 
 export function SummaryExportMenu({ view, formatGeneratedAt, compact = true }) {
+  const { session } = useSession();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -143,7 +146,9 @@ export function SummaryExportMenu({ view, formatGeneratedAt, compact = true }) {
   function run(formatId) {
     setOpen(false);
     try {
-      if (formatId === 'print' || formatId === 'pdf') {
+      if (formatId === 'official_pdf') {
+        exportOfficialExecutivePdf(view, formatGeneratedAt, session);
+      } else if (formatId === 'print' || formatId === 'pdf') {
         printSummaryReport(view, formatGeneratedAt);
       } else if (formatId === 'excel') {
         exportSummaryExcel(view, formatGeneratedAt);
@@ -168,7 +173,16 @@ export function SummaryExportMenu({ view, formatGeneratedAt, compact = true }) {
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-full z-[70] mt-2 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl shadow-slate-900/10">
+        <div className="absolute right-0 top-full z-[70] mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl shadow-slate-900/10">
+          <button
+            type="button"
+            onClick={() => run('official_pdf')}
+            className="flex w-full items-center gap-2.5 bg-gradient-to-r from-emerald-50 to-blue-50 px-3 py-2.5 text-left text-xs font-black text-emerald-800 transition hover:brightness-95"
+          >
+            <FileText size={15} className="shrink-0 text-emerald-600" />
+            <span>📄 Official Executive PDF</span>
+          </button>
+          <div className="my-1 border-t border-slate-100" />
           {FORMATS.map((format) => {
             const Icon = format.icon;
             return (

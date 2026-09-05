@@ -16,7 +16,7 @@ const FAQ_GROUPS = [
     items: [
       {
         q: 'How do I create an account?',
-        a: 'Tap Sign Up, enter your Student ID, verify OTP sent to your university email, then set your password.',
+        a: 'Tap Sign Up, enter your ID, verify OTP sent to your university email, then set your password.',
       },
       {
         q: 'I forgot my password. What should I do?',
@@ -121,7 +121,7 @@ export default function HelpPage() {
         <Text style={styles.sectionTitle}>Before contacting support</Text>
         <View style={styles.checkRow}>
           <Ionicons name="checkmark-circle" size={16} color={Colors.success} />
-          <Text style={styles.checkText}>Confirm Student ID and password are correct.</Text>
+          <Text style={styles.checkText}>Confirm ID and password are correct.</Text>
         </View>
         <View style={styles.checkRow}>
           <Ionicons name="checkmark-circle" size={16} color={Colors.success} />

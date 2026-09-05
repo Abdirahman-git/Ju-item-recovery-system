@@ -19,7 +19,7 @@ import RevealOnScroll from '@/components/public/RevealOnScroll';
 export const metadata = {
   title: 'About',
   description:
-    'About Jazeera University and JU LOFO, the official campus lost & found for students in Mogadishu.',
+    'About Jazeera University and JU LOFO, the official campus lost & found for campus users in Mogadishu.',
 };
 
 const FEATURES = [
@@ -31,7 +31,7 @@ const FEATURES = [
   {
     icon: ShieldCheck,
     title: 'Verified accounts',
-    text: 'Student accounts via university directory and OTP verification.',
+    text: 'User accounts via university directory and OTP verification.',
   },
   {
     icon: Search,
@@ -59,7 +59,7 @@ const MISSION_POINTS = [
   {
     icon: Smartphone,
     title: 'Report & search',
-    text: 'Lost or found items from the student app.',
+    text: 'Lost or found items from the mobile app.',
   },
   {
     icon: ShieldCheck,
@@ -126,7 +126,7 @@ export default function AboutPage() {
               </span>
             </h1>
             <p className="mt-3.5 max-w-xl text-pretty text-base font-medium leading-relaxed text-white/95 sm:text-lg">
-              Jazeera University’s official campus lost & found for students, staff, and daily
+              Jazeera University’s official campus lost & found for campus users, staff, and daily
               life on the Mogadishu main campus.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -171,11 +171,11 @@ export default function AboutPage() {
                   </h2>
                   <p className="public-about-uni-copy mt-4 max-w-xl text-[15px] font-medium leading-relaxed text-slate-600 sm:text-base">
                     Jazeera University is a private university in Mogadishu, Somalia. The main
-                    campus sits in Hodon District: classrooms, labs, library, and student life
+                    campus sits in Hodon District: classrooms, labs, library, and campus life
                     on one busy site.
                   </p>
                   <p className="public-about-uni-copy mt-3 max-w-xl text-[15px] font-medium leading-relaxed text-slate-600 sm:text-base">
-                    Students move between faculties all day: medicine, engineering, computing,
+                    People move between faculties all day: medicine, engineering, computing,
                     business, education, and more. Phones, IDs, bags, and keys get left behind.
                     JU LOFO is the campus system for reporting and recovering those items.
                     University staff review them before anything goes public.
@@ -257,7 +257,7 @@ export default function AboutPage() {
                     </div>
                     <p className="mt-4 max-w-lg text-pretty text-[15px] font-medium leading-relaxed text-slate-600 sm:text-base">
                       JU LOFO is Jazeera University’s campus lost & found. It replaces scattered
-                      paper notices and informal posts with one secure mobile system for students
+                      paper notices and informal posts with one secure mobile system for campus users
                       on the Mogadishu campus.
                     </p>
                   </div>
@@ -323,7 +323,7 @@ export default function AboutPage() {
                 Built for everyday campus recovery
               </h2>
               <p className="mt-3 max-w-xl text-pretty text-base font-medium leading-relaxed text-slate-600 sm:text-lg">
-                Everything students need in the JU LOFO mobile app · clear, verified, and campus-ready.
+                Everything you need in the JU LOFO mobile app · clear, verified, and campus-ready.
               </p>
             </div>
             <Link
@@ -369,7 +369,7 @@ export default function AboutPage() {
 
       <CtaBand
         title="Report, search, and recover on campus"
-        subtitle="Download the JU LOFO app to use the full Item Recovery flow with verified student accounts and admin review."
+        subtitle="Download the JU LOFO app to use the full Item Recovery flow with verified user accounts and admin review."
       />
     </div>
   );

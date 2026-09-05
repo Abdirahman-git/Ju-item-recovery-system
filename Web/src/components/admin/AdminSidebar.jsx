@@ -26,6 +26,7 @@ import {
   HardDrive,
   Archive,
   Mail,
+  Settings,
 } from 'lucide-react';
 import { NAV_SECTIONS } from '@/lib/navigation';
 import { useSession } from '@/context/SessionProvider';
@@ -50,6 +51,7 @@ const ICONS = {
   'hard-drive': HardDrive,
   archive: Archive,
   mail: Mail,
+  settings: Settings,
 };
 
 export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose = false, onClose }) {
@@ -153,8 +155,15 @@ export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose =
                         href={item.href}
                         prefetch
                         onMouseEnter={() => router.prefetch(item.href)}
-                        onClick={() => {
-                          if (item.href !== pathname) setPendingNav(item.href);
+                        onClick={(event) => {
+                          // Mobile drawer close can race soft nav — force push.
+                          if (item.href !== pathname) {
+                            event.preventDefault();
+                            setPendingNav(item.href);
+                            onNavigate?.();
+                            router.push(item.href);
+                            return;
+                          }
                           onNavigate?.();
                         }}
                         title={collapsed ? item.label : undefined}

@@ -393,7 +393,7 @@ export default function AdminItemDetailScreen() {
               icon="person-outline"
             />
             <AppInput
-              label="Student ID (optional)"
+              label="ID (optional)"
               value={recipientId}
               onChangeText={setRecipientId}
               placeholder="e.g. JU-10294"

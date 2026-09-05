@@ -127,7 +127,7 @@ export default function OwnershipRequestsScreen() {
 
       <View style={styles.heroWrap}>
         <AdminPageHero
-          eyebrow="Student claims"
+          eyebrow="Ownership claims"
           title="This is mine"
           subtitle="Approve when the claimant is the rightful owner. The item will be archived as returned."
         />

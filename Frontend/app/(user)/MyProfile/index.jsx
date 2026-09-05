@@ -101,7 +101,7 @@ export default function ProfilePage() {
                 </Text>
               </View>
             </View>
-            <Text style={styles.userNameText}>{user?.userName || 'Jazeera Student'}</Text>
+            <Text style={styles.userNameText}>{user?.userName || 'Jazeera User'}</Text>
             <Text style={styles.userRoleText}>{user?.studentId || 'ID: 00000'}</Text>
           </View>
         </LinearGradient>
@@ -111,7 +111,7 @@ export default function ProfilePage() {
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Account Information</Text>
             <InfoRow icon="person-outline" label="Full Name" value={user?.userName} color="#1E40AF" />
-            <InfoRow icon="id-card-outline" label="Student ID" value={user?.studentId} color="#8B5CF6" />
+            <InfoRow icon="id-card-outline" label="ID" value={user?.studentId} color="#8B5CF6" />
             <InfoRow icon="school-outline" label="Department / Faculty" value={user?.faculty} color="#F59E0B" />
             <InfoRow icon="mail-outline" label="University Email" value={user?.email} color="#EF4444" />
             <InfoRow icon="call-outline" label="Phone Number" value={user?.phone || '+252 --- ---'} color="#10B981" />

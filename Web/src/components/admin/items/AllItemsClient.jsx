@@ -27,6 +27,7 @@ import {
   Search,
   ShieldQuestion,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react';
 import {
@@ -38,7 +39,7 @@ import {
 } from '@/lib/supabase';
 import { getAdminCacheData, setAdminCache, invalidateAdminCaches } from '@/lib/adminDataCache';
 import { categoriesForFilter } from '@/lib/categories';
-import { canMarkInventoryItemReturned, filterInventoryItems, getInventoryCardMeta, sortInventoryItems } from '@/lib/inventory';
+import { canMarkInventoryItemReturned, filterInventoryItems, getInventoryCardMeta, getItemReporterDisplay, sortInventoryItems } from '@/lib/inventory';
 import { isSecureFoundItem, ITEM_STATUS, normalizeItemStatus } from '@/lib/itemStatus';
 import OwnershipChallengeEditor from '@/components/admin/OwnershipChallengeEditor';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
@@ -242,6 +243,7 @@ function ItemCard({ item, onDetails, onDelete, onMarkReturned, onArchive }) {
   const action = meta.action;
   const showReturn = canMarkInventoryItemReturned(item);
   const stale = isStaleItem(item);
+  const reporter = getItemReporterDisplay(item);
 
   const actionClass =
     action.variant === 'primary'
@@ -301,6 +303,16 @@ function ItemCard({ item, onDetails, onDelete, onMarkReturned, onArchive }) {
         </p>
 
         <div className="space-y-1.5 text-xs text-slate-500">
+          <p className="flex items-center gap-1.5">
+            <UserRound size={13} className="shrink-0 text-slate-400" />
+            <span className="line-clamp-1 font-semibold text-slate-700" title={reporter.name}>
+              {reporter.name}
+            </span>
+          </p>
+          <p className="flex items-center gap-1.5">
+            <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-slate-400">ID</span>
+            <span className="line-clamp-1 font-bold tabular-nums text-slate-700">{reporter.studentId}</span>
+          </p>
           <p className="flex items-center gap-1.5">
             <MapPin size={13} className="shrink-0 text-slate-400" />
             <span className="line-clamp-1">{item.displayLocation}</span>
@@ -385,7 +397,10 @@ function ItemDetailModal({
       : 'Lost (secure hold)'
     : 'Lost report';
   const publicNotice = item.public_notice || item.publicNotice || item.displayDescription;
+  const reporter = getItemReporterDisplay(item);
   const details = [
+    { label: 'Posted by', value: reporter.name },
+    { label: 'Reporter ID', value: reporter.studentId },
     { label: 'Category', value: item.displayCategory },
     { label: 'Type', value: typeLabel },
     { label: 'Location', value: item.displayLocation },
@@ -536,7 +551,7 @@ function MarkReturnedConfirmModal({
         <h3 className="mt-5 text-2xl font-black text-slate-950">Mark as returned?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           <span className="font-bold text-slate-800">&ldquo;{item.displayName}&rdquo;</span> will be removed from the
-          student app and saved to returned items.
+          mobile app and saved to returned items.
         </p>
 
         {!isSecure ? (
@@ -548,13 +563,13 @@ function MarkReturnedConfirmModal({
               <input
                 value={recipientName}
                 onChange={(event) => onRecipientNameChange?.(event.target.value)}
-                placeholder="Student or staff receiving the item"
+                placeholder="Person receiving the item"
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none ring-4 ring-slate-100 focus:border-emerald-300 focus:ring-emerald-100"
               />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-black uppercase tracking-wider text-slate-500">
-                Student ID
+                ID
               </span>
               <input
                 value={recipientId}
@@ -672,7 +687,7 @@ function DeleteItemConfirmModal({ item, loading, onCancel, onConfirm }) {
         <h3 className="mt-5 text-2xl font-extrabold text-slate-950">Delete item?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           <span className="font-bold text-slate-800">{item.displayName}</span> will be permanently removed
-          from the inventory and student app.
+          from the inventory and mobile app.
         </p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
           <button
@@ -860,7 +875,7 @@ export default function AllItemsClient() {
       setReturnResult({
         type: 'success',
         title: 'Item archived',
-        message: `"${archiveConfirmItem.displayName}" was removed from the student app. Open Archived Items in the sidebar to review or restore it.`,
+        message: `"${archiveConfirmItem.displayName}" was removed from the mobile app. Open Archived Items in the sidebar to review or restore it.`,
       });
     } catch (err) {
       setArchiveConfirmItem(null);
@@ -905,12 +920,25 @@ export default function AllItemsClient() {
   }, [deleteConfirmItem, removeItemFromCaches, selected, session]);
 
   const exportCsv = useCallback(() => {
-    const header = ['Inventory ID', 'Name', 'Type', 'Category', 'Location', 'Status', 'Reported'];
+    const header = [
+      'Inventory ID',
+      'Name',
+      'Posted By',
+      'Reporter ID',
+      'Type',
+      'Category',
+      'Location',
+      'Status',
+      'Reported',
+    ];
     const rows = filtered.map((item) => {
       const meta = getInventoryCardMeta(item);
+      const reporter = getItemReporterDisplay(item);
       return [
         item.inventoryRef,
         item.displayName,
+        reporter.name,
+        reporter.studentId,
         item.itemType,
         item.displayCategory,
         item.displayLocation,
@@ -980,7 +1008,7 @@ export default function AllItemsClient() {
       setReturnResult({
         type: 'success',
         title: 'Item returned',
-        message: `"${returnConfirmItem.displayName}" was removed from the student app.`,
+        message: `"${returnConfirmItem.displayName}" was removed from the mobile app.`,
       });
     } catch (err) {
       setReturnConfirmItem(null);
@@ -1070,7 +1098,7 @@ export default function AllItemsClient() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search by ID, name, or location..."
+              placeholder="Search by item, reporter name, or ID..."
               className="glass-input h-10 w-full rounded-[18px] pl-9 pr-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
             />
           </label>

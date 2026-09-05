@@ -93,40 +93,32 @@ function emptyBuckets(period) {
 function getSourceSeriesConfig(sourceId) {
   switch (sourceId) {
     case 'inventory':
+    case 'lost':
+    case 'found':
       return {
-        title: 'Global Inventory',
+        title: sourceId === 'inventory' ? 'Global Inventory' : 'Lost Reports',
         primaryLabel: 'Found',
         secondaryLabel: 'Lost',
         primaryColor: '#0D9488',
         secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} inventory records`,
-      };
-    case 'lost':
-      return {
-        title: 'Lost Reports',
-        primaryLabel: 'Reported',
-        secondaryLabel: 'Live',
-        primaryColor: '#0D9488',
-        secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} lost reports`,
-      };
-    case 'found':
-      return {
-        title: 'Found Reports',
-        primaryLabel: 'Reported',
-        secondaryLabel: 'Live',
-        primaryColor: '#0D9488',
-        secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} found reports`,
+        footerNote: (rows) => {
+          const found = rows.filter((r) => {
+            const lifecycle = String(r.lifecycle || '').toLowerCase();
+            const type = String(r.type || '').toLowerCase();
+            return lifecycle === 'found' || type === 'returned';
+          }).length;
+          const lost = Math.max(rows.length - found, 0);
+          return `${lost} still missing · ${found} found (returned)`;
+        },
       };
     case 'returned':
       return {
         title: 'Returned Items',
-        primaryLabel: 'Returned',
-        secondaryLabel: 'Found type',
+        primaryLabel: 'Found',
+        secondaryLabel: 'Lost',
         primaryColor: '#0D9488',
         secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} reunions archived`,
+        footerNote: (rows) => `${rows.length} found / returned to owners`,
       };
     case 'pending':
       return {
@@ -135,25 +127,25 @@ function getSourceSeriesConfig(sourceId) {
         secondaryLabel: 'Lost',
         primaryColor: '#0D9488',
         secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} awaiting review`,
+        footerNote: (rows) => `${rows.length} still missing — awaiting review`,
       };
     case 'drafts':
       return {
         title: 'Draft Items',
-        primaryLabel: 'Found drafts',
-        secondaryLabel: 'Lost drafts',
+        primaryLabel: 'Found',
+        secondaryLabel: 'Lost',
         primaryColor: '#0D9488',
         secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} unpublished drafts`,
+        footerNote: (rows) => `${rows.length} unpublished lost drafts`,
       };
     case 'secure':
       return {
-        title: 'Secure Lost Holds',
-        primaryLabel: 'Posted',
-        secondaryLabel: 'Live',
+        title: 'Secure Hold',
+        primaryLabel: 'Found',
+        secondaryLabel: 'Lost',
         primaryColor: '#0D9488',
         secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} secure holds`,
+        footerNote: (rows) => `${rows.length} still missing (secure holds)`,
       };
     case 'archived':
       return {
@@ -162,7 +154,7 @@ function getSourceSeriesConfig(sourceId) {
         secondaryLabel: 'Lost',
         primaryColor: '#0D9488',
         secondaryColor: '#F97316',
-        footerNote: (rows) => `${rows.length} vault records`,
+        footerNote: (rows) => `${rows.length} still missing (archived)`,
       };
     case 'recycle':
       return {
@@ -209,8 +201,8 @@ function getSourceSeriesConfig(sourceId) {
     default:
       return {
         title: 'Report Trends',
-        primaryLabel: 'Records',
-        secondaryLabel: 'Active',
+        primaryLabel: 'Found',
+        secondaryLabel: 'Lost',
         primaryColor: '#14B8A6',
         secondaryColor: '#F97316',
         footerNote: (rows) => `${rows.length} records`,
@@ -218,9 +210,17 @@ function getSourceSeriesConfig(sourceId) {
   }
 }
 
+/** Lost = still missing. Found = recovered / returned to owner. */
+function isFoundLifecycle(row) {
+  const lifecycle = String(row.lifecycle || '').toLowerCase();
+  if (lifecycle === 'found') return true;
+  if (lifecycle === 'lost') return false;
+  const type = String(row.type || '').toLowerCase();
+  return type === 'returned' || type === 'found';
+}
+
 function classifyRow(row, sourceId) {
   const status = String(row.status || '').toLowerCase();
-  const type = String(row.type || '').toLowerCase();
 
   if (sourceId === 'claims') {
     return {
@@ -250,34 +250,32 @@ function classifyRow(row, sourceId) {
     };
   }
 
-  if (sourceId === 'inventory' || sourceId === 'pending' || sourceId === 'drafts' || sourceId === 'archived') {
-    const isFound = type === 'found';
-    const isLost = type === 'lost';
+  if (sourceId === 'recycle') {
     return {
-      primaryKey: isFound ? row.dateKey : null,
-      secondaryKey: isLost ? row.dateKey : null,
-      countPrimary: isFound,
-      countSecondary: isLost,
+      primaryKey: row.dateKey,
+      secondaryKey: null,
+      countPrimary: true,
+      countSecondary: false,
     };
   }
 
-  if (sourceId === 'returned') {
-    const isFound = type === 'found';
+  // Item lifecycle sources: Found (recovered) vs Lost (still missing)
+  if (
+    sourceId === 'inventory' ||
+    sourceId === 'lost' ||
+    sourceId === 'found' ||
+    sourceId === 'pending' ||
+    sourceId === 'drafts' ||
+    sourceId === 'secure' ||
+    sourceId === 'archived' ||
+    sourceId === 'returned'
+  ) {
+    const found = isFoundLifecycle(row);
     return {
-      primaryKey: row.dateKey,
-      secondaryKey: isFound ? row.dateKey : null,
-      countPrimary: true,
-      countSecondary: isFound,
-    };
-  }
-
-  if (sourceId === 'lost' || sourceId === 'found' || sourceId === 'secure') {
-    const isLive = status === 'live';
-    return {
-      primaryKey: row.dateKey,
-      secondaryKey: isLive ? row.dateKey : null,
-      countPrimary: true,
-      countSecondary: isLive,
+      primaryKey: found ? row.dateKey : null,
+      secondaryKey: found ? null : row.dateKey,
+      countPrimary: found,
+      countSecondary: !found,
     };
   }
 

@@ -146,8 +146,8 @@ export default function ReviewModal({ item, onClose, onApprove, onReject, proces
               <div className="grid gap-2.5 sm:grid-cols-2">
                 <InfoTile icon={Tag} label="Category" value={item.displayCategory} />
                 <InfoTile icon={CalendarClock} label="Submitted" value={formatDate(item.reportedAt)} />
-                <InfoTile icon={UserRound} label={reporterLabel} value={item.reporterName || 'Student'} />
-                <InfoTile icon={IdCard} label="Student ID" value={item.reporterStudentId || 'Not available'} />
+                <InfoTile icon={UserRound} label={reporterLabel} value={item.reporterName || 'User'} />
+                <InfoTile icon={IdCard} label="ID" value={item.reporterStudentId || 'Not available'} />
                 <InfoTile icon={MapPin} label="Location" value={item.location || item.address} />
                 <InfoTile icon={Phone} label="Phone" value={item.phnum || item.phone || item.phone_number} />
                 <InfoTile icon={Mail} label="Email" value={item.reporterEmail || item.email} wide />

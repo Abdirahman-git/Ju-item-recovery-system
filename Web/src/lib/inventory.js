@@ -7,6 +7,33 @@ function claimsHrefForItem(item, itemType) {
   return `/admin/claims?itemId=${encodeURIComponent(String(id))}&itemType=${type}`;
 }
 
+/** Reporter who logged the item — name + ID for cards, details, and search. */
+export function getItemReporterDisplay(item) {
+  const name = String(
+    item?.displayReporterName ||
+      item?.ownerName ||
+      item?.owner_name ||
+      item?.finderName ||
+      item?.finder_name ||
+      item?.reporterName ||
+      ''
+  ).trim();
+  const studentId = String(
+    item?.displayReporterStudentId ||
+      item?.student_id ||
+      item?.studentId ||
+      item?.reporterStudentId ||
+      ''
+  )
+    .trim()
+    .toUpperCase();
+
+  return {
+    name: name && name !== '?' ? name : 'Unknown',
+    studentId: studentId && studentId !== '?' ? studentId : '—',
+  };
+}
+
 export function getInventoryCardMeta(item) {
   const rawStatus = item?.status;
   const normalized = normalizeItemStatus(item);
@@ -90,12 +117,14 @@ export function getInventoryCardMeta(item) {
     rawStatus === 'ready_pickup';
   if (claimHold) {
     const physical = rawStatus === 'awaiting_pickup';
+    const softLock = rawStatus === 'claim_pending';
     return {
       filterStatus: 'lost',
       badge: { label: 'LOST', className: 'bg-red-600/95 text-white' },
-      overlay: physical ? 'Physical verify' : 'Challenge hold',
+      overlay: physical ? 'Physical verify' : softLock ? 'Answering challenge' : 'Challenge hold',
       action: {
-        label: physical ? 'Confirm office' : 'View request',
+        // Soft-lock = form open, no claim row yet. Physical/submitted → claims queue.
+        label: physical ? 'Confirm office' : softLock ? 'Check claims' : 'View request',
         variant: 'success',
         href: claimsHrefForItem(item, itemType),
       },
@@ -167,14 +196,19 @@ export function filterInventoryItems(items, { status, category, search }) {
       (status === 'matched' && meta.filterStatus === 'matched') ||
       (status === 'lost' && (meta.filterStatus === 'lost' || meta.filterStatus === 'found'));
     const matchCategory = category === 'all' || item.displayCategory === category;
+    const reporter = getItemReporterDisplay(item);
     const matchSearch =
       !q ||
       item.displayName?.toLowerCase().includes(q) ||
       item.inventoryRef?.toLowerCase().includes(q) ||
       item.refId?.toLowerCase().includes(q) ||
+      String(item.id || '').toLowerCase().includes(q) ||
       item.displayLocation?.toLowerCase().includes(q) ||
       item.displayCategory?.toLowerCase().includes(q) ||
-      item.displayDescription?.toLowerCase().includes(q);
+      item.displayDescription?.toLowerCase().includes(q) ||
+      reporter.name.toLowerCase().includes(q) ||
+      reporter.studentId.toLowerCase().includes(q) ||
+      String(item.email || item.userId || '').toLowerCase().includes(q);
     return matchStatus && matchCategory && matchSearch;
   });
 }

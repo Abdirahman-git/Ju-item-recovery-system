@@ -27,7 +27,7 @@ export default function RegisterScreen() {
   const router = useRouter();
   const toastRef = useRef(null);
 
-  // Wizard Steps: 1 = Validate Student ID, 2 = Verify OTP, 3 = Set Password
+  // Wizard Steps: 1 = Validate ID, 2 = Verify OTP, 3 = Set Password
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
@@ -64,6 +64,18 @@ export default function RegisterScreen() {
 
       if (student.status === 'activated') {
         throw new Error('This ID is already activated. Please login instead.');
+      }
+
+      const access = String(student.access_status || '').toLowerCase();
+      const expiresAt = student.expires_at ? new Date(`${String(student.expires_at).slice(0, 10)}T23:59:59`) : null;
+      const expired =
+        access === 'expired' ||
+        access === 'blocked' ||
+        (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now());
+      if (expired) {
+        throw new Error(
+          'This ID has expired for LOFO access. Contact the campus Lost & Found office.'
+        );
       }
 
       if (!student.phone_number) {
