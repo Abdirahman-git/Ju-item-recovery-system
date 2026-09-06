@@ -30,7 +30,7 @@ const STEPS = [
   {
     n: 3,
     title: 'Goes live',
-    body: 'Approved items appear in the student app feed, ready to be found.',
+    body: 'Approved items appear in the mobile app feed, ready to be found.',
     tag: 'Feed',
     Icon: Radio,
   },

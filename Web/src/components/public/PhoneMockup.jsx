@@ -5,7 +5,7 @@ import { MapPin, Package } from 'lucide-react';
 
 const DEMO_CARDS = [
   { id: 1, type: 'found', title: 'Blue backpack', place: 'Library lobby', cat: 'Bags' },
-  { id: 2, type: 'lost', title: 'Student ID card', place: 'Lecture Hall B', cat: 'ID/Cards' },
+  { id: 2, type: 'lost', title: 'ID card', place: 'Lecture Hall B', cat: 'ID/Cards' },
   { id: 3, type: 'found', title: 'Wireless earbuds', place: 'Cafeteria', cat: 'Electronics' },
   { id: 4, type: 'lost', title: 'Black umbrella', place: 'Main gate', cat: 'Accessories' },
 ];

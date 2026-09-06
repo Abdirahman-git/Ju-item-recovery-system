@@ -20,6 +20,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { fetchAllInventoryItems } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { buildMyItemsPageSparklines } from '@/lib/pageSparklines';
 import { getInventoryCardMeta } from '@/lib/inventory';
 import { isSecureListing } from '@/lib/itemStatus';
@@ -184,32 +185,27 @@ const QUICK_ACTIONS = [
 
 function ActivityThumb({ item }) {
   const isSecure = isSecureListing(item);
+  const name = item.displayName || item.itemName || item.item_name;
+  const category = item.displayCategory || item.category;
 
-  if (isSecure) {
-    return (
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 to-amber-50 text-2xl font-black text-amber-600 ring-2 ring-amber-200/80">
-        !
-      </div>
-    );
-  }
-
-  if (!item.imageUrl) {
-    const meta = getInventoryCardMeta(item);
-    const isLost = true;
+  if (isSecure || !item.imageUrl) {
+    const PlaceholderIcon = getItemPlaceholderIcon(name, category);
     return (
       <div
-        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-2 ring-white/80 ${
-          isLost ? 'bg-red-50 text-red-500' : 'bg-red-50 text-red-500'
+        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-2 ${
+          isSecure
+            ? 'bg-gradient-to-br from-amber-100 to-amber-50 text-amber-700 ring-amber-200/80'
+            : 'bg-slate-100 text-slate-500 ring-white/80'
         }`}
       >
-        <Package size={22} strokeWidth={1.75} />
+        <PlaceholderIcon size={22} strokeWidth={1.75} />
       </div>
     );
   }
 
   return (
     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl ring-2 ring-white/90 shadow-md">
-      <SafeRemoteImage src={item.imageUrl} alt={item.displayName} fill className="object-cover" sizes="56px" />
+      <SafeRemoteImage src={item.imageUrl} alt={name} fill className="object-cover" sizes="56px" />
     </div>
   );
 }

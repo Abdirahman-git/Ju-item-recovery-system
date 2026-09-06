@@ -1,16 +1,126 @@
 import { supabase, approveItemClaim, rejectItemClaim } from './supabase';
 import {
-  getChallengeResultFromScore,
-  scoreChallengeAnswers,
+  resolveChallengeOutcome,
+  buildChallengeAnswerReview,
   toPublicChallengeQuestions,
   validateChallengeQuestions,
   normalizeChallengeQuestions,
+  challengeResultLabel,
+  OWNERSHIP_OFFICE_VISIT,
 } from './ownershipChallenge';
 
 async function setItemLifecycleStatus(itemType, itemId, status) {
   const table = itemType === 'found' ? 'found_items' : 'lost_items';
   const { error } = await supabase.from(table).update({ status }).eq('id', itemId);
   if (error) throw new Error(error.message || 'Could not update item status.');
+}
+
+export const ITEM_BEING_CLAIMED_MSG =
+  'Someone is already answering the Ownership Challenge for this item. Try again shortly.';
+
+/**
+ * Soft-lock: hide from live as soon as claimant opens the challenge form.
+ * If an orphan soft-lock remains (Cancel never ran / app closed), clear it and retry once.
+ */
+export async function reserveItemForClaim(itemType, itemId) {
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const id = Number(itemId);
+  if (!id) throw new Error('Item data is missing.');
+
+  const table = type === 'found' ? 'found_items' : 'lost_items';
+
+  const tryLock = async () => {
+    const { data, error } = await supabase
+      .from(table)
+      .update({ status: 'claim_pending' })
+      .eq('id', id)
+      .eq('status', 'live')
+      .select('id')
+      .maybeSingle();
+    if (error) throw new Error(error.message || 'Could not reserve this item.');
+    return data?.id || null;
+  };
+
+  let lockedId = await tryLock();
+  if (!lockedId) {
+    const open = await getOpenClaimForItem(type, id);
+    if (!open) {
+      // Orphan soft-lock (opened form, then Cancel/network failed) — free and retry.
+      await supabase.from(table).update({ status: 'live' }).eq('id', id).eq('status', 'claim_pending');
+      lockedId = await tryLock();
+    }
+  }
+
+  if (!lockedId) throw new Error(ITEM_BEING_CLAIMED_MSG);
+  try {
+    const { invalidatePublicItemsCache } = await import('./publicItems');
+    invalidatePublicItemsCache();
+  } catch {
+    /* optional */
+  }
+  return true;
+}
+
+/** Restore live after Cancel if no submitted claim exists. */
+export async function releaseItemClaimReserve(itemType, itemId) {
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const id = Number(itemId);
+  if (!id) return false;
+
+  const open = await getOpenClaimForItem(type, id);
+  if (open) return false;
+
+  const table = type === 'found' ? 'found_items' : 'lost_items';
+  const { error } = await supabase
+    .from(table)
+    .update({ status: 'live' })
+    .eq('id', id)
+    .eq('status', 'claim_pending');
+
+  if (error) throw new Error(error.message || 'Could not restore item to live.');
+  try {
+    const { invalidatePublicItemsCache } = await import('./publicItems');
+    invalidatePublicItemsCache();
+  } catch {
+    /* optional */
+  }
+  return true;
+}
+
+/**
+ * Clear orphan “Answering challenge” soft-locks (claim_pending, no open claim row).
+ * Safe for admin inventory / claims screens when Cancel never restored live.
+ */
+export async function unlockOrphanClaimSoftLocks() {
+  let unlocked = 0;
+  for (const type of ['lost', 'found']) {
+    const table = type === 'found' ? 'found_items' : 'lost_items';
+    const { data: rows, error } = await supabase
+      .from(table)
+      .select('id')
+      .eq('status', 'claim_pending');
+    if (error || !rows?.length) continue;
+
+    for (const row of rows) {
+      const open = await getOpenClaimForItem(type, row.id);
+      if (open) continue;
+      const { error: upErr } = await supabase
+        .from(table)
+        .update({ status: 'live' })
+        .eq('id', row.id)
+        .eq('status', 'claim_pending');
+      if (!upErr) unlocked += 1;
+    }
+  }
+  if (unlocked > 0) {
+    try {
+      const { invalidatePublicItemsCache } = await import('./publicItems');
+      invalidatePublicItemsCache();
+    } catch {
+      /* optional */
+    }
+  }
+  return unlocked;
 }
 
 async function notifyClaimer({ title, body, itemType, itemId, itemName }) {
@@ -43,10 +153,13 @@ export async function fetchOwnershipChallenge(itemType, itemId, { includeAnswers
 
   if (error) {
     const msg = String(error.message || '');
-    if (/ownership_challenges|does not exist|schema cache/i.test(msg)) {
-      throw new Error('Run supabase/ownership_challenge.sql in Supabase SQL Editor.');
+    const code = error.code ? ` [${error.code}]` : '';
+    if (/Could not find the table|does not exist|schema cache/i.test(msg)) {
+      throw new Error(
+        `${msg}${code} — Run the FULL supabase/ownership_challenge.sql, then: NOTIFY pgrst, 'reload schema';`
+      );
     }
-    throw new Error(error.message || 'Failed to load Ownership Challenge.');
+    throw new Error(`${msg}${code}` || 'Failed to load Ownership Challenge.');
   }
   if (!challenge) return null;
 
@@ -83,7 +196,7 @@ export async function saveOwnershipChallenge({
 
   const normalized = normalizeChallengeQuestions(questions).map((q) => ({
     ...q,
-    options: q.options.map((o) => String(o || '').trim()).filter(Boolean),
+    options: (q.options || []).map((o) => String(o || '').trim()).filter(Boolean),
   }));
 
   const existing = await fetchOwnershipChallenge(type, id, { includeAnswers: true }).catch(() => null);
@@ -115,25 +228,42 @@ export async function saveOwnershipChallenge({
       .select()
       .single();
     if (cErr) {
-      const msg = String(cErr.message || '');
-      if (/ownership_challenges|does not exist|schema cache/i.test(msg)) {
-        throw new Error('Run supabase/ownership_challenge.sql in Supabase SQL Editor.');
+      const msg = String(cErr.message || cErr.details || cErr.hint || 'Failed to create challenge.');
+      const code = cErr.code ? ` [${cErr.code}]` : '';
+      if (/Could not find the table|does not exist|schema cache/i.test(msg)) {
+        throw new Error(
+          `${msg}${code} — Run the FULL supabase/ownership_challenge.sql in SQL Editor (not only selected lines), then wait ~10s or run: NOTIFY pgrst, 'reload schema';`
+        );
       }
-      throw new Error(cErr.message || 'Failed to create challenge.');
+      throw new Error(`${msg}${code}`);
     }
     challengeId = created.id;
   }
 
-  const rows = normalized.map((q, i) => ({
-    challenge_id: challengeId,
-    prompt: String(q.prompt || '').trim(),
-    options: q.options,
-    correct_index: Number(q.correct_index) || 0,
-    sort_order: i,
-  }));
+  const rows = normalized.map((q, i) => {
+    const type =
+      q.question_type === 'ask' ? 'ask' : q.question_type === 'direct' ? 'direct' : 'mcq';
+    return {
+      challenge_id: challengeId,
+      prompt: String(q.prompt || '').trim(),
+      question_type: type,
+      options: type === 'mcq' ? q.options : [],
+      correct_index: type === 'mcq' ? Number(q.correct_index) : 0,
+      correct_answer: type === 'direct' ? String(q.correct_answer || '').trim() : '',
+      sort_order: i,
+    };
+  });
 
   const { error: insErr } = await supabase.from('ownership_challenge_questions').insert(rows);
-  if (insErr) throw new Error(insErr.message || 'Failed to save questions.');
+  if (insErr) {
+    const msg = String(insErr.message || '');
+    if (/question_type|check constraint|correct_answer|schema cache/i.test(msg)) {
+      throw new Error(
+        `${msg} — Re-run the FULL supabase/ownership_challenge.sql in Supabase SQL Editor (adds Ask mode: mcq/direct/ask), then: NOTIFY pgrst, 'reload schema';`
+      );
+    }
+    throw new Error(insErr.message || 'Failed to save questions.');
+  }
 
   return fetchOwnershipChallenge(type, id, { includeAnswers: true });
 }
@@ -159,6 +289,30 @@ export async function getOpenClaimForItem(itemType, itemId) {
   return data?.[0] || null;
 }
 
+export const CLAIM_ALREADY_REJECTED_MSG =
+  'You already tried this item and were not matched. You cannot submit again for the same item.';
+
+/** Same claimer already rejected for this item — no second attempt. */
+export async function getUserRejectedClaimForItem(itemType, itemId, claimerEmail) {
+  const type = itemType === 'found' ? 'found' : 'lost';
+  const id = Number(itemId);
+  const email = String(claimerEmail || '').trim().toLowerCase();
+  if (!id || !email) return null;
+
+  const { data, error } = await supabase
+    .from('item_claims')
+    .select('id, status, claimer_email, challenge_result')
+    .eq('item_type', type)
+    .eq('item_id', id)
+    .eq('claimer_email', email)
+    .eq('status', 'rejected')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) return null;
+  return data?.[0] || null;
+}
+
 /**
  * Submit Ownership Challenge answers as a claim.
  * Hides item from live; auto-pass → returned; physical → hold; reject → restore live.
@@ -170,6 +324,7 @@ export async function submitOwnershipChallengeClaim({
   claimerName,
   claimerStudentId,
   selectedIndexes,
+  answers,
 }) {
   const type = itemType === 'found' ? 'found' : 'lost';
   const itemId = Number(item?.id);
@@ -180,16 +335,33 @@ export async function submitOwnershipChallengeClaim({
     throw new Error('This item already has an ownership request under review.');
   }
 
+  const email = (claimerEmail || '').trim().toLowerCase();
+  const alreadyRejected = await getUserRejectedClaimForItem(type, itemId, email);
+  if (alreadyRejected) throw new Error(CLAIM_ALREADY_REJECTED_MSG);
+
   const challenge = await fetchOwnershipChallenge(type, itemId, { includeAnswers: true });
   if (!challenge?.questions?.length) {
     throw new Error('Ownership Challenge is not ready yet. Please wait for admin.');
   }
 
-  const { score, correct, total } = scoreChallengeAnswers(challenge.questions, selectedIndexes);
-  const result = getChallengeResultFromScore(score);
+  const answerList = Array.isArray(answers)
+    ? answers
+    : Array.isArray(selectedIndexes)
+      ? selectedIndexes
+      : [];
+  const { score, correct, total, result, askOnly, askTotal } = resolveChallengeOutcome(
+    challenge.questions,
+    answerList
+  );
   const itemName = item.itemName || item.item_name || item.displayName || 'Item';
+  const answerReview = buildChallengeAnswerReview(challenge.questions, answerList);
 
-  const description = `Ownership Challenge · ${score}% (${correct}/${total}) · ${result}`;
+  const description =
+    askTotal > 0
+      ? `Ownership Challenge · Ask review · Physical (${score}% on scored Qs)`
+      : askOnly
+        ? `Ownership Challenge · Ask review · physical`
+        : `Ownership Challenge · ${score}% (${correct}/${total}) · ${result}`;
 
   const payload = {
     lost_item_id: itemId,
@@ -197,7 +369,7 @@ export async function submitOwnershipChallengeClaim({
     item_type: type,
     item_id: itemId,
     claimer_name: claimerName || 'Student',
-    claimer_email: (claimerEmail || '').trim().toLowerCase(),
+    claimer_email: email,
     claimer_student_id: claimerStudentId || null,
     description,
     match_score: score,
@@ -210,11 +382,12 @@ export async function submitOwnershipChallengeClaim({
       correct,
       total,
       result,
+      answer_review: answerReview,
     },
     challenge_id: challenge.id,
     challenge_score: score,
     challenge_result: result,
-    challenge_answers: selectedIndexes,
+    challenge_answers: answerList,
     status: result === 'reject' ? 'rejected' : result === 'physical' ? 'physical' : 'pending',
   };
 
@@ -238,13 +411,18 @@ export async function submitOwnershipChallengeClaim({
   if (result === 'auto_pass') {
     await approveItemClaim(claim);
     await notifyClaimer({
-      title: 'Ownership approved',
-      body: `Your challenge scored ${score}%. Visit the campus Lost & Found office to collect “${itemName}”.`,
+      title: 'Approved — item returned',
+      body: `Challenge ${score}% · Approved — Returned ${OWNERSHIP_OFFICE_VISIT}. “${itemName}” is ready for you.`,
       itemType: type,
       itemId,
       itemName,
     });
-    return { claim: { ...claim, status: 'approved' }, score, result, message: 'Approved — visit Lost & Found office.' };
+    return {
+      claim: { ...claim, status: 'approved' },
+      score,
+      result,
+      message: challengeResultLabel('auto_pass'),
+    };
   }
 
   if (result === 'reject') {
@@ -254,19 +432,27 @@ export async function submitOwnershipChallengeClaim({
       .update({ status: 'rejected', reviewed_at: new Date().toISOString(), challenge_result: 'reject' })
       .eq('id', claimRow.id);
     await notifyClaimer({
-      title: 'Ownership not matched',
-      body: `Your challenge scored ${score}%. The item is live again on the board.`,
+      title: 'Rejected — item is live again',
+      body: `Score ${score}% (below 50%). Ownership was not matched. “${itemName}” is back on the live board.`,
       itemType: type,
       itemId,
       itemName,
     });
-    return { claim: { ...claim, status: 'rejected' }, score, result, message: 'Score too low — item is live again.' };
+    return {
+      claim: { ...claim, status: 'rejected' },
+      score,
+      result,
+      message: 'Rejected — item is live on the board again.',
+    };
   }
 
-  // physical
+  // physical — office verify (Ask always lands here; score band 50–80 also)
   await notifyClaimer({
-    title: 'Visit Lost & Found office',
-    body: `Your challenge scored ${score}%. Come to the campus office so staff can verify “${itemName}”.`,
+    title: 'Physical verification required',
+    body:
+      askTotal > 0
+        ? `Your answers need office review (Ask question). Please ${OWNERSHIP_OFFICE_VISIT} about “${itemName}”.`
+        : `Challenge ${score}% · Physical — ${OWNERSHIP_OFFICE_VISIT} so staff can verify “${itemName}”.`,
     itemType: type,
     itemId,
     itemName,
@@ -275,13 +461,33 @@ export async function submitOwnershipChallengeClaim({
     claim: { ...claim, status: 'physical' },
     score,
     result,
-    message: 'Visit campus office for physical verification.',
+    message: challengeResultLabel('physical'),
   };
 }
 
 /** Admin confirms physical claimant is correct → Returned. */
 export async function confirmPhysicalClaim(claim) {
-  return approveItemClaim({ ...claim, status: 'physical' });
+  const result = await approveItemClaim({ ...claim, status: 'physical' });
+  const itemType = claim.itemType || claim.item_type || 'found';
+  const itemId = claim.itemId || claim.item_id || claim.found_item_id || claim.lost_item_id;
+  const itemName =
+    claim.targetItem?.itemName ||
+    claim.targetItem?.item_name ||
+    claim.item_name ||
+    claim.displayItemName ||
+    'your item';
+  const score = claim.challenge_score != null ? Math.round(Number(claim.challenge_score)) : null;
+  await notifyClaimer({
+    title: 'Approved — item returned',
+    body:
+      score != null
+        ? `Challenge ${score}% · ${challengeResultLabel('auto_pass')}. “${itemName}” is ready for you.`
+        : `${challengeResultLabel('auto_pass')}. “${itemName}” is ready for you.`,
+    itemType,
+    itemId,
+    itemName,
+  });
+  return result;
 }
 
 /** Admin rejects physical / pending → restore live. */

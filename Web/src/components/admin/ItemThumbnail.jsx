@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Package } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 
-export default function ItemThumbnail({ src, alt, itemType }) {
+export default function ItemThumbnail({ src, alt, itemType, itemName, category }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -12,13 +12,14 @@ export default function ItemThumbnail({ src, alt, itemType }) {
   }, [src]);
 
   if (!src || failed) {
+    const PlaceholderIcon = getItemPlaceholderIcon(itemName || alt, category);
     return (
       <div
         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
           itemType === 'found' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
         }`}
       >
-        <Package size={18} />
+        <PlaceholderIcon size={18} strokeWidth={1.75} />
       </div>
     );
   }

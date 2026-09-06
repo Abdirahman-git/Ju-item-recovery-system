@@ -55,8 +55,19 @@ export default function ReportSelect({
   disabled = false,
   className = '',
   variant = 'default',
+  open: openProp,
+  onOpenChange,
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? Boolean(openProp) : uncontrolledOpen;
+
+  function setOpen(next) {
+    const resolved = typeof next === 'function' ? next(open) : next;
+    if (!isControlled) setUncontrolledOpen(resolved);
+    onOpenChange?.(resolved);
+  }
+
   const [query, setQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
   const rootRef = useRef(null);
@@ -160,7 +171,7 @@ export default function ReportSelect({
     : 'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 transition group-hover:scale-105';
 
   return (
-    <div ref={rootRef} className={`relative ${className}`}>
+    <div ref={rootRef} className={`relative ${open ? 'z-[90]' : ''} ${className}`}>
       <button
         type="button"
         disabled={disabled}
@@ -187,7 +198,7 @@ export default function ReportSelect({
 
       {open ? (
         <div
-          className={`report-select-panel absolute left-0 right-0 top-[calc(100%+0.45rem)] z-[120] overflow-hidden rounded-[20px] border border-slate-200 bg-white ${
+          className={`report-select-panel absolute left-0 right-0 top-[calc(100%+0.45rem)] z-[140] overflow-hidden rounded-[20px] border border-slate-200 bg-white ${
             theme === 'emerald' ? 'report-select-panel-emerald' : theme === 'amber' ? 'report-select-panel-amber' : 'report-select-panel-blue'
           }`}
           onKeyDown={handleListKeyDown}

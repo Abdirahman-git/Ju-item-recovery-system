@@ -42,8 +42,19 @@ export default function ReportDatePicker({
   allowFuture = false,
   openDirection = 'down',
   className = '',
+  open: openProp,
+  onOpenChange,
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? Boolean(openProp) : uncontrolledOpen;
+
+  function setOpen(next) {
+    const resolved = typeof next === 'function' ? next(open) : next;
+    if (!isControlled) setUncontrolledOpen(resolved);
+    onOpenChange?.(resolved);
+  }
+
   const pickerRef = useRef(null);
   const todayKey = getLocalDateValue();
   const maxDateKey = allowFuture ? max || null : max && max < todayKey ? max : todayKey;
@@ -111,7 +122,7 @@ export default function ReportDatePicker({
       : 'top-[calc(100%+0.45rem)]';
 
   return (
-    <div ref={pickerRef} className={`relative ${className}`}>
+    <div ref={pickerRef} className={`relative ${open ? 'z-[90]' : ''} ${className}`}>
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}

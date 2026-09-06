@@ -28,6 +28,7 @@ import OwnershipChallengeEditor from '@/components/admin/OwnershipChallengeEdito
 import ValidationTrendsPanel from './ValidationTrendsPanel';
 import StatCard from '@/components/admin/StatCard';
 import { categoriesForFilter, isHighValueCategory } from '@/lib/categories';
+import { getItemReporterDisplay } from '@/lib/inventory';
 import { invalidateAdminCaches } from '@/lib/adminDataCache';
 import { useAdminBadges } from '@/context/AdminBadgeContext';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
@@ -135,7 +136,6 @@ export default function PendingReportsClient() {
     setBadgeCounts?.((prev) => ({ ...(prev || { pending: 0, claims: 0 }), pending: reports.length }));
   }, [reports.length, setBadgeCounts]);
 
-  const [tab, setTab] = useState('all');
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -158,23 +158,25 @@ export default function PendingReportsClient() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reports.filter((item) => {
-      const matchTab = tab === 'all' || tab === 'lost';
       const matchCat = category === 'all' || item.displayCategory === category;
+      const reporter = getItemReporterDisplay(item);
       const matchSearch =
         !q ||
         item.displayName?.toLowerCase().includes(q) ||
         item.refId?.toLowerCase().includes(q) ||
-        item.reporterName?.toLowerCase().includes(q) ||
+        String(item.id || '').toLowerCase().includes(q) ||
+        reporter.name.toLowerCase().includes(q) ||
+        reporter.studentId.toLowerCase().includes(q) ||
+        String(item.reporterEmail || item.email || '').toLowerCase().includes(q) ||
         item.displayCategory?.toLowerCase().includes(q);
-      return matchTab && matchCat && matchSearch;
+      return matchCat && matchSearch;
     });
-  }, [reports, tab, category, search]);
+  }, [reports, category, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const highValueCount = reports.filter((r) => isHighValueCategory(r.displayCategory)).length;
-  const lostCount = reports.length;
 
   const sparklines = useMemo(() => buildPendingPageSparklines(reports), [reports]);
 
@@ -244,69 +246,44 @@ export default function PendingReportsClient() {
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="inline-flex rounded-[22px] border border-white/60 bg-white/20 p-1 backdrop-blur-xl">
-          {[
-            { id: 'all', label: `All Reports (${reports.length})` },
-            { id: 'lost', label: `Lost (${lostCount})` },
-          ].map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                setTab(t.id);
-                setPage(1);
-              }}
-              className={`rounded-[14px] px-3 py-2 text-xs font-semibold transition sm:text-sm ${
-                tab === t.id
-                  ? 'glass-tab-active text-slate-900'
-                  : 'text-slate-500 hover:bg-white/40 hover:text-slate-700'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-[220px] flex-1 lg:min-w-[320px]">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search item, reporter, or ID..."
-              className="glass-input h-10 w-full rounded-[18px] pl-9 pr-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
-            />
-          </label>
-          <div className="relative">
-            <Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <select
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
-                setPage(1);
-              }}
-              className="glass-input h-10 appearance-none rounded-[18px] pl-8 pr-8 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
-            >
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c === 'all' ? 'All Categories' : c}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            className="glass-button flex h-10 w-10 items-center justify-center rounded-[18px] text-slate-500 transition hover:text-[#1A56DB]"
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <label className="relative min-w-[220px] flex-1 lg:max-w-md lg:flex-none lg:min-w-[320px]">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search item, reporter, or ID..."
+            className="glass-input h-10 w-full rounded-[18px] pl-9 pr-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
+          />
+        </label>
+        <div className="relative">
+          <Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <select
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setPage(1);
+            }}
+            className="glass-input h-10 appearance-none rounded-[18px] pl-8 pr-8 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
           >
-            <RefreshCw size={16} />
-          </button>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c === 'all' ? 'All Categories' : c}
+              </option>
+            ))}
+          </select>
         </div>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="glass-button flex h-10 w-10 items-center justify-center rounded-[18px] text-slate-500 transition hover:text-[#1A56DB]"
+        >
+          <RefreshCw size={16} />
+        </button>
       </div>
 
       {/* KPI row */}
@@ -390,6 +367,7 @@ export default function PendingReportsClient() {
                 pageItems.map((item, idx) => {
                   const Icon = ROW_ICONS[idx % ROW_ICONS.length] || Package;
                   const catClass = CATEGORY_COLORS[item.displayCategory] || CATEGORY_COLORS.default;
+                  const reporter = getItemReporterDisplay(item);
                   return (
                     <tr
                       key={`${item.reportType}-${item.id}`}
@@ -435,8 +413,11 @@ export default function PendingReportsClient() {
                         </div>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="truncate font-bold text-slate-800" title={item.reporterName || 'Student'}>
-                          {clampText(item.reporterName || 'Student', CONTACT_PREVIEW_LIMIT)}
+                        <p className="truncate font-bold text-slate-800" title={reporter.name}>
+                          {clampText(reporter.name, CONTACT_PREVIEW_LIMIT)}
+                        </p>
+                        <p className="truncate text-xs font-semibold tabular-nums text-slate-600" title={reporter.studentId}>
+                          ID: {reporter.studentId}
                         </p>
                         <p className="truncate text-xs text-slate-400" title={item.reporterEmail || item.phone || ''}>
                           {clampText(item.reporterEmail || item.phone, CONTACT_PREVIEW_LIMIT) || 'Contact in review'}

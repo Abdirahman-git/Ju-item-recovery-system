@@ -14,16 +14,21 @@ import {
   Download,
   Eye,
   Filter,
+  Loader2,
   RefreshCw,
   Search,
+  Trash2,
   X,
 } from 'lucide-react';
-import { fetchReturnedItems } from '@/lib/supabase';
+import { deleteReturnedItem, fetchReturnedItems } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { buildReturnedPageSparklines } from '@/lib/pageSparklines';
 import StatCard from '@/components/admin/StatCard';
 import { categoriesForFilter } from '@/lib/categories';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
+import { useSession } from '@/context/SessionProvider';
+import { invalidateAdminCaches } from '@/lib/adminDataCache';
 import MonthlyReturnPerformance from '@/components/admin/returned/MonthlyReturnPerformance';
 
 const PAGE_SIZE = 6;
@@ -104,9 +109,13 @@ function ReturnedImage({ item }) {
   }, [item.imageUrl, item.id]);
 
   if (!item.imageUrl || failed) {
+    const PlaceholderIcon = getItemPlaceholderIcon(
+      item.displayName || item.itemName,
+      item.displayCategory || item.category
+    );
     return (
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-        <Archive size={21} />
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+        <PlaceholderIcon size={21} strokeWidth={1.75} />
       </div>
     );
   }
@@ -166,7 +175,10 @@ function ReceiptModal({ item, onClose }) {
             <DetailPhotoPanel
               src={item.imageUrl}
               alt={item.displayName}
-              emptyIcon={Archive}
+              emptyIcon={getItemPlaceholderIcon(
+                item.displayName || item.itemName,
+                item.displayCategory || item.category
+              )}
               emptyLabel="No image archived"
               badge={{
                 label: 'Reunited',
@@ -211,7 +223,7 @@ function ReceiptModal({ item, onClose }) {
                   ['Category', item.displayCategory],
                   ['Location', item.displayLocation],
                   ['Returned to', item.displayRecipient],
-                  ['Student ID', item.displayRecipientId || 'Not recorded'],
+                  ['ID', item.displayRecipientId || 'Not recorded'],
                   ['Original reporter', item.displayOriginalReporter],
                   ['Reporter email', item.displayReporterEmail || 'Not recorded'],
                 ].map(([label, value]) => (
@@ -265,9 +277,49 @@ function ExportConfirmModal({ count, onCancel, onConfirm }) {
   );
 }
 
+function DeleteConfirmModal({ item, loading, onCancel, onConfirm }) {
+  if (!item) return null;
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-md">
+      <div className="glass-modal w-full max-w-md p-6 text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-red-600">
+          <Trash2 size={28} />
+        </div>
+        <h3 className="mt-5 text-2xl font-extrabold text-slate-950">Delete returned record?</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          <span className="font-bold text-slate-800">{item.displayName}</span> will be removed from Returned
+          Items and moved to Deleted Records.
+        </p>
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="glass-button flex-1 rounded-2xl px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-white disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
+          >
+            {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+            Delete
+          </button>
+        </div>
+        <p className="mt-3 text-xs font-medium text-slate-400">{item.refId}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function ReturnedItemsClient() {
+  const { session } = useSession();
   const { setActions, clearActions } = useAdminHeaderActions();
-  const { data, error, refresh } = useBackgroundFetch('admin:returned', fetchReturnedItems, {
+  const { data, error, refresh, patchData } = useBackgroundFetch('admin:returned', fetchReturnedItems, {
     fallback: [],
   });
   const items = useMemo(() => (Array.isArray(data) ? data : []), [data]);
@@ -280,21 +332,21 @@ export default function ReturnedItemsClient() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [confirmExport, setConfirmExport] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState(null);
 
-  const foundCount = items.filter((item) => item.displayType === 'FOUND').length;
-  const lostCount = items.filter((item) => item.displayType === 'LOST').length;
+  const foundCount = items.length;
+  const lostCount = 0;
   const categories = useMemo(() => ['all', ...categoriesForFilter(items, 'displayCategory')], [items]);
   const tabCounts = {
     all: items.length,
-    FOUND: foundCount,
-    LOST: lostCount,
   };
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     const next = items.filter((item) => {
-      const matchesTab = tab === 'all' || item.displayType === tab;
       const matchesCategory = category === 'all' || item.displayCategory === category;
       const haystack = [
         item.displayName,
@@ -307,11 +359,12 @@ export default function ReturnedItemsClient() {
         .join(' ')
         .toLowerCase();
 
-      return matchesTab && matchesCategory && (!query || haystack.includes(query));
+      const matchesSearch = !query || haystack.includes(query);
+      return matchesCategory && matchesSearch;
     });
 
     return sortReturnedItems(next, sortBy);
-  }, [items, tab, category, search, sortBy]);
+  }, [items, category, search, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -337,7 +390,7 @@ export default function ReturnedItemsClient() {
       'Type',
       'Category',
       'Returned To',
-      'Student ID',
+      'ID',
       'Original Reporter',
       'Submitted',
       'Date Returned',
@@ -373,6 +426,29 @@ export default function ReturnedItemsClient() {
     exportCsv();
   }, [exportCsv]);
 
+  const confirmDelete = useCallback(async () => {
+    if (!deleteTarget?.id) return;
+    setDeleting(true);
+    setToast(null);
+    try {
+      await deleteReturnedItem(deleteTarget, {
+        deletedBy: session?.email || session?.userName || null,
+      });
+      patchData((current) =>
+        Array.isArray(current) ? current.filter((row) => row.id !== deleteTarget.id) : []
+      );
+      invalidateAdminCaches('admin:reports', 'admin:dashboard', 'admin:backup');
+      if (selected?.id === deleteTarget.id) setSelected(null);
+      setDeleteTarget(null);
+      setToast({ type: 'success', text: `"${deleteTarget.displayName}" moved to Deleted Records.` });
+      setSparkPlayKey((k) => k + 1);
+    } catch (err) {
+      setToast({ type: 'error', text: err?.message || 'Could not delete returned record.' });
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, patchData, selected, session]);
+
   useEffect(() => {
     setActions(
       <>
@@ -399,6 +475,18 @@ export default function ReturnedItemsClient() {
 
   return (
     <div className="w-full space-y-5">
+      {toast ? (
+        <div
+          className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
+            toast.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-red-200 bg-red-50 text-red-700'
+          }`}
+        >
+          {toast.text}
+        </div>
+      ) : null}
+
       {error && items.length === 0 ? (
         <div className="glass-card rounded-[24px] border-red-200/60 bg-red-50/40 p-6 text-center">
           <p className="font-semibold text-red-700">{error}</p>
@@ -416,8 +504,8 @@ export default function ReturnedItemsClient() {
           icon="check"
           label="Total Returned"
           value={items.length}
-          trendLabel={`${foundCount} found`}
-          subLabel={`${lostCount} lost`}
+          trendLabel="All found / returned"
+          subLabel="Reunited with owners"
           sparkData={sparklines.total}
         />
         <StatCard
@@ -532,10 +620,28 @@ export default function ReturnedItemsClient() {
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-[#1A56DB]">
               <Archive size={30} />
             </div>
-            <h3 className="text-lg font-black text-slate-900">No returned items yet</h3>
+            <h3 className="text-lg font-black text-slate-900">
+              {items.length > 0 && search.trim()
+                ? `No match for “${search.trim()}”`
+                : 'No returned items yet'}
+            </h3>
             <p className="mt-1 max-w-md text-sm text-slate-500">
-              Completed ownership approvals will appear here as archived return records.
+              {items.length > 0 && search.trim()
+                ? 'Clear the search box to see all returned items, or refresh after an approval.'
+                : 'Completed ownership approvals will appear here as archived return records.'}
             </p>
+            {items.length > 0 && search.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setPage(1);
+                }}
+                className="mt-4 rounded-xl bg-[#1A56DB] px-4 py-2 text-sm font-bold text-white"
+              >
+                Clear search
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="divide-y divide-white/60">
@@ -564,7 +670,7 @@ export default function ReturnedItemsClient() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-slate-800">{item.displayRecipient}</p>
-                  <p className="text-xs text-slate-500">{item.displayRecipientId || 'Student ID not recorded'}</p>
+                  <p className="text-xs text-slate-500">{item.displayRecipientId || 'ID not recorded'}</p>
                 </div>
                 <div>
                   <p className="text-sm font-bold text-slate-700">{item.displayOriginalReporter}</p>
@@ -585,7 +691,7 @@ export default function ReturnedItemsClient() {
                     Reunited
                   </span>
                 </div>
-                <div className="flex justify-start lg:justify-end">
+                <div className="flex flex-wrap justify-start gap-1.5 lg:justify-end">
                   <button
                     type="button"
                     onClick={(event) => {
@@ -596,6 +702,18 @@ export default function ReturnedItemsClient() {
                   >
                     <Eye size={14} />
                     Receipt
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleting && deleteTarget?.id === item.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteTarget(item);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+                  >
+                    <Trash2 size={14} />
+                    Delete
                   </button>
                 </div>
               </article>
@@ -656,6 +774,14 @@ export default function ReturnedItemsClient() {
       <MonthlyReturnPerformance items={items} />
 
       <ReceiptModal item={selected} onClose={() => setSelected(null)} />
+      <DeleteConfirmModal
+        item={deleteTarget}
+        loading={deleting}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+        onConfirm={confirmDelete}
+      />
       {confirmExport ? (
         <ExportConfirmModal
           count={filtered.length}

@@ -2,18 +2,41 @@ import { validateItemReportContent } from './contentValidation';
 
 const isFilled = (value) => typeof value === 'string' && value.trim() !== '';
 
-export const validateLostItemForm = (item) => {
-  const missing = [];
+const REQUIRED_MSG = {
+  itemName: 'Item name is required.',
+  category: 'Please select a category.',
+  location: 'Location is required.',
+  description: 'Description is required.',
+  dateLost: 'Date lost is required.',
+  timeLost: 'Time lost is required.',
+  dateFound: 'Date found is required.',
+  timeFound: 'Time found is required.',
+  imageURI: 'Photo is required.',
+};
 
-  if (!isFilled(item?.itemName)) missing.push('Item Name');
-  if (!isFilled(item?.category)) missing.push('Category');
-  if (!isFilled(item?.location)) missing.push('Location');
-  if (!isFilled(item?.description)) missing.push('Description');
-  if (!isFilled(item?.dateLost)) missing.push('Date Lost');
-  if (!isFilled(item?.timeLost)) missing.push('Time Lost');
+function collectMissingFieldErrors(checks) {
+  const fieldErrors = {};
+  const missing = [];
+  for (const { key, label, ok } of checks) {
+    if (ok) continue;
+    fieldErrors[key] = REQUIRED_MSG[key] || `${label} is required.`;
+    missing.push(label);
+  }
+  return { fieldErrors, missing };
+}
+
+export const validateLostItemForm = (item) => {
+  const { fieldErrors, missing } = collectMissingFieldErrors([
+    { key: 'itemName', label: 'Item Name', ok: isFilled(item?.itemName) },
+    { key: 'category', label: 'Category', ok: isFilled(item?.category) },
+    { key: 'location', label: 'Location', ok: isFilled(item?.location) },
+    { key: 'description', label: 'Description', ok: isFilled(item?.description) },
+    { key: 'dateLost', label: 'Date Lost', ok: isFilled(item?.dateLost) },
+    { key: 'timeLost', label: 'Time Lost', ok: isFilled(item?.timeLost) },
+  ]);
 
   if (missing.length) {
-    return { valid: false, missing };
+    return { valid: false, missing, fieldErrors };
   }
 
   const content = validateItemReportContent({
@@ -22,25 +45,31 @@ export const validateLostItemForm = (item) => {
     description: item.description,
   });
   if (!content.valid) {
-    return { valid: false, missing: [], contentError: content };
+    const field = content.field || 'itemName';
+    return {
+      valid: false,
+      missing: [],
+      fieldErrors: { [field]: content.message },
+      contentError: content,
+    };
   }
 
-  return { valid: true, missing: [] };
+  return { valid: true, missing: [], fieldErrors: {} };
 };
 
 export const validateFoundItemForm = (item) => {
-  const missing = [];
-
-  if (!isFilled(item?.itemName)) missing.push('Item Name');
-  if (!isFilled(item?.category)) missing.push('Category');
-  if (!isFilled(item?.location)) missing.push('Location');
-  if (!isFilled(item?.description)) missing.push('Description');
-  if (!isFilled(item?.dateFound)) missing.push('Date Found');
-  if (!isFilled(item?.timeFound)) missing.push('Time Found');
-  if (!isFilled(item?.imageURI)) missing.push('Photo');
+  const { fieldErrors, missing } = collectMissingFieldErrors([
+    { key: 'itemName', label: 'Item Name', ok: isFilled(item?.itemName) },
+    { key: 'category', label: 'Category', ok: isFilled(item?.category) },
+    { key: 'location', label: 'Location', ok: isFilled(item?.location) },
+    { key: 'description', label: 'Description', ok: isFilled(item?.description) },
+    { key: 'dateFound', label: 'Date Found', ok: isFilled(item?.dateFound) },
+    { key: 'timeFound', label: 'Time Found', ok: isFilled(item?.timeFound) },
+    { key: 'imageURI', label: 'Photo', ok: isFilled(item?.imageURI) },
+  ]);
 
   if (missing.length) {
-    return { valid: false, missing };
+    return { valid: false, missing, fieldErrors };
   }
 
   const content = validateItemReportContent({
@@ -49,12 +78,19 @@ export const validateFoundItemForm = (item) => {
     description: item.description,
   });
   if (!content.valid) {
-    return { valid: false, missing: [], contentError: content };
+    const field = content.field || 'itemName';
+    return {
+      valid: false,
+      missing: [],
+      fieldErrors: { [field]: content.message },
+      contentError: content,
+    };
   }
 
-  return { valid: true, missing: [] };
+  return { valid: true, missing: [], fieldErrors: {} };
 };
 
+/** @deprecated Prefer fieldErrors under each input. Kept for legacy callers. */
 export const getValidationAlertMessage = (result) => {
   if (result?.contentError) {
     return result.contentError.message;

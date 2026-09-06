@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server';
 import { fetchPublicLiveItems } from '@/lib/publicItems';
 
-export const revalidate = 30;
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const limit = Math.min(Math.max(Number(searchParams.get('limit')) || 48, 1), 100);
 
   try {
-    const items = await fetchPublicLiveItems({ limit });
+    const items = await fetchPublicLiveItems({ limit, skipCache: true });
     return NextResponse.json(items, {
       headers: {
-        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+        'Cache-Control': 'no-store, max-age=0',
       },
     });
   } catch (error) {

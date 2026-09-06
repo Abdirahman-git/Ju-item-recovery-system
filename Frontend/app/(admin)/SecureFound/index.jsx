@@ -28,10 +28,11 @@ import {
 } from '../../../src/services/supabase';
 import { validateSecureNoticeContent } from '../../../src/utils/contentValidation';
 import { showAppWarning, showAppFailure, showAppConfirm } from '../../../src/utils/appAlert';
+import { STUDENT_AFFAIRS_OFFICE, normalizeOfficeLocation } from '../../../src/utils/officeLocation';
 
 const AMBER = '#B45309';
 const AMBER_LIGHT = '#FEF3C7';
-const DEFAULT_SECURITY_LOCATION = 'Campus Security Office';
+const DEFAULT_SECURITY_LOCATION = STUDENT_AFFAIRS_OFFICE;
 const DESCRIPTION_LIMIT = 280;
 
 function createInitialForm() {
@@ -113,7 +114,10 @@ export default function SecureFoundScreen() {
     const name = form.itemName.trim();
     const description = form.description.trim();
     const category = form.category || 'Other';
-    const securityLocation = form.securityLocation.trim() || DEFAULT_SECURITY_LOCATION;
+    const securityLocation = normalizeOfficeLocation(
+      form.securityLocation.trim(),
+      DEFAULT_SECURITY_LOCATION
+    );
     const finderName = userSession?.userName || 'Campus Security';
     const email = userSession?.email || 'admin@ju.edu.so';
 
@@ -194,7 +198,7 @@ export default function SecureFoundScreen() {
       }
 
       resetForm();
-      toastRef.current?.show('Published', 'Secure notice is now live for students.');
+      toastRef.current?.show('Published', 'Secure notice is now live for campus users.');
       fetchHolds();
     } catch (error) {
       console.error('Publish secure notice failed:', error);
@@ -241,7 +245,7 @@ export default function SecureFoundScreen() {
         <AdminPageHero
           eyebrow="Secure Lost"
           title={draftId ? `Editing draft #${draftId}` : 'Post a secure lost hold'}
-          subtitle="High-value items (money, jewelry, IDs) are kept secure without a public photo. Students only see a short notice."
+          subtitle="High-value items (money, jewelry, IDs) are kept secure without a public photo. Users only see a short notice."
         />
 
         {loadingDraft ? (
@@ -307,7 +311,7 @@ export default function SecureFoundScreen() {
                 <Ionicons name="document-text-outline" size={20} color={AMBER} style={styles.inputIcon} />
                 <TextInput
                   style={[styles.inputNew, { height: '100%', textAlignVertical: 'top' }]}
-                  placeholder='Short message for students, e.g. "Contact security to verify ownership"'
+                  placeholder='Short message for campus users, e.g. "Contact security to verify ownership"'
                   placeholderTextColor="#94A3B8"
                   multiline
                   value={form.description}

@@ -30,7 +30,7 @@ ALTER TABLE public.found_items
   ADD COLUMN IF NOT EXISTS public_category TEXT;
 
 ALTER TABLE public.found_items
-  ADD COLUMN IF NOT EXISTS security_location TEXT DEFAULT 'Campus Security Office';
+  ADD COLUMN IF NOT EXISTS security_location TEXT DEFAULT 'Student Affairs office';
 
 -- ── Step 2: Public feed view (requires Step 1 columns) ───────────────────────
 
@@ -49,7 +49,7 @@ SELECT
   CASE WHEN listing_mode = 'secure' THEN public_category ELSE category END AS category,
   "itemName",
   CASE
-    WHEN listing_mode = 'secure' THEN COALESCE(security_location, 'Campus Security Office')
+    WHEN listing_mode = 'secure' THEN COALESCE(security_location, 'Student Affairs office')
     ELSE location
   END AS location,
   CASE WHEN listing_mode = 'secure' THEN NULL ELSE description END AS description,

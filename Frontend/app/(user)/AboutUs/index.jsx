@@ -14,7 +14,7 @@ const JU_CAMPUS = require('../../../assets/images/ju-buding-aboust us.png');
 
 const FEATURES = [
   { icon: 'phone-portrait-outline', text: 'Mobile lost & found reporting from your smartphone' },
-  { icon: 'shield-checkmark-outline', text: 'Verified student accounts via university directory & OTP' },
+  { icon: 'shield-checkmark-outline', text: 'Verified user accounts via university directory & OTP' },
   { icon: 'search-outline', text: 'Search approved campus listings by keyword' },
   { icon: 'images-outline', text: 'Attach photos to help identify items' },
   { icon: 'calendar-outline', text: 'Record date and time when an item was lost or found' },
@@ -50,7 +50,7 @@ export default function AboutUsPage() {
           and informal social media posts with one trusted campus system.
         </InfoParagraph>
         <InfoParagraph>
-          Every report is linked to a verified student account. Administrators review submissions
+          Every report is linked to a verified user account. Administrators review submissions
           before they go live, and ownership claims are handled fairly through a structured review
           process.
         </InfoParagraph>
@@ -69,7 +69,7 @@ export default function AboutUsPage() {
         <InfoSectionTitle>How recovery works</InfoSectionTitle>
         <View style={styles.stepRow}>
           <View style={styles.stepNum}><Text style={styles.stepNumText}>1</Text></View>
-          <Text style={styles.stepText}>Student reports a lost or found item on campus</Text>
+          <Text style={styles.stepText}>Someone reports a lost or found item on campus</Text>
         </View>
         <View style={styles.stepRow}>
           <View style={styles.stepNum}><Text style={styles.stepNumText}>2</Text></View>

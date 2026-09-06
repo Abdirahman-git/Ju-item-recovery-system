@@ -23,12 +23,15 @@ export default function AdminNavProgress() {
       setVisible(false);
       setProgress(0);
     }, 520);
+    // Failsafe if a soft-nav hangs mid-transition
+    const t5 = window.setTimeout(() => clearPendingNav(), 2500);
 
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
       window.clearTimeout(t4);
+      window.clearTimeout(t5);
     };
   }, [pathname, clearPendingNav]);
 

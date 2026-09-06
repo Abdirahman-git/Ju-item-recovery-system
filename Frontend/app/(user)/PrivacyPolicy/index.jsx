@@ -13,7 +13,7 @@ const POLICY_SECTIONS = [
     title: 'Data we collect',
     icon: 'folder-open-outline',
     points: [
-      'Student ID, name, email, and phone from university records during account activation.',
+      'ID, name, email, and phone from university records during account activation.',
       'Login credentials used to authenticate your account.',
       'Lost and found report details: item name, description, place, date, and optional photo.',
       'Claim notes submitted when selecting "This is mine".',
@@ -52,7 +52,7 @@ const POLICY_SECTIONS = [
     icon: 'refresh-outline',
     points: [
       'Reports stay until approved, returned, archived, or removed by administrators.',
-      'Account records remain while your student account is active.',
+      'Account records remain while your user account is active.',
       'Policy updates may occur; continued use means you accept new terms.',
     ],
   },
@@ -89,7 +89,7 @@ export default function PrivacyPolicyPage() {
         </View>
         <View style={styles.highlightCard}>
           <Ionicons name="person-circle-outline" size={17} color={Colors.primary} />
-          <Text style={styles.highlightLabel}>Student-only use</Text>
+          <Text style={styles.highlightLabel}>Campus-only use</Text>
         </View>
         <View style={styles.highlightCard}>
           <Ionicons name="server-outline" size={17} color={Colors.primary} />

@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -74,7 +73,6 @@ export default function AdminTopBar() {
   const [ringKey, setRingKey] = useState(0);
   const dropdownRef = useRef(null);
   const prevCountRef = useRef(null);
-  const [avatarFailed, setAvatarFailed] = useState(false);
 
   const initials = (session?.userName || 'A')
     .split(' ')
@@ -111,7 +109,7 @@ export default function AdminTopBar() {
             id: `claim-${claim.id}`,
             type: 'claim',
             title: claim.status === 'physical' ? 'Physical verification' : 'New Ownership Claim',
-            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'Student'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
+            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'User'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
             time: claim.created_at || claim.requestedAt || null,
             link: '/admin/claims',
           });
@@ -360,22 +358,9 @@ export default function AdminTopBar() {
                 {session?.userName || 'Administrator'}
               </p>
             </div>
-            {avatarFailed ? (
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1E3A8A] text-[10px] font-black text-white shadow-lg shadow-blue-500/30">
-                {initials}
-              </div>
-            ) : (
-              <div className="relative h-8 w-8 overflow-hidden rounded-xl ring-1 ring-white/60 shadow-lg shadow-blue-500/20">
-                <Image
-                  src="/Avatar001.png"
-                  alt="Admin avatar"
-                  fill
-                  className="object-cover"
-                  sizes="32px"
-                  onError={() => setAvatarFailed(true)}
-                />
-              </div>
-            )}
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1E3A8A] text-[10px] font-black text-white shadow-lg shadow-blue-500/30">
+              {initials}
+            </div>
           </div>
         </div>
       </div>

@@ -25,7 +25,7 @@ SELECT
   COALESCE(l."itemName", l.item_name, 'Secure item'),
   COALESCE(l.public_category, l.category, 'Other'),
   COALESCE(l.public_notice, l.description),
-  COALESCE(l.security_location, l.location, 'Campus Security Office'),
+  COALESCE(l.security_location, l.location, 'Student Affairs office'),
   COALESCE(l."dateLost", l.date_lost, CURRENT_DATE::text),
   l."timeLost",
   COALESCE(l."ownerName", l.owner_name, 'Campus Security'),
@@ -37,7 +37,7 @@ SELECT
   'secure',
   l.public_notice,
   COALESCE(l.public_category, l.category, 'Other'),
-  COALESCE(l.security_location, 'Campus Security Office'),
+  COALESCE(l.security_location, 'Student Affairs office'),
   COALESCE(l.is_approved, true),
   COALESCE(l.status, 'live')
 FROM public.lost_items l
@@ -61,7 +61,7 @@ SELECT
   CASE WHEN listing_mode = 'secure' THEN public_category ELSE category END AS category,
   "itemName",
   CASE
-    WHEN listing_mode = 'secure' THEN COALESCE(security_location, 'Campus Security Office')
+    WHEN listing_mode = 'secure' THEN COALESCE(security_location, 'Student Affairs office')
     ELSE location
   END AS location,
   CASE WHEN listing_mode = 'secure' THEN NULL ELSE description END AS description,

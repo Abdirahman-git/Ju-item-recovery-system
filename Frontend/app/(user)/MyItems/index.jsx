@@ -1,7 +1,28 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  Platform,
+  Dimensions,
+  StatusBar,
+} from 'react-native';
+import ReAnimated, { FadeInDown, Layout } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { supabase, normalizeItemRow, getUserPendingClaimCount } from '../../../src/services/supabase';
+import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import CustomBottomTab from '../../../src/components/CustomBottomTab';
+import { useFocusEffect } from '@react-navigation/native';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 import { ITEM_STATUS, normalizeItemStatus } from '../../../src/utils/itemStatus';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -217,7 +238,11 @@ export default function MyItemsPage() {
           <Image source={{ uri: item.imageURI }} style={styles.itemImage} />
         ) : (
           <View style={styles.placeholderImage}>
-            <Ionicons name="image-outline" size={40} color="#CBD5E1" />
+            <MaterialCommunityIcons
+              name={getItemPlaceholderMciIcon(item.itemName || item.item_name, item.category)}
+              size={40}
+              color="#94A3B8"
+            />
           </View>
         )}
         {withdrawMeta.canWithdraw && (

@@ -1,5 +1,15 @@
 const ITEM_IMAGES_BUCKET = 'item-images';
 
+/** Canonical hold / visit office label (replaces legacy "Campus Security Office"). */
+export const STUDENT_AFFAIRS_OFFICE = 'Student Affairs office';
+
+export function normalizeOfficeLocation(value, fallback = STUDENT_AFFAIRS_OFFICE) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (/^campus\s+security\s+office$/i.test(raw)) return STUDENT_AFFAIRS_OFFICE;
+  return raw;
+}
+
 function resolveSupabaseHost() {
   const fromEnv = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (fromEnv) {
@@ -119,10 +129,16 @@ export function mapInventoryItem(item, itemType) {
     publicNotice: item.public_notice || item.publicNotice || null,
     public_category: item.public_category || item.publicCategory || null,
     publicCategory: item.public_category || item.publicCategory || null,
-    security_location: item.security_location || item.securityLocation || null,
+    security_location: normalizeOfficeLocation(
+      item.security_location || item.securityLocation || null,
+      null
+    ),
     displayLocation: isSecure
-      ? item.security_location || item.securityLocation || item.location || 'Campus Security Office'
-      : item.location || item.place || 'Campus grounds',
+      ? normalizeOfficeLocation(
+          item.security_location || item.securityLocation || item.location,
+          STUDENT_AFFAIRS_OFFICE
+        )
+      : normalizeOfficeLocation(item.location || item.place, 'Campus grounds'),
     displayDescription: description,
     // Keep camelCase dates from mapRecentActivityItem — do not drop dateLost/dateFound
     reportedAt:

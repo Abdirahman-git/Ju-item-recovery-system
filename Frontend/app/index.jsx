@@ -39,9 +39,10 @@ export default function SplashScreen() {
             await clearUserSession(access.reason === 'not_approved');
           }
         }
-        router.replace('/(auth)/login');
+        // Unauthenticated flow: Splash -> Onboarding (Screen 1 -> 2 -> 3) -> Login
+        router.replace('/(auth)/onboarding');
       } catch (e) {
-        router.replace('/(auth)/login');
+        router.replace('/(auth)/onboarding');
       }
     };
 

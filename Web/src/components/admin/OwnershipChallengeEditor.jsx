@@ -38,12 +38,37 @@ export default function OwnershipChallengeEditor({
         if (challenge?.questions?.length) {
           setQuestions(
             challenge.questions.map((q, i) => {
+              const type = String(q.question_type || '').toLowerCase();
+              if (type === 'ask' || type === 'open') {
+                return {
+                  question_type: 'ask',
+                  prompt: q.prompt || '',
+                  options: [],
+                  correct_index: null,
+                  correct_answer: '',
+                  sort_order: i,
+                };
+              }
+              if (type === 'direct') {
+                return {
+                  question_type: 'direct',
+                  prompt: q.prompt || '',
+                  options: [],
+                  correct_index: null,
+                  correct_answer: q.correct_answer || '',
+                  sort_order: i,
+                };
+              }
               const opts = Array.isArray(q.options) ? [...q.options] : ['', '', '', ''];
               while (opts.length < 4) opts.push('');
               return {
+                question_type: 'mcq',
                 prompt: q.prompt || '',
                 options: opts.slice(0, 4),
-                correct_index: Number(q.correct_index) || 0,
+                correct_index: Number.isInteger(Number(q.correct_index))
+                  ? Number(q.correct_index)
+                  : null,
+                correct_answer: '',
                 sort_order: i,
               };
             })
@@ -89,9 +114,13 @@ export default function OwnershipChallengeEditor({
     } catch (err) {
       console.error('Ownership challenge save failed:', err);
       const msg = String(err?.message || '');
-      if (/ownership_challenges|does not exist|schema cache|ownership_challenge\.sql/i.test(msg)) {
+      if (/row-level security|42501/i.test(msg)) {
         setError(
-          'Database tables missing. Open Supabase → SQL Editor → run the file supabase/ownership_challenge.sql → then Save again.'
+          'Database blocked save (RLS). In Supabase SQL Editor run the ownership_challenge.sql permissions section (DISABLE RLS + GRANT), then Save again.'
+        );
+      } else if (/Could not find the table|does not exist|schema cache/i.test(msg)) {
+        setError(
+          'Database tables missing. Open Supabase → SQL Editor → run the FULL file supabase/ownership_challenge.sql → then Save again.'
         );
       } else {
         setError(msg || 'Save failed. Check the browser console for details.');

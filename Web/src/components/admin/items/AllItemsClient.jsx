@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import DetailPhotoPanel from '@/components/admin/DetailPhotoPanel';
+import ItemNamePlaceholder from '@/components/admin/ItemNamePlaceholder';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -27,8 +28,10 @@ import {
   Search,
   ShieldQuestion,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import {
   archiveInventoryItem,
   deleteInventoryItem,
@@ -36,11 +39,13 @@ import {
   markInventoryItemReturned,
   markSecureFoundReturned,
 } from '@/lib/supabase';
+import { unlockOrphanClaimSoftLocks } from '@/lib/ownershipChallengeApi';
 import { getAdminCacheData, setAdminCache, invalidateAdminCaches } from '@/lib/adminDataCache';
 import { categoriesForFilter } from '@/lib/categories';
-import { canMarkInventoryItemReturned, filterInventoryItems, getInventoryCardMeta, sortInventoryItems } from '@/lib/inventory';
+import { canMarkInventoryItemReturned, filterInventoryItems, getInventoryCardMeta, getItemReporterDisplay, sortInventoryItems } from '@/lib/inventory';
 import { isSecureFoundItem, ITEM_STATUS, normalizeItemStatus } from '@/lib/itemStatus';
 import OwnershipChallengeEditor from '@/components/admin/OwnershipChallengeEditor';
+import { fetchOwnershipChallenge } from '@/lib/ownershipChallengeApi';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useSession } from '@/context/SessionProvider';
@@ -96,42 +101,48 @@ function isSecureHoldItem(item) {
   return isSecureFoundItem(item) && normalizeItemStatus(item) === ITEM_STATUS.LIVE;
 }
 
-function SecureHoldMark({ large = false }) {
+function itemDisplayName(item) {
+  return item?.displayName || item?.itemName || item?.item_name || '';
+}
+
+function itemDisplayCategory(item) {
+  return item?.displayCategory || item?.category || '';
+}
+
+function SecureHoldMark({ large = false, name, category }) {
   return (
-    <div
-      className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600 ${
-        large ? 'min-h-[280px]' : ''
-      }`}
-    >
-      <span className={`font-black leading-none ${large ? 'text-[120px]' : 'text-6xl'}`}>!</span>
-    </div>
+    <ItemNamePlaceholder
+      name={name}
+      category={category}
+      secure
+      large={large}
+      size={large ? 96 : 46}
+    />
   );
 }
 
 function ItemImage({ item }) {
   const [failed, setFailed] = useState(false);
+  const name = itemDisplayName(item);
+  const category = itemDisplayCategory(item);
 
   useEffect(() => {
     setFailed(false);
   }, [item.imageUrl, item.id]);
 
-  // Secure drafts + live holds always use the amber ! mark (never a photo/box placeholder).
+  // Secure holds: never show a real photo — smart icon from the item name.
   if (isSecureFoundItem(item)) {
-    return <SecureHoldMark />;
+    return <SecureHoldMark name={name} category={category} />;
   }
 
   if (!item.imageUrl || failed) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
-        <Package size={42} strokeWidth={1.5} />
-      </div>
-    );
+    return <ItemNamePlaceholder name={name} category={category} size={46} />;
   }
 
   return (
     <SafeRemoteImage
       src={item.imageUrl}
-      alt={item.displayName}
+      alt={name || 'Item'}
       fill
       className="object-cover transition duration-500 group-hover:scale-[1.03]"
       sizes="(max-width:768px) 100vw, 33vw"
@@ -242,6 +253,7 @@ function ItemCard({ item, onDetails, onDelete, onMarkReturned, onArchive }) {
   const action = meta.action;
   const showReturn = canMarkInventoryItemReturned(item);
   const stale = isStaleItem(item);
+  const reporter = getItemReporterDisplay(item);
 
   const actionClass =
     action.variant === 'primary'
@@ -302,6 +314,16 @@ function ItemCard({ item, onDetails, onDelete, onMarkReturned, onArchive }) {
 
         <div className="space-y-1.5 text-xs text-slate-500">
           <p className="flex items-center gap-1.5">
+            <UserRound size={13} className="shrink-0 text-slate-400" />
+            <span className="line-clamp-1 font-semibold text-slate-700" title={reporter.name}>
+              {reporter.name}
+            </span>
+          </p>
+          <p className="flex items-center gap-1.5">
+            <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-slate-400">ID</span>
+            <span className="line-clamp-1 font-bold tabular-nums text-slate-700">{reporter.studentId}</span>
+          </p>
+          <p className="flex items-center gap-1.5">
             <MapPin size={13} className="shrink-0 text-slate-400" />
             <span className="line-clamp-1">{item.displayLocation}</span>
           </p>
@@ -350,6 +372,25 @@ function ItemCard({ item, onDetails, onDelete, onMarkReturned, onArchive }) {
   );
 }
 
+function formatChallengeAnswerPreview(q) {
+  const type = String(q?.question_type || 'mcq').toLowerCase();
+  if (type === 'ask' || type === 'open') {
+    return { typeLabel: 'Ask', answer: 'No expected answer — claimant free-types (admin reviews)' };
+  }
+  if (type === 'direct') {
+    const ans = String(q?.correct_answer || '').trim();
+    return { typeLabel: 'Direct', answer: ans || '— (no expected answer set)' };
+  }
+  const opts = Array.isArray(q?.options) ? q.options : [];
+  const idx = Number(q?.correct_index);
+  const picked =
+    Number.isFinite(idx) && idx >= 0 && idx < opts.length ? String(opts[idx] || '').trim() : '';
+  return {
+    typeLabel: 'MCQ',
+    answer: picked ? `Correct: ${picked}` : '— (no correct option marked)',
+  };
+}
+
 function ItemDetailModal({
   item,
   onClose,
@@ -359,6 +400,38 @@ function ItemDetailModal({
   onArchive,
   onSetChallenge,
 }) {
+  const [detailTab, setDetailTab] = useState('item'); // 'item' | 'challenge'
+  const [challengeLoading, setChallengeLoading] = useState(false);
+  const [challengeQuestions, setChallengeQuestions] = useState(null);
+  const [challengeError, setChallengeError] = useState('');
+
+  useEffect(() => {
+    if (!item?.id) return undefined;
+    setDetailTab('item');
+    let cancelled = false;
+    setChallengeLoading(true);
+    setChallengeError('');
+    setChallengeQuestions(null);
+    (async () => {
+      try {
+        const challenge = await fetchOwnershipChallenge(item.itemType || 'lost', item.id, {
+          includeAnswers: true,
+        });
+        if (cancelled) return;
+        setChallengeQuestions(Array.isArray(challenge?.questions) ? challenge.questions : []);
+      } catch (err) {
+        if (cancelled) return;
+        setChallengeQuestions([]);
+        setChallengeError(err?.message || 'Could not load Ownership Challenge.');
+      } finally {
+        if (!cancelled) setChallengeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.id, item?.itemType]);
+
   if (!item) return null;
   const meta = getInventoryCardMeta(item);
   const isSecure = isSecureFoundItem(item);
@@ -366,15 +439,12 @@ function ItemDetailModal({
   const stale = isStaleItem(item);
   const statusRaw = String(item.status || '').toLowerCase();
   const normalized = normalizeItemStatus(item);
-  // Only after admin approves (live). Pending Reports must be reviewed first.
-  const canSetChallenge =
+  const hasChallenge = Array.isArray(challengeQuestions) && challengeQuestions.length > 0;
+  const canOpenChallenge =
     normalized === ITEM_STATUS.LIVE &&
     meta.filterStatus !== 'draft' &&
     meta.filterStatus !== 'returned' &&
-    statusRaw !== 'returned' &&
-    statusRaw !== 'claim_pending' &&
-    statusRaw !== 'awaiting_pickup' &&
-    statusRaw !== 'matched';
+    statusRaw !== 'returned';
   const statusDisplay =
     normalized === ITEM_STATUS.PENDING_REVIEW
       ? 'pending_review'
@@ -385,7 +455,10 @@ function ItemDetailModal({
       : 'Lost (secure hold)'
     : 'Lost report';
   const publicNotice = item.public_notice || item.publicNotice || item.displayDescription;
+  const reporter = getItemReporterDisplay(item);
   const details = [
+    { label: 'Posted by', value: reporter.name },
+    { label: 'Reporter ID', value: reporter.studentId },
     { label: 'Category', value: item.displayCategory },
     { label: 'Type', value: typeLabel },
     { label: 'Location', value: item.displayLocation },
@@ -395,10 +468,10 @@ function ItemDetailModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 px-4 py-5 backdrop-blur-md">
-      <div className="glass-modal flex max-h-[min(92vh,820px)] w-full max-w-6xl flex-col overflow-hidden">
-        <div className="flex shrink-0 items-start justify-between border-b border-white/50 px-4 py-3 sm:px-5">
-          <div>
-            <h3 className="text-2xl font-black text-slate-950">{item.displayName}</h3>
+      <div className="glass-modal flex h-[min(92vh,860px)] w-full max-w-6xl flex-col overflow-hidden">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/50 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h3 className="text-balance text-2xl font-black text-slate-950">{item.displayName}</h3>
             <p className="mt-1 text-sm font-medium text-slate-500">{typeLabel}</p>
           </div>
           <button
@@ -411,47 +484,166 @@ function ItemDetailModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden p-4 sm:p-5">
-          <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[minmax(360px,1.25fr)_minmax(260px,0.75fr)]">
-            {isSecure ? (
-              <div className="relative min-h-[300px] overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-amber-50 to-amber-100 lg:h-full lg:min-h-0">
-                <SecureHoldMark large />
-                <span
-                  className={`absolute left-3 top-3 z-[2] rounded-full border border-white/70 px-3 py-1.5 text-[11px] font-black uppercase shadow-lg backdrop-blur-md ${meta.badge.className}`}
-                >
-                  {meta.badge.label}
+        <div className="shrink-0 border-b border-white/50 px-4 pt-3 sm:px-5">
+          <div className="inline-flex rounded-2xl border border-slate-200/80 bg-slate-100/80 p-1">
+            <button
+              type="button"
+              onClick={() => setDetailTab('item')}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-bold transition ${
+                detailTab === 'item'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Info size={15} />
+              Item info
+            </button>
+            <button
+              type="button"
+              onClick={() => setDetailTab('challenge')}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-bold transition ${
+                detailTab === 'challenge'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <ShieldQuestion size={15} />
+              Challenge Q&amp;A
+              {hasChallenge ? (
+                <span className="rounded-full bg-[#1A56DB]/10 px-1.5 py-0.5 text-[10px] font-black text-[#1A56DB]">
+                  {challengeQuestions.length}
                 </span>
-              </div>
-            ) : (
-              <DetailPhotoPanel
-                src={item.imageUrl}
-                alt={item.displayName}
-                badge={{ label: meta.badge.label, className: meta.badge.className }}
-              />
-            )}
-
-            <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto lg:max-h-full">
-              <section className="rounded-2xl border border-slate-200/70 bg-white/70 p-3.5">
-                <div className="mb-1.5 flex items-center gap-2">
-                  <Info size={16} className="text-[#1A56DB]" />
-                  <h4 className="text-xs font-black uppercase tracking-[0.14em] text-slate-950">Description</h4>
-                </div>
-                <p className="text-[13px] font-semibold leading-5 text-slate-600">{publicNotice}</p>
-              </section>
-
-              <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-                {details.map((detail) => (
-                  <div
-                    key={detail.label}
-                    className="flex flex-col justify-center rounded-2xl border border-slate-200/70 bg-white/70 px-3 py-2.5"
-                  >
-                    <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{detail.label}</p>
-                    <p className="mt-0.5 break-words text-[13px] font-black text-slate-800">{detail.value || 'Not provided'}</p>
-                  </div>
-                ))}
-              </section>
-            </div>
+              ) : null}
+            </button>
           </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+          {detailTab === 'item' ? (
+            <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(340px,1.15fr)_minmax(280px,0.85fr)]">
+              {isSecure ? (
+                <div className="relative min-h-[280px] overflow-hidden rounded-2xl border border-slate-200/80 lg:min-h-[420px]">
+                  <SecureHoldMark
+                    large
+                    name={itemDisplayName(item)}
+                    category={itemDisplayCategory(item)}
+                  />
+                  <span
+                    className={`absolute left-3 top-3 z-[2] rounded-full border border-white/70 px-3 py-1.5 text-[11px] font-black uppercase shadow-lg backdrop-blur-md ${meta.badge.className}`}
+                  >
+                    {meta.badge.label}
+                  </span>
+                </div>
+              ) : (
+                <DetailPhotoPanel
+                  src={item.imageUrl}
+                  alt={itemDisplayName(item)}
+                  emptyIcon={getItemPlaceholderIcon(
+                    itemDisplayName(item),
+                    itemDisplayCategory(item)
+                  )}
+                  badge={{ label: meta.badge.label, className: meta.badge.className }}
+                />
+              )}
+
+              <div className="flex flex-col gap-2.5">
+                <section className="rounded-2xl border border-slate-200/70 bg-white/70 p-3.5">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <Info size={16} className="text-[#1A56DB]" />
+                    <h4 className="text-xs font-black uppercase tracking-[0.14em] text-slate-950">Description</h4>
+                  </div>
+                  <p className="text-pretty text-[13px] font-semibold leading-5 text-slate-600">{publicNotice}</p>
+                </section>
+
+                <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                  {details.map((detail) => (
+                    <div
+                      key={detail.label}
+                      className="flex flex-col justify-center rounded-2xl border border-slate-200/70 bg-white/70 px-3 py-2.5"
+                    >
+                      <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{detail.label}</p>
+                      <p className="mt-0.5 break-words text-[13px] font-black text-slate-800">
+                        {detail.value || 'Not provided'}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+              </div>
+            </div>
+          ) : (
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+              <div className="rounded-2xl border border-blue-200/70 bg-blue-50/40 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900">Ownership Challenge</h4>
+                    <p className="mt-0.5 text-[12px] font-medium text-slate-500">
+                      Admin questions &amp; expected answers only — separate from item details.
+                    </p>
+                  </div>
+                  {canOpenChallenge ? (
+                    <button
+                      type="button"
+                      onClick={() => onSetChallenge?.(item)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#1A56DB] px-3 py-2 text-xs font-bold text-white hover:bg-[#1E40AF]"
+                    >
+                      <ShieldQuestion size={14} />
+                      {hasChallenge ? 'Edit' : 'Set challenge'}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {challengeLoading ? (
+                <p className="flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-6 text-[13px] font-semibold text-slate-500">
+                  <Loader2 size={14} className="animate-spin" /> Loading questions…
+                </p>
+              ) : challengeError ? (
+                <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] font-semibold text-amber-800">
+                  {challengeError}
+                </p>
+              ) : hasChallenge ? (
+                <ul className="space-y-3">
+                  {challengeQuestions.map((q, i) => {
+                    const preview = formatChallengeAnswerPreview(q);
+                    return (
+                      <li
+                        key={q.id || i}
+                        className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3.5 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-[14px] font-black leading-5 text-slate-800">
+                            <span className="text-slate-400">Q{i + 1}.</span> {q.prompt || '—'}
+                          </p>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-slate-600">
+                            {preview.typeLabel}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-[13px] font-semibold leading-5 text-emerald-700">{preview.answer}</p>
+                        {preview.typeLabel === 'MCQ' && Array.isArray(q.options) && q.options.length ? (
+                          <ol className="mt-2 list-decimal space-y-1 pl-5 text-[12px] font-medium text-slate-500">
+                            {q.options.map((opt, oi) => (
+                              <li
+                                key={oi}
+                                className={
+                                  Number(q.correct_index) === oi ? 'font-bold text-emerald-700' : undefined
+                                }
+                              >
+                                {String(opt || '').trim() || '—'}
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center text-[13px] font-semibold text-slate-500">
+                  No Ownership Challenge set for this item yet.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 border-t border-white/50 px-4 py-3 sm:px-5">
@@ -481,14 +673,24 @@ function ItemDetailModal({
               Delete
             </button>
           ) : null}
-          {canSetChallenge ? (
+          {canOpenChallenge && detailTab === 'item' ? (
+            <button
+              type="button"
+              onClick={() => setDetailTab('challenge')}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[#1A56DB]/25 bg-[#1A56DB]/5 py-3 text-sm font-bold text-[#1A56DB] hover:bg-[#1A56DB]/10"
+            >
+              <ShieldQuestion size={16} />
+              {hasChallenge ? 'View Challenge Q&A' : 'Challenge Q&A'}
+            </button>
+          ) : null}
+          {canOpenChallenge && detailTab === 'challenge' ? (
             <button
               type="button"
               onClick={() => onSetChallenge?.(item)}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#1A56DB] py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 hover:bg-[#1E40AF]"
             >
               <ShieldQuestion size={16} />
-              Set Ownership Challenge
+              {hasChallenge ? 'Edit Ownership Challenge' : 'Set Ownership Challenge'}
             </button>
           ) : null}
           {showReturn ? (
@@ -536,7 +738,7 @@ function MarkReturnedConfirmModal({
         <h3 className="mt-5 text-2xl font-black text-slate-950">Mark as returned?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           <span className="font-bold text-slate-800">&ldquo;{item.displayName}&rdquo;</span> will be removed from the
-          student app and saved to returned items.
+          mobile app and saved to returned items.
         </p>
 
         {!isSecure ? (
@@ -548,13 +750,13 @@ function MarkReturnedConfirmModal({
               <input
                 value={recipientName}
                 onChange={(event) => onRecipientNameChange?.(event.target.value)}
-                placeholder="Student or staff receiving the item"
+                placeholder="Person receiving the item"
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none ring-4 ring-slate-100 focus:border-emerald-300 focus:ring-emerald-100"
               />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-black uppercase tracking-wider text-slate-500">
-                Student ID
+                ID
               </span>
               <input
                 value={recipientId}
@@ -672,7 +874,7 @@ function DeleteItemConfirmModal({ item, loading, onCancel, onConfirm }) {
         <h3 className="mt-5 text-2xl font-extrabold text-slate-950">Delete item?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           <span className="font-bold text-slate-800">{item.displayName}</span> will be permanently removed
-          from the inventory and student app.
+          from the inventory and mobile app.
         </p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
           <button
@@ -738,7 +940,16 @@ export default function AllItemsClient() {
   const { session } = useSession();
   const isSuperAdmin = checkSuperAdmin(session);
   const { setActions, clearActions } = useAdminHeaderActions();
-  const { data, error, refresh, patchData } = useBackgroundFetch('admin:items', fetchAllInventoryItems, {
+  const loadInventory = useCallback(async () => {
+    // Free orphan soft-locks (Answering challenge with no submitted claim).
+    try {
+      await unlockOrphanClaimSoftLocks();
+    } catch {
+      /* non-blocking */
+    }
+    return fetchAllInventoryItems();
+  }, []);
+  const { data, error, refresh, patchData } = useBackgroundFetch('admin:items', loadInventory, {
     fallback: [],
   });
   const items = useMemo(() => (Array.isArray(data) ? data : []), [data]);
@@ -860,7 +1071,7 @@ export default function AllItemsClient() {
       setReturnResult({
         type: 'success',
         title: 'Item archived',
-        message: `"${archiveConfirmItem.displayName}" was removed from the student app. Open Archived Items in the sidebar to review or restore it.`,
+        message: `"${archiveConfirmItem.displayName}" was removed from the mobile app. Open Archived Items in the sidebar to review or restore it.`,
       });
     } catch (err) {
       setArchiveConfirmItem(null);
@@ -905,12 +1116,25 @@ export default function AllItemsClient() {
   }, [deleteConfirmItem, removeItemFromCaches, selected, session]);
 
   const exportCsv = useCallback(() => {
-    const header = ['Inventory ID', 'Name', 'Type', 'Category', 'Location', 'Status', 'Reported'];
+    const header = [
+      'Inventory ID',
+      'Name',
+      'Posted By',
+      'Reporter ID',
+      'Type',
+      'Category',
+      'Location',
+      'Status',
+      'Reported',
+    ];
     const rows = filtered.map((item) => {
       const meta = getInventoryCardMeta(item);
+      const reporter = getItemReporterDisplay(item);
       return [
         item.inventoryRef,
         item.displayName,
+        reporter.name,
+        reporter.studentId,
         item.itemType,
         item.displayCategory,
         item.displayLocation,
@@ -980,7 +1204,7 @@ export default function AllItemsClient() {
       setReturnResult({
         type: 'success',
         title: 'Item returned',
-        message: `"${returnConfirmItem.displayName}" was removed from the student app.`,
+        message: `"${returnConfirmItem.displayName}" was removed from the mobile app.`,
       });
     } catch (err) {
       setReturnConfirmItem(null);
@@ -1070,7 +1294,7 @@ export default function AllItemsClient() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search by ID, name, or location..."
+              placeholder="Search by item, reporter name, or ID..."
               className="glass-input h-10 w-full rounded-[18px] pl-9 pr-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
             />
           </label>

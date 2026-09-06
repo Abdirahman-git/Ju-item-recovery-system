@@ -41,7 +41,7 @@ const NAV_SECTIONS = [
 export default function SidebarContent(props) {
   const router = useRouter();
   const { unreadCount } = useUserNotifications();
-  const [userName, setUserName] = useState('Student');
+  const [userName, setUserName] = useState('User');
   const [studentId, setStudentId] = useState('—');
 
   const { state } = props;

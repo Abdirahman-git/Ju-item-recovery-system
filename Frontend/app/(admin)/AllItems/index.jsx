@@ -11,7 +11,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,6 +25,7 @@ import {
 } from '../../../src/services/supabase';
 import { isSecureFoundItem, normalizeItemStatus, ITEM_STATUS } from '../../../src/utils/itemStatus';
 import { canMarkInventoryItemReturned } from '../../../src/utils/inventory';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
 import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const STATUS_TABS = [
@@ -448,29 +449,29 @@ export default function AllItemsScreen() {
               >
                 <PressScale style={styles.itemCard} onPress={() => handleOpenItem(item)}>
                   <View style={styles.thumbWrap}>
-                    {isSecure ? (
-                      <View style={[styles.itemCardImg, styles.secureImg]}>
-                        <Ionicons name="shield" size={28} color="#D97706" />
-                      </View>
-                    ) : item.imageURI ? (
-                      <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
-                    ) : (
+                    {isSecure || !item.imageURI ? (
                       <View
                         style={[
                           styles.itemCardImg,
                           styles.placeholderImg,
-                          {
+                          isSecure ? styles.secureImg : null,
+                          !isSecure && {
                             backgroundColor:
                               meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge,
                           },
                         ]}
                       >
-                        <Ionicons
-                          name={meta.filter === 'lost' ? 'help-buoy-outline' : 'checkmark-circle-outline'}
-                          size={26}
-                          color={meta.filter === 'lost' ? Colors.lostBadgeText : Colors.foundBadgeText}
+                        <MaterialCommunityIcons
+                          name={getItemPlaceholderMciIcon(
+                            item.itemName || item.item_name,
+                            item.category
+                          )}
+                          size={28}
+                          color={isSecure ? '#D97706' : Colors.slate500 || '#64748B'}
                         />
                       </View>
+                    ) : (
+                      <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
                     )}
                   </View>
 

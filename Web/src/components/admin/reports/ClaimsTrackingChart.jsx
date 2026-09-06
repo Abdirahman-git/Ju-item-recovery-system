@@ -101,6 +101,7 @@ export default function ClaimsTrackingChart({
   claims,
   sourceId = 'inventory',
   sourceLabel,
+  embedded = false,
 }) {
   const dataRows = Array.isArray(rows) ? rows : Array.isArray(claims) ? claims : [];
   const [period, setPeriod] = useState('weekly');
@@ -129,7 +130,13 @@ export default function ClaimsTrackingChart({
   const gidB = `tpl-secondary-${sourceId}`;
 
   return (
-    <section className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_24px_rgba(15,23,42,0.04)]">
+    <section
+      className={`flex h-full flex-col overflow-hidden rounded-2xl border p-5 ${
+        embedded
+          ? 'border-slate-200/70 bg-white/90 shadow-sm'
+          : 'border-slate-200/80 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.04)]'
+      }`}
+    >
       {/* Template row 1: title + weekly dropdown only */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="m-0 text-lg font-bold text-slate-900">{title}</h4>

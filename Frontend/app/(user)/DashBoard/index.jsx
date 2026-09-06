@@ -4,7 +4,7 @@ import Animated, { FadeInDown, Layout, FadeInRight } from 'react-native-reanimat
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions, useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
-import { getAllLostItems, getAllFoundItems } from '../../../src/services/supabase';
+import { getRecentFeedItems } from '../../../src/services/supabase';
 import { Colors } from '../../../src/constants/colors';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +12,10 @@ import CustomBottomTab from '../../../src/components/CustomBottomTab';
 import SuccessToast from '../../../src/components/SuccessToast';
 import FeedItemCard from '../../../src/components/FeedItemCard';
 import { useUserNotifications } from '../../../src/context/UserNotificationContext';
+import {
+  applySoftLockFilter,
+  subscribeFeedSoftLock,
+} from '../../../src/utils/feedSoftLock';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const BANNER_IMAGES = [
@@ -29,6 +33,7 @@ export default function DashboardScreen() {
   const toastRef = useRef(null);
   const fadeAnim = useRef(new RNAnimated.Value(1)).current;
   const intervalRef = useRef(null);
+  const hasItemsRef = useRef(false);
   const { unreadCount: unreadNotifications, refresh: refreshNotifications } = useUserNotifications();
 
   const startBannerRotate = () => {
@@ -89,34 +94,69 @@ export default function DashboardScreen() {
   };
 
   const fetchItems = async () => {
+    const silent = hasItemsRef.current;
     try {
-      setLoading(true);
-      // Temporary Cleanup for test data (skipped to avoid unnecessary DB load)
+      if (!silent) setLoading(true);
 
-      const [lost, found] = await Promise.all([
-        getAllLostItems(),
-        getAllFoundItems()
-      ]);
+      const recent = await getRecentFeedItems(10);
+      const combined = recent.map((i) => ({
+        ...i,
+        type: String(i.type || '').toUpperCase() === 'FOUND' ? 'FOUND' : 'LOST',
+        timeAgo: formatTimeAgo(i.created_at),
+      }));
 
-      const combined = [
-        ...lost.map(i => ({ ...i, type: 'LOST', timeAgo: formatTimeAgo(i.created_at) })),
-        ...found.map(i => ({ ...i, type: 'FOUND', timeAgo: formatTimeAgo(i.created_at) }))
-      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-      setItems(combined.slice(0, 10));
+      setItems(applySoftLockFilter(combined));
+      hasItemsRef.current = combined.length > 0;
     } catch (error) {
-      console.error("Error fetching items:", error);
+      console.error('Error fetching items:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    return subscribeFeedSoftLock((evt) => {
+      if (evt.locked) {
+        setItems((prev) =>
+          prev.filter(
+            (row) =>
+              !(
+                Number(row.id) === Number(evt.id) &&
+                String(row.type || '').toUpperCase() ===
+                  (evt.type === 'found' ? 'FOUND' : 'LOST')
+              )
+          )
+        );
+        return;
+      }
+      if (evt.item) {
+        setItems((prev) => {
+          const type = evt.type === 'found' ? 'FOUND' : 'LOST';
+          const next = prev.filter(
+            (row) => !(Number(row.id) === Number(evt.id) && String(row.type).toUpperCase() === type)
+          );
+          return applySoftLockFilter(
+            [
+              {
+                ...evt.item,
+                type,
+                status: 'live',
+                timeAgo: formatTimeAgo(evt.item.created_at),
+              },
+              ...next,
+            ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          ).slice(0, 10);
+        });
+      }
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       AsyncStorage.getItem('userSession').then((data) => {
         if (!data) return;
         const session = JSON.parse(data);
-        const nameParts = session.userName ? session.userName.split(' ') : ['Student'];
+        const nameParts = session.userName ? session.userName.split(' ') : ['User'];
         setUserName(nameParts[0]);
       });
 
@@ -180,7 +220,7 @@ export default function DashboardScreen() {
         <View style={styles.greetingContainer}>
           <Text style={styles.greetingLine1}>Hello, <Text style={styles.greetingHighlight}>Jazeera</Text></Text>
           <Text style={styles.greetingLine2}>
-            <Text style={styles.greetingHighlight}>{userName || 'Student'} </Text>
+            <Text style={styles.greetingHighlight}>{userName || 'User'} </Text>
             👋
           </Text>
         </View>
@@ -244,7 +284,7 @@ export default function DashboardScreen() {
         </View>
 
         <View style={styles.feedContainer}>
-          {loading ? (
+          {loading && items.length === 0 ? (
             <ActivityIndicator size="large" color="#94A3B8" style={{ marginTop: 40 }} />
           ) : items.length > 0 ? (
             items.map((item, index) => (

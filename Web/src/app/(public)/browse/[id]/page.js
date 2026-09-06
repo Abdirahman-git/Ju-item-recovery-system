@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, MapPin, Package, Shield, Smartphone, Tag } from 'lucide-react';
+import { ArrowLeft, MapPin, Smartphone, Tag } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import PublicOwnershipChallengeClaim from '@/components/public/PublicOwnershipChallengeClaim';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import {
   fetchPublicLiveItemById,
   formatPublicDate,
@@ -66,22 +67,14 @@ export default async function PublicItemDetailPage({ params }) {
             <div
               className={`public-detail-placeholder relative flex aspect-[4/3] w-full items-center justify-center ${
                 isSecure
-                  ? 'public-detail-placeholder--secure'
-                  : isFound
-                    ? 'public-detail-placeholder--found'
-                    : 'public-detail-placeholder--lost'
+                  ? 'bg-gradient-to-br from-amber-50 to-amber-100 text-amber-700'
+                  : 'bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500'
               }`}
             >
-              {isSecure ? (
-                <span className="public-secure-mark relative inline-flex">
-                  <Shield size={56} strokeWidth={0} className="public-detail-secure-icon" />
-                  <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
-                    !
-                  </span>
-                </span>
-              ) : (
-                <Package size={48} strokeWidth={1.25} />
-              )}
+              {(() => {
+                const PlaceholderIcon = getItemPlaceholderIcon(item.title, item.category);
+                return <PlaceholderIcon size={56} strokeWidth={1.4} />;
+              })()}
             </div>
           ) : (
             <div className="relative aspect-[4/3] w-full">
@@ -95,13 +88,6 @@ export default async function PublicItemDetailPage({ params }) {
               />
             </div>
           )}
-          <span
-            className={`absolute left-3 top-3 z-[2] rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.18)] ${
-              isSecure ? 'bg-amber-600' : 'bg-red-600'
-            }`}
-          >
-            Lost
-          </span>
         </div>
 
         <div className="public-detail-body p-5 sm:p-6">

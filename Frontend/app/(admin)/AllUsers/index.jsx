@@ -98,7 +98,7 @@ export default function AllUsersScreen() {
 
   const handleDelete = async (user) => {
     showAppConfirm({
-      title: 'Delete student account',
+      title: 'Delete user account',
       message: `Are you sure you want to permanently delete ${user.name}? All their listings and session access will be deleted.`,
       confirmText: 'Delete',
       destructive: true,
@@ -142,7 +142,7 @@ export default function AllUsersScreen() {
     <View style={styles.container}>
       <AdminHeader
         title="All Users"
-        subtitle="Student directory"
+        subtitle="Campus directory"
         onMenuPress={openDrawer}
         rightElement={
           <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
@@ -155,7 +155,7 @@ export default function AllUsersScreen() {
         <AdminPageHero
           eyebrow="User management"
           title="University directory"
-          subtitle="Manage student accounts, approve new registrations, and suspend access when needed."
+          subtitle="Manage user accounts, approve new registrations, and suspend access when needed."
         />
 
         <View style={styles.statsRow}>

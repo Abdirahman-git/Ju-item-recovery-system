@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,10 @@ import CustomBottomTab from '../../../src/components/CustomBottomTab';
 import FeedItemCard from '../../../src/components/FeedItemCard';
 import CategoryPills from '../../../src/components/CategoryPills';
 import { useDynamicCategories } from '../../../src/hooks/useDynamicCategories';
+import {
+  applySoftLockFilter,
+  subscribeFeedSoftLock,
+} from '../../../src/utils/feedSoftLock';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
 const PRIMARY = '#1A56DB';
@@ -60,13 +64,48 @@ export default function AllItemsPage() {
         ...lost.map((i) => ({ ...i, type: 'LOST', timeAgo: formatTimeAgo(i.created_at) })),
         ...found.map((i) => ({ ...i, type: 'FOUND', timeAgo: formatTimeAgo(i.created_at) })),
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setItems(combined);
+      setItems(applySoftLockFilter(combined));
     } catch (error) {
       console.error('Error fetching all items:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    return subscribeFeedSoftLock((evt) => {
+      if (evt.locked) {
+        setItems((prev) =>
+          prev.filter(
+            (row) =>
+              !(
+                Number(row.id) === Number(evt.id) &&
+                String(row.type || '').toUpperCase() ===
+                  (evt.type === 'found' ? 'FOUND' : 'LOST')
+              )
+          )
+        );
+        return;
+      }
+      if (evt.item) {
+        setItems((prev) => {
+          const type = evt.type === 'found' ? 'FOUND' : 'LOST';
+          const next = prev.filter(
+            (row) => !(Number(row.id) === Number(evt.id) && String(row.type).toUpperCase() === type)
+          );
+          return [
+            {
+              ...evt.item,
+              type,
+              status: 'live',
+              timeAgo: formatTimeAgo(evt.item.created_at),
+            },
+            ...next,
+          ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        });
+      }
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {

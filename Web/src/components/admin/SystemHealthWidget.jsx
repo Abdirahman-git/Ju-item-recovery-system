@@ -85,8 +85,8 @@ export default function SystemHealthWidget({
           />
         </div>
         <div className="mt-2 flex justify-between text-[10px] font-bold uppercase tracking-wide text-slate-400">
-          <span className="text-emerald-600">{foundCount} Found</span>
-          <span className="text-red-500">{lostCount} Lost</span>
+          <span className="text-emerald-600">{foundCount} Found (returned)</span>
+          <span className="text-red-500">{lostCount} Lost (missing)</span>
         </div>
       </div>
     </div>

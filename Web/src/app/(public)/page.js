@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { ArrowRight, MapPin, ShieldCheck, Smartphone, Users } from 'lucide-react';
-import ItemCard from '@/components/public/ItemCard';
 import SectionHeading from '@/components/public/SectionHeading';
 import CtaBand from '@/components/public/CtaBand';
 import RevealOnScroll from '@/components/public/RevealOnScroll';
@@ -8,26 +7,15 @@ import HeroPhoneFrame from '@/components/public/HeroPhoneFrame';
 import HowItWorksFlow from '@/components/public/HowItWorksFlow';
 import ContactSection from '@/components/public/ContactSection';
 import Typewriter from '@/components/public/Typewriter';
-import { getPublicLiveItemsCached } from '@/lib/publicItems.server';
-import { toPublicItemCard } from '@/lib/publicItems';
-
-export const revalidate = 15;
+import HomeLivePreview from '@/components/public/HomeLivePreview';
 
 const TRUST = [
   { icon: ShieldCheck, label: 'Admin verified' },
   { icon: MapPin, label: 'Main Campus' },
-  { icon: Users, label: 'Free for students and staff' },
+  { icon: Users, label: 'Free for campus users and staff' },
 ];
 
-export default async function HomePage() {
-  let preview = [];
-  try {
-    const live = await getPublicLiveItemsCached(6);
-    preview = live.map(toPublicItemCard).filter(Boolean);
-  } catch {
-    preview = [];
-  }
-
+export default function HomePage() {
   return (
     <>
       <section className="relative overflow-hidden">
@@ -105,41 +93,7 @@ export default async function HomePage() {
           />
         </RevealOnScroll>
 
-        {preview.length === 0 ? (
-          <RevealOnScroll delay={80} className="mt-10">
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-6 py-14 text-center">
-              <p className="text-base font-bold text-slate-700">No live items yet</p>
-              <p className="mt-2 text-sm font-medium text-slate-500">
-                When campus reports are approved, they will show up here automatically.
-              </p>
-              <Link
-                href="/how-it-works"
-                className="mt-5 inline-flex cursor-pointer items-center gap-1 text-sm font-bold text-[#1A56DB] hover:underline"
-              >
-                How approval works
-                <ArrowRight size={14} />
-              </Link>
-            </div>
-          </RevealOnScroll>
-        ) : (
-          <div className="mt-8 grid grid-cols-1 gap-3 sm:mt-10 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
-            {preview.map((item, i) => (
-              <ItemCard key={item.slug} item={item} index={i} />
-            ))}
-          </div>
-        )}
-
-        {preview.length > 0 ? (
-          <div className="mt-8 text-center">
-            <Link
-              href="/browse"
-              className="inline-flex cursor-pointer items-center gap-2 text-sm font-black text-[#1A56DB] transition hover:gap-3"
-            >
-              View all items
-              <ArrowRight size={15} />
-            </Link>
-          </div>
-        ) : null}
+        <HomeLivePreview />
       </section>
 
       <HowItWorksFlow />

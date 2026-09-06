@@ -14,15 +14,18 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useSession } from '@/context/SessionProvider';
 import { getAdminCacheData, setAdminCache, invalidateAdminCaches } from '@/lib/adminDataCache';
 import { deleteDraftInventoryItem, fetchDraftInventoryItems } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { buildDraftsPageSparklines } from '@/lib/pageSparklines';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import { isSecureListing } from '@/lib/itemStatus';
+import { getItemReporterDisplay } from '@/lib/inventory';
 import { isSuperAdmin as checkSuperAdmin } from '@/lib/session';
 
 const TABS = [
@@ -83,23 +86,26 @@ function getDraftDescription(draft) {
 
 function DraftImage({ draft }) {
   const [failed, setFailed] = useState(false);
+  const secure = isSecureDraft(draft);
 
   useEffect(() => {
     setFailed(false);
   }, [draft.imageUrl, draft.id]);
 
-  if (isSecureDraft(draft)) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600">
-        <span className="text-6xl font-black leading-none">!</span>
-      </div>
-    );
-  }
-
   if (!draft.imageUrl || failed) {
+    const PlaceholderIcon = getItemPlaceholderIcon(
+      draft.displayName || draft.itemName || draft.item_name,
+      draft.displayCategory || draft.category
+    );
     return (
-      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-50 via-white/60 to-blue-50 text-violet-400">
-        <Package size={42} strokeWidth={1.5} />
+      <div
+        className={`flex h-full w-full items-center justify-center ${
+          secure
+            ? 'bg-gradient-to-br from-amber-50 to-amber-100 text-amber-700'
+            : 'bg-gradient-to-br from-violet-50 via-white/60 to-blue-50 text-violet-500'
+        }`}
+      >
+        <PlaceholderIcon size={46} strokeWidth={1.5} />
       </div>
     );
   }
@@ -206,6 +212,21 @@ function DraftCard({ draft, onDelete }) {
         </div>
 
         <div className="space-y-1.5 text-xs text-slate-500">
+          {(() => {
+            const reporter = getItemReporterDisplay(draft);
+            return (
+              <>
+                <p className="flex items-center gap-1.5">
+                  <UserRound size={13} className="shrink-0 text-slate-400" />
+                  <span className="line-clamp-1 font-semibold text-slate-700">{reporter.name}</span>
+                </p>
+                <p className="flex items-center gap-1.5">
+                  <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-slate-400">ID</span>
+                  <span className="line-clamp-1 font-bold tabular-nums text-slate-700">{reporter.studentId}</span>
+                </p>
+              </>
+            );
+          })()}
           <p className="flex items-center gap-1.5">
             <MapPin size={13} className="shrink-0 text-slate-400" />
             <span className="line-clamp-1">{draft.displayLocation || 'Location not added'}</span>
@@ -320,8 +341,9 @@ export default function DraftItemsClient() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return tabDrafts;
-    return tabDrafts.filter((draft) =>
-      [
+    return tabDrafts.filter((draft) => {
+      const reporter = getItemReporterDisplay(draft);
+      return [
         draft.displayName,
         draft.displayCategory,
         draft.displayLocation,
@@ -330,9 +352,11 @@ export default function DraftItemsClient() {
         draft.publicNotice,
         draft.inventoryRef,
         draft.itemType,
+        reporter.name,
+        reporter.studentId,
         isSecureDraft(draft) ? 'secure' : '',
-      ].some((value) => String(value || '').toLowerCase().includes(q))
-    );
+      ].some((value) => String(value || '').toLowerCase().includes(q));
+    });
   }, [tabDrafts, search]);
 
   const syncInventoryCache = useCallback((draft) => {
@@ -444,7 +468,7 @@ export default function DraftItemsClient() {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search draft items..."
+            placeholder="Search by item, reporter name, or ID..."
             className="glass-input h-12 w-full rounded-[24px] pl-11 pr-4 text-base text-slate-700 outline-none focus:ring-2 focus:ring-[#1A56DB]/15"
           />
         </label>

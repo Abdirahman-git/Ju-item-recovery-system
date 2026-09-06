@@ -118,7 +118,7 @@ export default function AdminDashboardOverview() {
       onPress: () => router.push('/(admin)/ReturnedItems'),
     },
     {
-      label: 'Active Students',
+      label: 'Active users',
       value: studentCount,
       sub: 'Registered users',
       icon: 'people-outline',
@@ -158,7 +158,7 @@ export default function AdminDashboardOverview() {
       onPress: () => router.push('/(admin)/ReturnedItems'),
     },
     {
-      label: 'Students',
+      label: 'Users',
       value: studentCount,
       color: '#0F172A',
       track: '#E2E8F0',

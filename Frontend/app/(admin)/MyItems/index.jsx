@@ -2,10 +2,11 @@ import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchAllInventoryItems, deleteInventoryItem } from '../../../src/services/supabase';
 import { isSecureFoundItem, normalizeItemStatus, ITEM_STATUS } from '../../../src/utils/itemStatus';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
 import SuccessToast from '../../../src/components/SuccessToast';
 import AdminHeader from '../../../src/components/AdminHeader';
 import AdminPageHero from '../../../src/components/AdminPageHero';
@@ -208,26 +209,25 @@ export default function AdminMyItemsPage() {
                   })
                 }
               >
-                {isSecure ? (
-                  <View style={[styles.itemCardImg, styles.secureImg]}>
-                    <Text style={styles.secureBang}>!</Text>
-                  </View>
-                ) : item.imageURI ? (
-                  <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
-                ) : (
+                {isSecure || !item.imageURI ? (
                   <View
                     style={[
                       styles.itemCardImg,
                       styles.placeholderImg,
-                      { backgroundColor: meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge },
+                      isSecure ? styles.secureImg : null,
+                      !isSecure && {
+                        backgroundColor: meta.filter === 'lost' ? Colors.lostBadge : Colors.foundBadge,
+                      },
                     ]}
                   >
-                    <Ionicons
-                      name={meta.filter === 'lost' ? 'help-buoy-outline' : 'checkmark-circle-outline'}
+                    <MaterialCommunityIcons
+                      name={getItemPlaceholderMciIcon(item.itemName || item.item_name, item.category)}
                       size={28}
-                      color={meta.filter === 'lost' ? Colors.lostBadgeText : Colors.foundBadgeText}
+                      color={isSecure ? '#D97706' : '#64748B'}
                     />
                   </View>
+                ) : (
+                  <Image source={{ uri: item.imageURI }} style={styles.itemCardImg} />
                 )}
 
                 <View style={styles.itemCardInfo}>

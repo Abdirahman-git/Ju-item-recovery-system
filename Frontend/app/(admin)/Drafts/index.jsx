@@ -18,6 +18,7 @@ import AdminPageHero from '../../../src/components/AdminPageHero';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { fetchDraftInventoryItems, deleteDraftInventoryItem } from '../../../src/services/supabase';
 import { isSecureFoundItem, isSecureListing } from '../../../src/utils/itemStatus';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
 import { showAppConfirm, showAppFailure } from '../../../src/utils/appAlert';
 
 const TABS = [
@@ -214,15 +215,24 @@ export default function DraftsScreen() {
             return (
               <View key={`${draft.itemType}-${draft.id}`} style={styles.card}>
                 <View style={styles.cardImageWrap}>
-                  {secure ? (
-                    <View style={[styles.cardImage, styles.secureImagePlaceholder]}>
-                      <Text style={styles.secureMark}>!</Text>
-                    </View>
-                  ) : draft.imageURI ? (
+                  {draft.imageURI && !secure ? (
                     <Image source={{ uri: draft.imageURI }} style={styles.cardImage} />
                   ) : (
-                    <View style={[styles.cardImage, styles.placeholderImage]}>
-                      <MaterialCommunityIcons name="cube-outline" size={30} color={Colors.slate400} />
+                    <View
+                      style={[
+                        styles.cardImage,
+                        styles.placeholderImage,
+                        secure && styles.secureImagePlaceholder,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name={getItemPlaceholderMciIcon(
+                          draft.itemName || draft.item_name,
+                          draft.category
+                        )}
+                        size={34}
+                        color={secure ? '#B45309' : Colors.slate400}
+                      />
                     </View>
                   )}
                 </View>

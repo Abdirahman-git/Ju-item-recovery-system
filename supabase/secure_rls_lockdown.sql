@@ -199,7 +199,7 @@ SELECT
   CASE WHEN listing_mode = 'secure' THEN public_category ELSE category END AS category,
   "itemName",
   CASE
-    WHEN listing_mode = 'secure' THEN COALESCE(security_location, 'Campus Security Office')
+    WHEN listing_mode = 'secure' THEN COALESCE(security_location, 'Student Affairs office')
     ELSE location
   END AS location,
   CASE WHEN listing_mode = 'secure' THEN NULL ELSE description END AS description,

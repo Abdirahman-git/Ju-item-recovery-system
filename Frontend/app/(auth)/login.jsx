@@ -2,14 +2,13 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { loginViaBackend } from '../../src/services/supabase';
-import { ACCOUNT_SUSPENDED_MESSAGE } from '../../src/utils/userAccess';
+import { ACCOUNT_SUSPENDED_MESSAGE, ACCOUNT_EXPIRED_MESSAGE } from '../../src/utils/userAccess';
 import { Colors } from '../../src/constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const JU_LOGO = require('../../assets/images/jazeera_logo.png');
 import SuccessToast from '../../src/components/SuccessToast';
-import { showAppValidation } from '../../src/utils/appAlert';
 import { useRef, useEffect } from 'react';
 
 export default function LoginScreen() {
@@ -19,6 +18,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [inlineNotice, setInlineNotice] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
   const toastRef = useRef(null);
 
   const clearNotice = () => setInlineNotice(null);
@@ -43,11 +43,16 @@ export default function LoginScreen() {
   }, []);
 
   const handleLogin = async () => {
-    if (!identifier.trim() || !password) {
-      showAppValidation('Please enter your ID and Password.', 'Missing fields');
+    const nextErrors = {};
+    if (!identifier.trim()) nextErrors.identifier = 'ID number is required.';
+    if (!password) nextErrors.password = 'Password is required.';
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors);
+      clearNotice();
       return;
     }
 
+    setFieldErrors({});
     setLoading(true);
     clearNotice();
     try {
@@ -81,6 +86,12 @@ export default function LoginScreen() {
           title: 'Account not active',
           message: err.message || ACCOUNT_SUSPENDED_MESSAGE,
         });
+      } else if (err.code === 'ACCOUNT_EXPIRED') {
+        setInlineNotice({
+          type: 'suspended',
+          title: 'Access expired',
+          message: err.message || ACCOUNT_EXPIRED_MESSAGE,
+        });
       } else if (err.code === 'ACCOUNT_BANNED') {
         setInlineNotice({
           type: 'banned',
@@ -88,17 +99,9 @@ export default function LoginScreen() {
           message: err.message,
         });
       } else if (err.code === 'ACCOUNT_NOT_FOUND') {
-        setInlineNotice({
-          type: 'not_found',
-          title: 'Account not found',
-          message: err.message,
-        });
+        setFieldErrors({ identifier: err.message || 'Account not found.' });
       } else if (err.code === 'WRONG_PASSWORD') {
-        setInlineNotice({
-          type: 'error',
-          title: 'Incorrect password',
-          message: err.message,
-        });
+        setFieldErrors({ password: err.message || 'Incorrect password.' });
       } else {
         setInlineNotice({
           type: 'error',
@@ -192,7 +195,7 @@ export default function LoginScreen() {
         ) : null}
 
         <Text style={styles.label}>ID NUMBER</Text>
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, fieldErrors.identifier && styles.inputContainerError]}>
           <TextInput
             style={styles.input}
             placeholder="Enter your ID (e.g. CS-123)"
@@ -201,15 +204,22 @@ export default function LoginScreen() {
             onChangeText={(text) => {
               setIdentifier(text);
               clearNotice();
+              setFieldErrors((prev) => {
+                if (!prev.identifier) return prev;
+                const next = { ...prev };
+                delete next.identifier;
+                return next;
+              });
             }}
             autoCapitalize="none"
             autoCorrect={false}
           />
           <Ionicons name="id-card-outline" size={20} color={Colors.slate400} />
         </View>
+        {fieldErrors.identifier ? <Text style={styles.fieldError}>{fieldErrors.identifier}</Text> : null}
 
         <Text style={styles.label}>PASSWORD</Text>
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, fieldErrors.password && styles.inputContainerError]}>
           <TextInput
             style={styles.input}
             placeholder="••••••••"
@@ -218,6 +228,12 @@ export default function LoginScreen() {
             onChangeText={(text) => {
               setPassword(text);
               clearNotice();
+              setFieldErrors((prev) => {
+                if (!prev.password) return prev;
+                const next = { ...prev };
+                delete next.password;
+                return next;
+              });
             }}
             secureTextEntry={!showPassword}
           />
@@ -229,6 +245,7 @@ export default function LoginScreen() {
             />
           </TouchableOpacity>
         </View>
+        {fieldErrors.password ? <Text style={styles.fieldError}>{fieldErrors.password}</Text> : null}
 
         <TouchableOpacity
           style={styles.forgotLinkWrap}
@@ -403,6 +420,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
+  },
+  inputContainerError: {
+    borderColor: '#F87171',
+    marginBottom: 6,
+  },
+  fieldError: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+    color: '#DC2626',
+    marginBottom: 14,
   },
   input: {
     flex: 1,

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 const DEFAULT_PHRASES = [
   'Campus Lost & Found',
   'Admin-verified recovery',
-  'Students & staff welcome',
+  'Campus users & staff welcome',
   'Report lost or found',
   'Secure campus holds',
   'Live item feed',

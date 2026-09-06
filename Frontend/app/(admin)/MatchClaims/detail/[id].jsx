@@ -159,7 +159,7 @@ export default function ClaimDetailsPage() {
               <View style={styles.personText}>
                 <Text style={styles.personName}>{claim.claimer_name || 'Unknown student'}</Text>
                 <Text style={styles.personMeta}>
-                  <Text style={styles.metaLabel}>Student ID: </Text>
+                  <Text style={styles.metaLabel}>ID: </Text>
                   <Text style={styles.metaValue}>{claim.claimer_student_id || 'N/A'}</Text>
                 </Text>
                 <Text style={styles.personMeta} numberOfLines={1}>

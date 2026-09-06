@@ -7,7 +7,7 @@ export default function CampusTrendsBanner() {
         <h2 className="text-2xl font-bold">Campus Recovery Trends</h2>
         <p className="mt-2 text-sm leading-relaxed text-blue-100">
           Track lost & found activity across Jazeera University. Monitor pending reports, successful
-          recoveries, and student engagement in real time.
+          recoveries, and campus engagement in real time.
         </p>
         <button
           type="button"

@@ -33,7 +33,7 @@ export default function AdminLayout() {
         name="AllUsers/index"
         options={{
           drawerLabel: 'All Users',
-          title: 'University Students',
+          title: 'Campus users',
         }}
       />
       <Drawer.Screen
@@ -53,8 +53,8 @@ export default function AdminLayout() {
       <Drawer.Screen
         name="Lost/index"
         options={{
-          drawerLabel: 'Report Lost',
-          title: 'Report Lost',
+          drawerLabel: 'Register Item',
+          title: 'Register Item',
         }}
       />
       <Drawer.Screen

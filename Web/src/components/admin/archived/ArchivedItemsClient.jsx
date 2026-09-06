@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { fetchArchivedItems, purgeArchivedItem, restoreArchivedItem } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { categoriesForFilter } from '@/lib/categories';
 import { buildArchivedPageSparklines } from '@/lib/pageSparklines';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
@@ -71,9 +72,13 @@ function ItemThumb({ item }) {
   }, [item.imageUrl, item.id]);
 
   if (!item.imageUrl || failed) {
+    const PlaceholderIcon = getItemPlaceholderIcon(
+      item.displayName || item.itemName || item.item_name,
+      item.displayCategory || item.category
+    );
     return (
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 text-amber-600">
-        <Package size={22} />
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 text-amber-700">
+        <PlaceholderIcon size={22} strokeWidth={1.75} />
       </div>
     );
   }
@@ -105,7 +110,7 @@ function DetailModal({ item, busy, onClose, onRestore, onDelete }) {
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Archived record</p>
               <h3 className="mt-1 truncate text-2xl font-black tracking-tight text-slate-950">{item.displayName}</h3>
-              <p className="mt-1 text-sm font-medium text-slate-500">Removed from the student app feed — restore anytime.</p>
+              <p className="mt-1 text-sm font-medium text-slate-500">Removed from the mobile app feed — restore anytime.</p>
             </div>
             <button
               type="button"
@@ -202,7 +207,7 @@ function RestoreConfirmModal({ item, loading, onCancel, onConfirm }) {
         <h3 className="mt-5 text-2xl font-extrabold text-slate-950">Restore item?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           <span className="font-bold text-slate-800">&ldquo;{item.displayName}&rdquo;</span> will return to live
-          inventory and appear again in the student app.
+          inventory and appear again in the mobile app.
         </p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row">
           <button
@@ -444,7 +449,7 @@ export default function ArchivedItemsClient() {
             </span>
           </div>
           <p className="truncate text-[11px] font-medium text-slate-500">
-            Off student feed · restore anytime · archive from All Items → Stale 60d+
+            Off app feed · restore anytime · archive from All Items → Stale 60d+
           </p>
         </div>
       </div>
@@ -603,7 +608,7 @@ export default function ArchivedItemsClient() {
           </h3>
           <p className="mt-2 max-w-md text-sm font-medium leading-6 text-slate-500">
             {items.length === 0
-              ? 'From All Items, open a stale report and tap Move to archive. It will land here and leave the student app.'
+              ? 'From All Items, open a stale report and tap Move to archive. It will land here and leave the mobile app.'
               : 'Try Reset, change type/category, or clear your search.'}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
