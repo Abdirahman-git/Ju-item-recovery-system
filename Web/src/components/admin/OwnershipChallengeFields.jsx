@@ -4,12 +4,20 @@ import { Plus, Trash2 } from 'lucide-react';
 import {
   CHALLENGE_MAX_QUESTIONS,
   CHALLENGE_MIN_QUESTIONS,
+  QUESTION_TYPE_ASK,
   QUESTION_TYPE_DIRECT,
   QUESTION_TYPE_MCQ,
   emptyChallengeQuestion,
+  resolveQuestionType,
 } from '@/lib/ownershipChallenge';
 
-/** Controlled Ownership Challenge fields — MCQ + direct text (admin only). */
+const TYPE_TABS = [
+  { id: QUESTION_TYPE_MCQ, label: 'MCQ' },
+  { id: QUESTION_TYPE_DIRECT, label: 'Direct' },
+  { id: QUESTION_TYPE_ASK, label: 'Ask' },
+];
+
+/** Controlled Ownership Challenge fields — MCQ + Direct (match) + Ask (open). */
 export default function OwnershipChallengeFields({
   questions,
   onChange,
@@ -28,10 +36,19 @@ export default function OwnershipChallengeFields({
   };
 
   const setQuestionType = (index, type) => {
-    const next = type === QUESTION_TYPE_DIRECT ? QUESTION_TYPE_DIRECT : QUESTION_TYPE_MCQ;
+    const next = resolveQuestionType({ question_type: type });
     setQuestions(
       list.map((q, i) => {
         if (i !== index) return q;
+        if (next === QUESTION_TYPE_ASK) {
+          return {
+            ...q,
+            question_type: QUESTION_TYPE_ASK,
+            options: [],
+            correct_index: null,
+            correct_answer: '',
+          };
+        }
         if (next === QUESTION_TYPE_DIRECT) {
           return {
             ...q,
@@ -47,7 +64,6 @@ export default function OwnershipChallengeFields({
           ...q,
           question_type: QUESTION_TYPE_MCQ,
           options: opts.slice(0, 4),
-          // Require a fresh explicit pick when switching to MCQ
           correct_index: null,
           correct_answer: '',
         };
@@ -62,7 +78,6 @@ export default function OwnershipChallengeFields({
         const options = [...(q.options || ['', '', '', ''])];
         options[oIndex] = value;
         let correct_index = q.correct_index;
-        // If the marked-correct option is cleared, drop the selection
         if (
           Number.isInteger(Number(correct_index)) &&
           Number(correct_index) === oIndex &&
@@ -94,7 +109,9 @@ export default function OwnershipChallengeFields({
           </p>
           <p className="mt-0.5 text-xs font-semibold text-slate-500">
             Required before publish · {list.length}/{CHALLENGE_MAX_QUESTIONS} · min{' '}
-            {CHALLENGE_MIN_QUESTIONS} · MCQ or short-answer per question
+            {CHALLENGE_MIN_QUESTIONS} ·{' '}
+            <span className="font-black text-slate-700">Ask</span> = question only (claimant types;
+            you review)
           </p>
         </div>
       </div>
@@ -106,7 +123,10 @@ export default function OwnershipChallengeFields({
       ) : null}
 
       {list.map((q, qi) => {
-        const isDirect = q.question_type === QUESTION_TYPE_DIRECT;
+        const type = resolveQuestionType(q);
+        const isDirect = type === QUESTION_TYPE_DIRECT;
+        const isAsk = type === QUESTION_TYPE_ASK;
+        const isMcq = type === QUESTION_TYPE_MCQ;
         return (
           <article
             key={qi}
@@ -118,30 +138,21 @@ export default function OwnershipChallengeFields({
               </span>
               <div className="flex items-center gap-2">
                 <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setQuestionType(qi, QUESTION_TYPE_MCQ)}
-                    className={`rounded-lg px-2.5 py-1 text-[11px] font-black uppercase tracking-wide transition disabled:opacity-50 ${
-                      !isDirect
-                        ? 'bg-[#1A56DB] text-white shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    MCQ
-                  </button>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setQuestionType(qi, QUESTION_TYPE_DIRECT)}
-                    className={`rounded-lg px-2.5 py-1 text-[11px] font-black uppercase tracking-wide transition disabled:opacity-50 ${
-                      isDirect
-                        ? 'bg-[#1A56DB] text-white shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    Direct
-                  </button>
+                  {TYPE_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setQuestionType(qi, tab.id)}
+                      className={`rounded-lg px-2.5 py-1 text-[11px] font-black uppercase tracking-wide transition disabled:opacity-50 ${
+                        type === tab.id
+                          ? 'bg-[#1A56DB] text-white shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
                 {list.length > CHALLENGE_MIN_QUESTIONS ? (
                   <button
@@ -156,32 +167,69 @@ export default function OwnershipChallengeFields({
               </div>
             </div>
 
+            <label className="mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-500">
+              {isAsk || isDirect ? 'Question for the claimant' : 'Question'}
+            </label>
             <input
               value={q.prompt}
               disabled={disabled}
               onChange={(e) => updateQuestion(qi, { prompt: e.target.value })}
-              placeholder="Private detail only the owner would know…"
+              placeholder={
+                isAsk
+                  ? 'e.g. Any special mark or detail only you would know?'
+                  : isDirect
+                    ? 'e.g. What colour is the case, and any stickers?'
+                    : 'Private detail only the true owner would know…'
+              }
               className="mb-2.5 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 outline-none focus:border-[#1A56DB] focus:ring-4 focus:ring-[#1A56DB]/12 disabled:opacity-60"
             />
 
+            {isAsk ? (
+              <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-3">
+                <p className="text-[11px] font-black uppercase tracking-wide text-sky-900">
+                  Ask mode — question only
+                </p>
+                <p className="mt-1 text-[11px] font-semibold leading-4 text-sky-800/90">
+                  You write the question. You do <span className="font-black">not</span> set a
+                  correct answer. The claimant types freely; you read their reply in Ownership
+                  Requests (goes to Physical when the challenge is Ask-only).
+                </p>
+              </div>
+            ) : null}
+
             {isDirect ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
+              <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-wide text-amber-900">
+                    Direct answer mode
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-semibold leading-4 text-amber-800/90">
+                    You write the question and the answer you expect. The claimant types a reply —
+                    keyword match scores automatically.
+                  </p>
+                </div>
                 <label className="block text-[11px] font-black uppercase tracking-wide text-amber-800">
-                  Correct answer (private — claimant types this)
+                  Answer you expect from the claimant (private)
                 </label>
                 <input
                   value={q.correct_answer || ''}
                   disabled={disabled}
                   onChange={(e) => updateQuestion(qi, { correct_answer: e.target.value })}
-                  placeholder="e.g. blue case with sticker"
-                  className="mt-1.5 h-10 w-full rounded-xl border border-amber-200 bg-white px-3.5 text-sm font-semibold text-slate-800 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100 disabled:opacity-60"
+                  placeholder="e.g. blue case with JU sticker"
+                  className="h-10 w-full rounded-xl border border-amber-200 bg-white px-3.5 text-sm font-semibold text-slate-800 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100 disabled:opacity-60"
                 />
-                <p className="mt-1.5 text-[11px] font-semibold text-amber-700/80">
-                  Claimant can paraphrase — we match key words, not the full sentence.
-                  Keep the answer short and specific.
+                <p className="text-[11px] font-semibold text-amber-700/80">
+                  Required for Direct. Short and specific — we match key words (paraphrase OK).
                 </p>
+                {!String(q.correct_answer || '').trim() ? (
+                  <p className="text-[11px] font-bold text-amber-900">
+                    Still waiting — add the answer you expect before you can save.
+                  </p>
+                ) : null}
               </div>
-            ) : (
+            ) : null}
+
+            {isMcq ? (
               <>
                 <p className="mb-2 text-[11px] font-black uppercase tracking-wide text-emerald-700">
                   Mark the correct option (required)
@@ -233,7 +281,7 @@ export default function OwnershipChallengeFields({
                     : 'Correct option marked. Empty options are ignored (min 2 filled).'}
                 </p>
               </>
-            )}
+            ) : null}
           </article>
         );
       })}

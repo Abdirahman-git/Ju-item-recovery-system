@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { fetchArchivedItems, purgeArchivedItem, restoreArchivedItem } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { categoriesForFilter } from '@/lib/categories';
 import { buildArchivedPageSparklines } from '@/lib/pageSparklines';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
@@ -71,9 +72,13 @@ function ItemThumb({ item }) {
   }, [item.imageUrl, item.id]);
 
   if (!item.imageUrl || failed) {
+    const PlaceholderIcon = getItemPlaceholderIcon(
+      item.displayName || item.itemName || item.item_name,
+      item.displayCategory || item.category
+    );
     return (
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 text-amber-600">
-        <Package size={22} />
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 text-amber-700">
+        <PlaceholderIcon size={22} strokeWidth={1.75} />
       </div>
     );
   }

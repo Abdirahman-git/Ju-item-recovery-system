@@ -726,7 +726,13 @@ export default function BackupRestoreClient() {
                             <Mail size={18} />
                           </div>
                         ) : (
-                          <ItemThumbnail src={imageUrl} alt={item.title} itemType={itemType} />
+                          <ItemThumbnail
+                            src={imageUrl}
+                            alt={item.title}
+                            itemType={itemType}
+                            itemName={item.title}
+                            category={item.payload?.row?.category || item.summary}
+                          />
                         )}
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">

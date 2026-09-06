@@ -2,21 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { MapPin, Package, Shield } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
+import ItemNamePlaceholder from '@/components/admin/ItemNamePlaceholder';
 import { formatPublicDate } from '@/lib/publicItems';
 
 export default function ItemCard({ item, index = 0, reveal = true }) {
   const [failed, setFailed] = useState(false);
-  const isFound = item.itemType === 'found';
   const isSecure = Boolean(item.isSecure);
 
   useEffect(() => {
     setFailed(false);
   }, [item.imageUrl]);
 
-  const badgeClass = 'bg-red-600';
-  const badgeLabel = 'Lost';
+  const showPhoto = !isSecure && item.imageUrl && !failed;
 
   return (
     <Link
@@ -27,31 +26,7 @@ export default function ItemCard({ item, index = 0, reveal = true }) {
       style={reveal ? { animationDelay: `${Math.min(index, 8) * 90}ms` } : undefined}
     >
       <div className="relative h-[6.75rem] w-[6.75rem] shrink-0 overflow-hidden rounded-[12px] bg-slate-100 sm:h-auto sm:w-full sm:aspect-[4/3] sm:rounded-none">
-        {isSecure || !item.imageUrl || failed ? (
-          <div
-            className={`relative flex h-full w-full items-center justify-center ${
-              isSecure
-                ? 'public-detail-placeholder--secure'
-                : isFound
-                  ? 'public-detail-placeholder--found'
-                  : 'public-detail-placeholder--lost'
-            }`}
-          >
-            {isSecure ? (
-              <span className="public-secure-mark relative inline-flex">
-                <Shield
-                  className="public-detail-secure-icon h-7 w-7 sm:h-10 sm:w-10"
-                  strokeWidth={0}
-                />
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-600 text-[9px] font-black text-white sm:-right-1 sm:-top-1 sm:h-5 sm:w-5 sm:text-[11px]">
-                  !
-                </span>
-              </span>
-            ) : (
-              <Package className="h-7 w-7 sm:h-9 sm:w-9" strokeWidth={1.5} />
-            )}
-          </div>
-        ) : (
+        {showPhoto ? (
           <SafeRemoteImage
             src={item.imageUrl}
             alt={item.title}
@@ -60,12 +35,15 @@ export default function ItemCard({ item, index = 0, reveal = true }) {
             sizes="(max-width: 640px) 108px, (max-width: 1024px) 50vw, 33vw"
             onError={() => setFailed(true)}
           />
+        ) : (
+          <ItemNamePlaceholder
+            name={item.title || item.itemName}
+            category={item.category}
+            secure={isSecure}
+            size={36}
+            className="sm:[&_svg]:h-12 sm:[&_svg]:w-12"
+          />
         )}
-        <span
-          className={`absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-white shadow-[0_4px_12px_rgba(0,0,0,0.18)] sm:left-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[10px] ${badgeClass}`}
-        >
-          {badgeLabel}
-        </span>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-1.5 sm:p-4">

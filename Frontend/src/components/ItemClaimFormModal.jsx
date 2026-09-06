@@ -1,9 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
 import { AppButton, AppModalSheet, AppReadOnlyField } from './AppForm';
+import {
+  QUESTION_TYPE_ASK,
+  QUESTION_TYPE_DIRECT,
+  resolveQuestionType,
+} from '../utils/ownershipChallenge';
+
+function usesTextAnswer(q) {
+  const type = resolveQuestionType(q);
+  if (type === QUESTION_TYPE_DIRECT || type === QUESTION_TYPE_ASK) return true;
+  const opts = Array.isArray(q?.options) ? q.options.filter((o) => String(o || '').trim()) : [];
+  // Empty option list cannot be MCQ — show text box (Ask-like)
+  return opts.length === 0;
+}
 
 function isQuestionAnswered(q, value) {
-  if (q?.question_type === 'direct') {
+  if (usesTextAnswer(q)) {
     return String(value || '').trim().length > 0;
   }
   return Number.isInteger(Number(value));
@@ -46,7 +59,7 @@ export default function ItemClaimFormModal({
   const handleSubmit = () => {
     if (!canSubmit) return;
     const payload = list.map((q, i) =>
-      q.question_type === 'direct' ? String(answers[i] || '').trim() : Number(answers[i])
+      usesTextAnswer(q) ? String(answers[i] || '').trim() : Number(answers[i])
     );
     onSubmit({ answers: payload });
   };
@@ -93,21 +106,30 @@ export default function ItemClaimFormModal({
 
       {!loadingQuestions && !loadError
         ? list.map((q, qi) => {
-            const isDirect = q.question_type === 'direct';
+            const type = resolveQuestionType(q);
+            const isText = usesTextAnswer(q);
+            const isAsk = type === QUESTION_TYPE_ASK || (isText && type !== QUESTION_TYPE_DIRECT);
             return (
               <View key={q.id || qi} style={styles.questionCard}>
-                <Text style={styles.questionLabel}>Question {qi + 1}</Text>
+                <Text style={styles.questionLabel}>
+                  Question {qi + 1}
+                  {isAsk ? ' · Ask' : type === QUESTION_TYPE_DIRECT ? ' · Direct' : ''}
+                </Text>
                 <Text style={styles.questionPrompt}>{q.prompt}</Text>
-                {isDirect ? (
+                {isText ? (
                   <TextInput
                     style={styles.directInput}
                     value={String(answers[qi] ?? '')}
                     onChangeText={(text) => setAnswers((prev) => ({ ...prev, [qi]: text }))}
-                    placeholder="Type your answer…"
+                    placeholder={
+                      isAsk
+                        ? 'Type your answer in your own words…'
+                        : 'Type your answer…'
+                    }
                     placeholderTextColor="#94A3B8"
                     editable={!submitting}
-                    autoCapitalize="none"
-                    autoCorrect={false}
+                    autoCapitalize="sentences"
+                    autoCorrect
                     multiline
                     textAlignVertical="top"
                   />
@@ -174,7 +196,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingVertical: 12,
     fontSize: 15,
     fontWeight: '600',
     color: '#0F172A',
@@ -184,32 +206,51 @@ const styles = StyleSheet.create({
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
+    gap: 12,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
   },
   optionSelected: {
-    borderColor: '#93C5FD',
+    borderColor: '#1A56DB',
     backgroundColor: '#EFF6FF',
   },
   radio: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioOn: { borderColor: '#1A56DB' },
-  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1A56DB' },
-  optionText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#334155' },
-  optionTextOn: { color: '#1E3A8A', fontWeight: '800' },
-  helperText: { marginTop: 4, marginBottom: 8, fontSize: 12, color: '#64748B', fontWeight: '600' },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#1A56DB',
+  },
+  optionText: { flex: 1, fontSize: 14, fontWeight: '700', color: '#334155', lineHeight: 20 },
+  optionTextOn: { color: '#1E40AF' },
+  helperText: {
+    marginTop: 4,
+    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    textAlign: 'center',
+  },
   helperGood: { color: '#059669' },
-  warn: { fontSize: 12, color: '#B45309', marginTop: 8, fontWeight: '600' },
+  warn: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B45309',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
 });

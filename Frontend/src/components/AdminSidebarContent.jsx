@@ -48,7 +48,7 @@ const NAV_SECTIONS = [
   {
     title: 'Field Reports',
     items: [
-      { icon: 'search', label: 'Report Lost', path: '/(admin)/Lost', match: '/Lost' },
+      { icon: 'search', label: 'Register Item', path: '/(admin)/Lost', match: '/Lost' },
       {
         icon: 'shield-checkmark',
         label: 'Secure Lost',

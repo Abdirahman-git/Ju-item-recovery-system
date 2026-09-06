@@ -25,6 +25,7 @@ import { ADMIN_CATEGORY_OPTIONS } from '@/components/admin/categoryOptions';
 import ReportSelect from '@/components/admin/ReportSelect';
 import { invalidateInventoryCaches } from '@/lib/adminDataCache';
 import { validateMeaningfulText } from '@/lib/contentValidation';
+import { STUDENT_AFFAIRS_OFFICE } from '@/lib/itemImage';
 
 function getLocalDateValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -175,13 +176,13 @@ export default function SecureFoundClient() {
       itemName: name,
       category,
       description,
-      location: 'Campus Security Office',
+      location: STUDENT_AFFAIRS_OFFICE,
       reportDate: getLocalDateValue(),
       reportTime: getLocalTimeValue(),
       phone: '',
       publicNotice: description,
       publicCategory: category,
-      securityLocation: 'Campus Security Office',
+      securityLocation: STUDENT_AFFAIRS_OFFICE,
       finderName: ownerName,
       finderId: ownerEmail,
       email: ownerEmail,

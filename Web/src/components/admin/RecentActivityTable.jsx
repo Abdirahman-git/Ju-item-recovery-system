@@ -67,6 +67,8 @@ export default function RecentActivityTable({ items = [] }) {
                     src={item.imageUrl}
                     alt={item.displayName}
                     itemType={item.itemType}
+                    itemName={item.displayName}
+                    category={item.displayCategory}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

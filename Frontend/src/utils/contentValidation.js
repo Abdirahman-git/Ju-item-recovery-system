@@ -141,7 +141,7 @@ export function validateItemReportContent({
     minLength: 3,
     minLetters: 2,
   });
-  if (!nameCheck.valid) return nameCheck;
+  if (!nameCheck.valid) return { ...nameCheck, field: 'itemName' };
 
   if (requireLocation) {
     const locationCheck = validateMeaningfulText(location, {
@@ -149,7 +149,7 @@ export function validateItemReportContent({
       minLength: 5,
       minLetters: 2,
     });
-    if (!locationCheck.valid) return locationCheck;
+    if (!locationCheck.valid) return { ...locationCheck, field: 'location' };
   }
 
   if (requireDescription) {
@@ -158,7 +158,7 @@ export function validateItemReportContent({
       minLength: 10,
       minLetters: 4,
     });
-    if (!descriptionCheck.valid) return descriptionCheck;
+    if (!descriptionCheck.valid) return { ...descriptionCheck, field: 'description' };
   }
 
   return { valid: true };

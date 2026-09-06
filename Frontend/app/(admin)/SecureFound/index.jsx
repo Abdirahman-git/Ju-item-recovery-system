@@ -28,10 +28,11 @@ import {
 } from '../../../src/services/supabase';
 import { validateSecureNoticeContent } from '../../../src/utils/contentValidation';
 import { showAppWarning, showAppFailure, showAppConfirm } from '../../../src/utils/appAlert';
+import { STUDENT_AFFAIRS_OFFICE, normalizeOfficeLocation } from '../../../src/utils/officeLocation';
 
 const AMBER = '#B45309';
 const AMBER_LIGHT = '#FEF3C7';
-const DEFAULT_SECURITY_LOCATION = 'Campus Security Office';
+const DEFAULT_SECURITY_LOCATION = STUDENT_AFFAIRS_OFFICE;
 const DESCRIPTION_LIMIT = 280;
 
 function createInitialForm() {
@@ -113,7 +114,10 @@ export default function SecureFoundScreen() {
     const name = form.itemName.trim();
     const description = form.description.trim();
     const category = form.category || 'Other';
-    const securityLocation = form.securityLocation.trim() || DEFAULT_SECURITY_LOCATION;
+    const securityLocation = normalizeOfficeLocation(
+      form.securityLocation.trim(),
+      DEFAULT_SECURITY_LOCATION
+    );
     const finderName = userSession?.userName || 'Campus Security';
     const email = userSession?.email || 'admin@ju.edu.so';
 

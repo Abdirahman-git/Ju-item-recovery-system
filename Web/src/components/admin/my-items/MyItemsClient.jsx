@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SafeRemoteImage from '@/components/admin/SafeRemoteImage';
 import DetailPhotoPanel from '@/components/admin/DetailPhotoPanel';
+import ItemNamePlaceholder from '@/components/admin/ItemNamePlaceholder';
 import Link from 'next/link';
 import {
   Calendar,
@@ -22,6 +23,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { deleteInventoryItem, fetchAllInventoryItems } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { getAdminCacheData, setAdminCache, invalidateAdminCaches } from '@/lib/adminDataCache';
 import { buildMyItemsPageSparklines } from '@/lib/pageSparklines';
 import StatCard from '@/components/admin/StatCard';
@@ -80,41 +82,39 @@ function isAdminCreatedItem(item, session) {
   );
 }
 
-function SecureHoldMark({ large = false }) {
+function SecureHoldMark({ large = false, name, category }) {
   return (
-    <div
-      className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600 ${
-        large ? 'min-h-[280px]' : ''
-      }`}
-    >
-      <span className={`font-black leading-none ${large ? 'text-[120px]' : 'text-6xl'}`}>!</span>
-    </div>
+    <ItemNamePlaceholder
+      name={name}
+      category={category}
+      secure
+      large={large}
+      size={large ? 96 : 46}
+    />
   );
 }
 
 function ItemImage({ item }) {
   const [failed, setFailed] = useState(false);
+  const name = item.displayName || item.itemName || item.item_name || '';
+  const category = item.displayCategory || item.category || '';
 
   useEffect(() => {
     setFailed(false);
   }, [item.imageUrl, item.id]);
 
   if (isSecureFoundItem(item)) {
-    return <SecureHoldMark />;
+    return <SecureHoldMark name={name} category={category} />;
   }
 
   if (!item.imageUrl || failed) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-blue-50 text-slate-400">
-        <Package size={42} strokeWidth={1.5} />
-      </div>
-    );
+    return <ItemNamePlaceholder name={name} category={category} size={46} />;
   }
 
   return (
     <SafeRemoteImage
       src={item.imageUrl}
-      alt={item.displayName}
+      alt={name || 'Item'}
       fill
       className="object-cover transition duration-500 group-hover:scale-[1.03]"
       sizes="(max-width:768px) 100vw, 33vw"
@@ -166,7 +166,11 @@ function ItemDetailModal({ item, onClose, onDelete }) {
           <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[minmax(360px,1.25fr)_minmax(260px,0.75fr)]">
             {isSecure ? (
               <div className="relative min-h-[300px] overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-amber-50 to-amber-100 lg:h-full lg:min-h-0">
-                <SecureHoldMark large />
+                <SecureHoldMark
+                  large
+                  name={item.displayName || item.itemName || item.item_name}
+                  category={item.displayCategory || item.category}
+                />
                 <span
                   className={`absolute left-3 top-3 z-[2] rounded-full border border-white/70 px-3 py-1.5 text-[11px] font-black uppercase shadow-lg backdrop-blur-md ${meta.badge.className}`}
                 >

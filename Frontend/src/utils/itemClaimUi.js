@@ -48,6 +48,12 @@ export const pendingClaimStorageKey = (item, userEmail = '') => {
   return `claim_pending_${email}_${type}_${item.id}`;
 };
 
+export const approvedClaimStorageKey = (item, userEmail = '') => {
+  const type = isLostItemRecord(item) ? 'lost' : 'found';
+  const email = String(userEmail || '').trim().toLowerCase() || 'anon';
+  return `claim_approved_${email}_${type}_${item.id}`;
+};
+
 /** Per-user only — never share reject/pending flags across accounts on one device. */
 export const rejectedClaimStorageKey = (item, userEmail = '') => {
   const type = isLostItemRecord(item) ? 'lost' : 'found';

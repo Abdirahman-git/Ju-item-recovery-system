@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutGrid,
@@ -57,20 +57,49 @@ const ICONS = {
 export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose = false, onClose }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, logout } = useSession();
+  const { session, logout, ready } = useSession();
   const { collapsed, toggleCollapsed, pendingHref, setPendingNav } = useSidebar();
   const adminName = session?.userName || 'Administrator';
   const isSuperAdmin = checkSuperAdmin(session);
-  const [avatarFailed, setAvatarFailed] = useState(false);
 
+  function safePrefetch(href) {
+    if (!ready || !href) return;
+    try {
+      router.prefetch(href);
+    } catch {
+      /* Router can throw before App Router finishes initializing (Turbopack). */
+    }
+  }
+
+  function safePush(href) {
+    if (!href) return;
+    try {
+      router.push(href);
+    } catch {
+      window.location.assign(href);
+    }
+  }
+
+  // Warm nav after router is ready — never during first paint / hydration.
   useEffect(() => {
-    NAV_SECTIONS.forEach((section) => {
-      section.items.forEach((item) => {
-        if (item.superAdminOnly && !isSuperAdmin) return;
-        router.prefetch(item.href);
+    if (!ready) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      NAV_SECTIONS.forEach((section) => {
+        section.items.forEach((item) => {
+          if (item.superAdminOnly && !isSuperAdmin) return;
+          safePrefetch(item.href);
+        });
       });
-    });
-  }, [router, isSuperAdmin]);
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // safePrefetch closes over ready/router; deps cover those.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, router, isSuperAdmin]);
 
   const isActive = (href, exact) => {
     if (exact) return pathname === href;
@@ -153,15 +182,15 @@ export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose =
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        prefetch
-                        onMouseEnter={() => router.prefetch(item.href)}
+                        prefetch={false}
+                        onMouseEnter={() => safePrefetch(item.href)}
                         onClick={(event) => {
-                          // Mobile drawer close can race soft nav — force push.
+                          // Mobile drawer close can race soft nav — force push after init.
                           if (item.href !== pathname) {
                             event.preventDefault();
                             setPendingNav(item.href);
                             onNavigate?.();
-                            router.push(item.href);
+                            window.setTimeout(() => safePush(item.href), 0);
                             return;
                           }
                           onNavigate?.();
@@ -202,22 +231,9 @@ export default function AdminSidebar({ badgeCounts = {}, onNavigate, showClose =
       <div className={`relative border-t border-white/15 p-3 ${collapsed ? 'lg:px-2' : ''}`}>
         {!collapsed ? (
           <div className="mb-2 flex items-center gap-2.5 rounded-2xl border border-white/15 bg-white/10 px-3 py-2.5">
-            {avatarFailed ? (
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 text-xs font-black text-white shadow-lg shadow-blue-900/30">
-                {(adminName || 'A').charAt(0).toUpperCase()}
-              </div>
-            ) : (
-              <div className="relative h-9 w-9 overflow-hidden rounded-xl ring-1 ring-white/15">
-                <Image
-                  src="/Avatar001.png"
-                  alt="Admin avatar"
-                  fill
-                  className="object-cover"
-                  sizes="36px"
-                  onError={() => setAvatarFailed(true)}
-                />
-              </div>
-            )}
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 text-xs font-black text-white shadow-lg shadow-blue-900/30">
+              {(adminName || 'A').charAt(0).toUpperCase()}
+            </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold text-white">{adminName}</p>
               <p className="truncate text-[11px] text-sky-100/70">{session?.email || 'Admin'}</p>

@@ -394,11 +394,8 @@ export default function SetupClient() {
     [facultyRows]
   );
 
-  const registerNameTrimmed = String(newFacultyName || '').trim();
   const canSaveFacultyYears =
-    facultyRows.length > 0 &&
-    invalidFacultyYears.length === 0 &&
-    registerNameTrimmed.length > 0;
+    facultyRows.length > 0 && invalidFacultyYears.length === 0;
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -624,30 +621,35 @@ export default function SetupClient() {
     setFeedback(null);
     try {
       const name = String(newFacultyName || '').trim().replace(/\s+/g, ' ');
-      if (!name) {
-        setFacultyNameTouched(true);
-        setFacultyNameError('Faculty name is required.');
-        throw new Error('Faculty name is required before Save.');
-      }
-
-      // Existing faculty name → just save list. New name → validate & add first.
-      const alreadyListed = facultyRows.some(
-        (r) => r.faculty.toLowerCase() === name.toLowerCase()
-      );
       let rowsToSave = facultyRows;
-      if (!alreadyListed) {
-        const nameErr = validateFacultyNameField(name);
-        const yearsErr = validateFacultyYearsField(newFacultyYears);
-        setFacultyNameError(nameErr);
-        setFacultyYearsError(yearsErr);
-        if (nameErr || yearsErr) {
-          throw new Error(nameErr || yearsErr);
+
+      // Optional: if register field has a new name, validate & add it before save.
+      if (name) {
+        const alreadyListed = facultyRows.some(
+          (r) => r.faculty.toLowerCase() === name.toLowerCase()
+        );
+        if (!alreadyListed) {
+          const nameErr = validateFacultyNameField(name);
+          const yearsErr = validateFacultyYearsField(newFacultyYears);
+          setFacultyNameError(nameErr);
+          setFacultyYearsError(yearsErr);
+          if (nameErr || yearsErr) {
+            setFeedback({ tone: 'error', message: nameErr || yearsErr });
+            return;
+          }
+          const years = Math.trunc(Number(newFacultyYears));
+          rowsToSave = [...facultyRows, { faculty: name, program_years: years }];
+          setFacultyRows(rowsToSave);
+        } else {
+          setFacultyNameError('');
         }
-        const years = Math.trunc(Number(newFacultyYears));
-        rowsToSave = [...facultyRows, { faculty: name, program_years: years }];
-        setFacultyRows(rowsToSave);
       } else {
         setFacultyNameError('');
+      }
+
+      if (!rowsToSave.length) {
+        setFeedback({ tone: 'error', message: 'Add at least one faculty before saving.' });
+        return;
       }
 
       const bad = rowsToSave.filter((row) => {
@@ -656,7 +658,11 @@ export default function SetupClient() {
       });
       if (bad.length) {
         const names = bad.map((r) => `${r.faculty} (${r.program_years ?? 'empty'})`).join(', ');
-        throw new Error(`Years must be 4–7 for every faculty. Fix: ${names}`);
+        setFeedback({
+          tone: 'error',
+          message: `Years must be 4–7 for every faculty. Fix: ${names}`,
+        });
+        return;
       }
 
       const result = await saveFacultyProgramYears(rowsToSave);
@@ -672,17 +678,10 @@ export default function SetupClient() {
           result?.message ||
           `Faculty years saved${locked ? ` — ${locked} expired account(s) locked` : ''}.`,
       });
-      await showSuccess(
-        'Saved',
-        locked
-          ? `Program years saved. ${locked} expired account(s) locked automatically.`
-          : 'Program years saved. End dates updated automatically.'
-      );
       await loadAll();
     } catch (e) {
       const msg = e.message || 'Could not save faculty years.';
       setFeedback({ tone: 'error', message: msg });
-      await showError('Could not save', msg);
     } finally {
       setSaving(false);
     }
@@ -693,22 +692,32 @@ export default function SetupClient() {
     if (!name) {
       return allowEmpty ? '' : 'Faculty name is required.';
     }
-    if (name.length < 5) return 'Name must be at least 5 characters.';
+    if (name.length < 4) return 'Name must be at least 4 characters.';
     if (name.length > 80) return 'Name must be 80 characters or less.';
     if (/\d/.test(name)) {
       return 'Faculty name must be letters only — no numbers.';
     }
-    // Letters + spaces / & - ' . only (e.g. Law & Sharia, Medicine & Surgery)
+    // Letters + spaces / & - ' . only (e.g. Law & Sharia, Business, Medicine)
     if (!/^[A-Za-z][A-Za-z &/\-'.]*$/.test(name)) {
       return "Letters only. Allowed separators: space, & / - ' .";
     }
-    const letterCount = (name.match(/[A-Za-z]/g) || []).length;
-    if (letterCount < 4) {
+    const lettersOnly = name.replace(/[^A-Za-z]/g, '').toLowerCase();
+    if (lettersOnly.length < 4) {
       return 'Faculty name must include enough letters.';
     }
-    // Require a real-looking name: at least two words (space or &)
-    if (!/[\s&]/.test(name)) {
-      return 'Use a full faculty name (e.g. Law & Sharia) — not a single word.';
+    // Reject number-like or nonsense input (e.g. hhhhhhhhhhhhhyqgiq)
+    if (/(.)\1{3,}/.test(lettersOnly)) {
+      return 'That does not look like a real faculty name.';
+    }
+    if (!/[aeiouy]/.test(lettersOnly)) {
+      return 'That does not look like a real faculty name.';
+    }
+    const unique = new Set(lettersOnly).size;
+    if (lettersOnly.length >= 8 && unique / lettersOnly.length < 0.35) {
+      return 'That does not look like a real faculty name.';
+    }
+    if (/[bcdfghjklmnpqrstvwxz]{6,}/.test(lettersOnly)) {
+      return 'That does not look like a real faculty name.';
     }
     if (facultyRows.some((r) => r.faculty.toLowerCase() === name.toLowerCase())) {
       return 'This faculty is already registered.';
@@ -747,12 +756,14 @@ export default function SetupClient() {
   };
 
   const handleRemoveFaculty = async (faculty) => {
-    const assigned = facultyAssignedCounts[faculty] || 0;
+    const assigned = Object.entries(facultyAssignedCounts).reduce((sum, [name, count]) => {
+      return name.toLowerCase() === String(faculty || '').toLowerCase() ? sum + count : sum;
+    }, 0);
     if (assigned > 0) {
-      await showError(
-        'Cannot remove faculty',
-        `"${faculty}" has ${assigned} people in the directory. Move or remove them first (assigned must be 0).`
-      );
+      setFeedback({
+        tone: 'error',
+        message: `Cannot remove "${faculty}" — ${assigned} people are linked in the directory. Move or remove them first.`,
+      });
       return;
     }
 
@@ -762,26 +773,31 @@ export default function SetupClient() {
       confirmText: 'Yes, remove',
     });
     if (!ok) return;
+
     setSaving(true);
+    setFeedback(null);
+    const previousRows = facultyRows;
     try {
       setFacultyRows((prev) => prev.filter((r) => r.faculty !== faculty));
-      try {
-        await deleteFacultyProgramYear(faculty);
-      } catch (e) {
-        if (e?.message && /assigned|directory/i.test(e.message)) {
-          throw e;
-        }
-        // May not exist in DB yet if never saved — local remove is enough
-      }
+      await deleteFacultyProgramYear(faculty);
       if (form.faculty === faculty) {
         setForm((prev) => ({ ...prev, faculty: FACULTY_OPTIONS[0] || '' }));
       }
       setFeedback({ tone: 'ok', message: `Removed "${faculty}".` });
-      await showSuccess('Removed', `"${faculty}" was removed.`);
-      await loadAll();
+      // Refresh directory counts only — keep local faculty list (already deleted in DB).
+      try {
+        const dir = await fetchStudentDirectory();
+        setStudents(dir.students || []);
+        setSummary(dir.summary || null);
+      } catch {
+        /* optional */
+      }
     } catch (e) {
-      setFeedback({ tone: 'error', message: e.message || 'Could not remove faculty.' });
-      await showError('Remove failed', e.message || 'Could not remove faculty.');
+      setFacultyRows(previousRows);
+      setFeedback({
+        tone: 'error',
+        message: e.message || 'Could not remove faculty.',
+      });
     } finally {
       setSaving(false);
     }
@@ -1154,8 +1170,9 @@ export default function SetupClient() {
           <div>
             <h3 className="text-lg font-black text-slate-950">Faculty program years</h3>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              Fill Faculty name (required), set years (4–7), then Save. Save is blocked while the
-              name is empty. Access ends on 31 July of (academic-year start + program years).
+              Add a faculty (optional), set years (4–7), then Save. Remove only works when nobody in
+              the directory is linked to that faculty. Access ends on 31 July of (academic-year start
+              + program years).
             </p>
           </div>
 
@@ -1180,9 +1197,13 @@ export default function SetupClient() {
                     }
                   }}
                   onBlur={() => {
-                    // Only show error after user tried Add/Save, not on first blur of empty field
-                    if (facultyNameTouched && !String(newFacultyName || '').trim()) {
-                      setFacultyNameError('Faculty name is required.');
+                    const trimmed = String(newFacultyName || '').trim();
+                    if (!trimmed) {
+                      setFacultyNameError('');
+                      return;
+                    }
+                    if (facultyNameTouched) {
+                      setFacultyNameError(validateFacultyNameField(trimmed, { allowEmpty: true }));
                     }
                   }}
                   placeholder="e.g. Law & Sharia"
@@ -1199,7 +1220,8 @@ export default function SetupClient() {
                   </p>
                 ) : (
                   <p className="mt-1.5 text-xs font-medium text-slate-400">
-                    Required for Save — letters only (e.g. Law & Sharia). No numbers.
+                    Letters only (e.g. Business, Law & Sharia). No numbers. Optional if you only Save
+                    existing rows.
                   </p>
                 )}
               </label>
@@ -1247,7 +1269,11 @@ export default function SetupClient() {
 
           <div className="space-y-3">
             {facultyRows.map((row, index) => {
-              const assigned = facultyAssignedCounts[row.faculty] || 0;
+              const assigned = Object.entries(facultyAssignedCounts).reduce((sum, [name, count]) => {
+                return name.toLowerCase() === String(row.faculty || '').toLowerCase()
+                  ? sum + count
+                  : sum;
+              }, 0);
               const canRemove = assigned === 0;
               const yearsNum = Number(row.program_years);
               const yearsInvalid =
@@ -1259,6 +1285,11 @@ export default function SetupClient() {
               >
                 <div>
                   <p className="text-sm font-black text-slate-900">{row.faculty}</p>
+                  {assigned > 0 ? (
+                    <p className="mt-0.5 text-xs font-semibold text-amber-700">
+                      Linked to {assigned} directory {assigned === 1 ? 'person' : 'people'}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="flex flex-col gap-1 text-sm font-semibold text-slate-600 sm:flex-row sm:items-center">
@@ -1299,7 +1330,7 @@ export default function SetupClient() {
                     className="inline-flex h-10 items-center gap-1 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Trash2 size={14} />
-                    Remove
+                    {canRemove ? 'Remove' : `Linked (${assigned})`}
                   </button>
                 </div>
               </div>
@@ -1316,27 +1347,25 @@ export default function SetupClient() {
               type="button"
               disabled={saving || !canSaveFacultyYears}
               title={
-                !registerNameTrimmed
-                  ? 'Faculty name is required before Save'
-                  : invalidFacultyYears.length
-                    ? 'Fix years (must be 4–7, not 0) before saving'
-                    : 'Save faculty years to the database'
+                invalidFacultyYears.length
+                  ? 'Fix years (must be 4–7, not 0) before saving'
+                  : 'Save faculty years to the database'
               }
               onClick={handleSaveYears}
               className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#1A56DB] px-5 text-sm font-black text-white shadow-lg shadow-blue-500/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Save faculty years
             </button>
-            {!registerNameTrimmed ? (
-              <p className="text-xs font-semibold text-red-600" role="alert">
-                Save blocked — Faculty name is required.
-              </p>
-            ) : invalidFacultyYears.length ? (
+            {invalidFacultyYears.length ? (
               <p className="text-xs font-semibold text-red-600" role="alert">
                 Save blocked — years must be 4–7 (not 0). Fix:{' '}
                 {invalidFacultyYears.map((r) => r.faculty).join(', ')}.
               </p>
-            ) : null}
+            ) : (
+              <p className="text-xs font-medium text-slate-400">
+                Save updates years for the list below. Faculty name above is optional (only to add a new one).
+              </p>
+            )}
           </div>
         </div>
       )}

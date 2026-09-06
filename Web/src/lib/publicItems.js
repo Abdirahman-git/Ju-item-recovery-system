@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { mapInventoryItem } from '@/lib/itemImage';
+import { mapInventoryItem, normalizeOfficeLocation, STUDENT_AFFAIRS_OFFICE } from '@/lib/itemImage';
 import { ITEM_STATUS, isSecureListing, normalizeItemStatus } from '@/lib/itemStatus';
 
 const LOST_COLUMNS_WITH_APPROVED_AT = [
@@ -385,11 +385,14 @@ export function toPublicItemCard(item) {
       item.displayCategory ||
       item.category ||
       'Other',
-    location: item.displayLocation || item.location || (isSecure ? 'Campus Security Office' : 'Campus grounds'),
+    location: normalizeOfficeLocation(
+      item.displayLocation || item.location,
+      isSecure ? STUDENT_AFFAIRS_OFFICE : 'Campus grounds'
+    ),
     description: isSecure
       ? showNotice
         ? notice
-        : 'Held securely at campus security. Contact the Lost & Found desk via the JU LOFO app.'
+        : 'Held securely at Student Affairs office. Contact the Lost & Found desk via the JU LOFO app.'
       : item.displayDescription || item.description || '',
     imageUrl: isSecure ? null : item.imageUrl || null,
     reportedAt: item.reportedAt || null,

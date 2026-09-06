@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Filter, Search } from 'lucide-react';
 import ReportSelect from '@/components/admin/ReportSelect';
 import ReportDatePicker from '@/components/admin/ReportDatePicker';
@@ -13,9 +14,13 @@ const QUICK_RANGES = [
   { id: 'last_30', label: 'Last 30 days' },
 ];
 
-function FilterField({ label, children, dropdown = false }) {
+function FilterField({ label, children, dropdown = false, elevated = false }) {
   return (
-    <div className={`min-w-0 flex-1 ${dropdown ? 'relative z-50' : ''}`}>
+    <div
+      className={`min-w-0 flex-1 ${
+        dropdown ? `relative ${elevated ? 'z-[80]' : 'z-10'}` : ''
+      }`}
+    >
       <label className="mb-1.5 block text-xs font-bold text-slate-600">{label}</label>
       {children}
     </div>
@@ -38,13 +43,24 @@ export default function ReportFiltersPanel({
   facultyOptions = [],
   facultyValue = 'all',
   onFacultyChange,
-  showCategoryFilter = false,
   categoryOptions = [],
   categoryValue = 'all',
   onCategoryChange,
+  posterOptions = [],
+  posterValue = 'all',
+  onPosterChange,
+  showPeopleType = false,
+  peopleTypeOptions = [],
+  peopleTypeValue = 'all',
+  onPeopleTypeChange,
+  activityOptions = [],
+  activityValue = 'all',
+  onActivityChange,
   searchQuery,
   onSearchChange,
 }) {
+  const [openMenu, setOpenMenu] = useState(null);
+
   return (
     <section className="report-filters-panel relative z-40 overflow-visible">
       <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -80,33 +96,33 @@ export default function ReportFiltersPanel({
       </div>
 
       <div
-        className={`relative z-50 grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-2 ${
-          showCategoryFilter
-            ? 'xl:grid-cols-3 2xl:grid-cols-6'
-            : 'xl:grid-cols-3 2xl:grid-cols-5'
-        } xl:items-end`}
+        className="relative grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-2 xl:grid-cols-3 xl:items-end 2xl:grid-cols-4"
       >
-        <FilterField label="From" dropdown>
+        <FilterField label="From" dropdown elevated={openMenu === 'from'}>
           <ReportDatePicker
             value={dateFrom}
             onChange={onDateFrom}
             max={dateTo || undefined}
             placeholder="Select date"
             openDirection="down"
+            open={openMenu === 'from'}
+            onOpenChange={(next) => setOpenMenu(next ? 'from' : null)}
           />
         </FilterField>
 
-        <FilterField label="To" dropdown>
+        <FilterField label="To" dropdown elevated={openMenu === 'to'}>
           <ReportDatePicker
             value={dateTo}
             onChange={onDateTo}
             min={dateFrom || undefined}
             placeholder="Select date"
             openDirection="down"
+            open={openMenu === 'to'}
+            onOpenChange={(next) => setOpenMenu(next ? 'to' : null)}
           />
         </FilterField>
 
-        <FilterField label="Data source" dropdown>
+        <FilterField label="Data source" dropdown elevated={openMenu === 'source'}>
           <ReportSelect
             value={sourceValue}
             onChange={onSourceChange}
@@ -115,10 +131,12 @@ export default function ReportFiltersPanel({
             theme="blue"
             variant="filter"
             searchable
+            open={openMenu === 'source'}
+            onOpenChange={(next) => setOpenMenu(next ? 'source' : null)}
           />
         </FilterField>
 
-        <FilterField label="Faculty" dropdown>
+        <FilterField label="Faculty" dropdown elevated={openMenu === 'faculty'}>
           <ReportSelect
             value={facultyValue}
             onChange={onFacultyChange}
@@ -127,24 +145,56 @@ export default function ReportFiltersPanel({
             theme="blue"
             variant="filter"
             searchable
+            open={openMenu === 'faculty'}
+            onOpenChange={(next) => setOpenMenu(next ? 'faculty' : null)}
           />
         </FilterField>
 
-        {showCategoryFilter ? (
-          <FilterField label="Category" dropdown>
+        <FilterField label="Posted by" dropdown elevated={openMenu === 'poster'}>
+          <ReportSelect
+            value={posterValue}
+            onChange={onPosterChange}
+            options={posterOptions}
+            placeholder="All users"
+            theme="blue"
+            variant="filter"
+            searchable
+            open={openMenu === 'poster'}
+            onOpenChange={(next) => setOpenMenu(next ? 'poster' : null)}
+          />
+        </FilterField>
+
+        {showPeopleType ? (
+          <FilterField label="Type" dropdown elevated={openMenu === 'peopleType'}>
             <ReportSelect
-              value={categoryValue}
-              onChange={onCategoryChange}
-              options={categoryOptions}
-              placeholder="All categories"
+              value={peopleTypeValue}
+              onChange={onPeopleTypeChange}
+              options={peopleTypeOptions}
+              placeholder="All types"
               theme="blue"
               variant="filter"
-              searchable
+              searchable={false}
+              open={openMenu === 'peopleType'}
+              onOpenChange={(next) => setOpenMenu(next ? 'peopleType' : null)}
             />
           </FilterField>
         ) : null}
 
-        <FilterField label="Status" dropdown>
+        <FilterField label="Category" dropdown elevated={openMenu === 'category'}>
+          <ReportSelect
+            value={categoryValue}
+            onChange={onCategoryChange}
+            options={categoryOptions}
+            placeholder="All categories"
+            theme="blue"
+            variant="filter"
+            searchable
+            open={openMenu === 'category'}
+            onOpenChange={(next) => setOpenMenu(next ? 'category' : null)}
+          />
+        </FilterField>
+
+        <FilterField label="Status" dropdown elevated={openMenu === 'status'}>
           <ReportSelect
             value={statusValue}
             onChange={onStatusChange}
@@ -153,6 +203,22 @@ export default function ReportFiltersPanel({
             theme="blue"
             variant="filter"
             searchable={false}
+            open={openMenu === 'status'}
+            onOpenChange={(next) => setOpenMenu(next ? 'status' : null)}
+          />
+        </FilterField>
+
+        <FilterField label="Activity" dropdown elevated={openMenu === 'activity'}>
+          <ReportSelect
+            value={activityValue}
+            onChange={onActivityChange}
+            options={activityOptions}
+            placeholder="All activity"
+            theme="blue"
+            variant="filter"
+            searchable={false}
+            open={openMenu === 'activity'}
+            onOpenChange={(next) => setOpenMenu(next ? 'activity' : null)}
           />
         </FilterField>
       </div>

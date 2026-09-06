@@ -28,7 +28,7 @@ export const NAV_SECTIONS = [
   {
     title: 'Field Reports',
     items: [
-      { href: '/admin/lost', label: 'Report Lost', icon: 'search' },
+      { href: '/admin/lost', label: 'Register Item', icon: 'search' },
       { href: '/admin/secure-found', label: 'Secure Lost', icon: 'shield-checkmark' },
       { href: '/admin/my-items', label: 'My Items', icon: 'folder-open' },
     ],

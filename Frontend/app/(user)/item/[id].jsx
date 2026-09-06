@@ -12,7 +12,7 @@ import { readItemTimeField } from '../../../src/utils/itemTimeUtils';
 import {
   submitOwnershipChallengeClaim,
   fetchPublicOwnershipChallenge,
-  getUserPendingClaimForItem,
+  getUserLatestClaimForItem,
   getUserRejectedClaimForItem,
   reserveItemForClaim,
   releaseItemClaimReserve,
@@ -23,7 +23,10 @@ import {
   supabase,
   normalizeItemRow,
 } from '../../../src/services/supabase';
-import { challengeResultLabel } from '../../../src/utils/ownershipChallenge';
+import { challengeResultLabel, OWNERSHIP_OFFICE_VISIT } from '../../../src/utils/ownershipChallenge';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
+import { normalizeOfficeLocation, STUDENT_AFFAIRS_OFFICE } from '../../../src/utils/officeLocation';
+import { CLAIM_STATUS, normalizeClaimStatus } from '../../../src/utils/claimStatus';
 import SuccessToast from '../../../src/components/SuccessToast';
 import ItemClaimFormModal from '../../../src/components/ItemClaimFormModal';
 import { showAppError } from '../../../src/utils/appAlert';
@@ -34,6 +37,7 @@ import {
   canShowNotMine,
   shouldShowClaimSection,
   pendingClaimStorageKey,
+  approvedClaimStorageKey,
   rejectedClaimStorageKey,
   dismissStorageKey,
   clearLegacySharedClaimFlags,
@@ -65,6 +69,8 @@ export default function ItemDetailScreen() {
   const [studentId, setStudentId] = useState('');
   const [claimDismissed, setClaimDismissed] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
+  const [claimPhysical, setClaimPhysical] = useState(false);
+  const [claimApproved, setClaimApproved] = useState(false);
   const [claimRejected, setClaimRejected] = useState(false);
   const [claimModalVisible, setClaimModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -91,6 +97,8 @@ export default function ItemDetailScreen() {
         const parsed = JSON.parse(data);
         setItem(parsed);
         setClaimPending(false);
+        setClaimPhysical(false);
+        setClaimApproved(false);
         setClaimRejected(false);
         setClaimDismissed(false);
       } catch (e) {
@@ -108,17 +116,29 @@ export default function ItemDetailScreen() {
       if (cancelled) return;
       const rejectedKey = rejectedClaimStorageKey(item, userEmail);
       const pendingKey = pendingClaimStorageKey(item, userEmail);
-      const [localRejected, localPending] = await Promise.all([
+      const approvedKey = approvedClaimStorageKey(item, userEmail);
+      const [localRejected, localPending, localApproved] = await Promise.all([
         AsyncStorage.getItem(rejectedKey),
         AsyncStorage.getItem(pendingKey),
+        AsyncStorage.getItem(approvedKey),
       ]);
       if (cancelled) return;
       if (localRejected === '1') {
         setClaimRejected(true);
         setClaimPending(false);
+        setClaimPhysical(false);
+        setClaimApproved(false);
+        return;
+      }
+      if (localApproved === '1') {
+        setClaimApproved(true);
+        setClaimPending(false);
+        setClaimPhysical(false);
+        setClaimRejected(false);
         return;
       }
       setClaimRejected(false);
+      setClaimApproved(false);
       if (localPending === '1') setClaimPending(true);
     })();
     return () => {
@@ -134,10 +154,21 @@ export default function ItemDetailScreen() {
       AsyncStorage.removeItem(dismissStorageKey(item, userEmail)).catch(() => {});
       (async () => {
         const rejectedKey = rejectedClaimStorageKey(item, userEmail);
-        const localRejected = await AsyncStorage.getItem(rejectedKey);
+        const approvedKey = approvedClaimStorageKey(item, userEmail);
+        const [localRejected, localApproved] = await Promise.all([
+          AsyncStorage.getItem(rejectedKey),
+          AsyncStorage.getItem(approvedKey),
+        ]);
         if (localRejected === '1') {
           setClaimRejected(true);
           setClaimPending(false);
+          setClaimPhysical(false);
+          setClaimApproved(false);
+        } else if (localApproved === '1') {
+          setClaimApproved(true);
+          setClaimPending(false);
+          setClaimPhysical(false);
+          setClaimRejected(false);
         }
       })();
       return undefined;
@@ -150,47 +181,83 @@ export default function ItemDetailScreen() {
     let cancelled = false;
     const pendingKey = pendingClaimStorageKey(item, userEmail);
     const rejectedKey = rejectedClaimStorageKey(item, userEmail);
+    const approvedKey = approvedClaimStorageKey(item, userEmail);
     const type = isLostItemRecord(item) ? 'lost' : 'found';
 
     (async () => {
       try {
-        const [pendingRow, rejectedRow] = await Promise.all([
-          getUserPendingClaimForItem(item.id, type, userEmail),
+        const [latestRow, rejectedRow] = await Promise.all([
+          getUserLatestClaimForItem(item.id, type, userEmail),
           getUserRejectedClaimForItem(item.id, type, userEmail),
         ]);
         if (cancelled) return;
 
-        // Server is source of truth for THIS email only.
-        if (rejectedRow) {
+        const status = latestRow ? normalizeClaimStatus(latestRow) : null;
+
+        if (status === CLAIM_STATUS.APPROVED || latestRow?.challenge_result === 'auto_pass') {
+          setClaimApproved(true);
+          setClaimPending(false);
+          setClaimPhysical(false);
+          setClaimRejected(false);
+          await AsyncStorage.setItem(approvedKey, '1');
+          await AsyncStorage.removeItem(pendingKey);
+          await AsyncStorage.removeItem(rejectedKey);
+          return;
+        }
+
+        if (status === CLAIM_STATUS.REJECTED || rejectedRow) {
           setClaimRejected(true);
           setClaimPending(false);
+          setClaimPhysical(false);
+          setClaimApproved(false);
           await AsyncStorage.setItem(rejectedKey, '1');
           await AsyncStorage.removeItem(pendingKey);
+          await AsyncStorage.removeItem(approvedKey);
           return;
         }
 
         setClaimRejected(false);
         await AsyncStorage.removeItem(rejectedKey);
+        await AsyncStorage.removeItem(approvedKey);
+        setClaimApproved(false);
 
-        if (pendingRow) {
+        if (status === CLAIM_STATUS.PHYSICAL) {
+          setClaimPhysical(true);
+          setClaimPending(false);
+          await AsyncStorage.setItem(pendingKey, '1');
+          return;
+        }
+
+        if (status === CLAIM_STATUS.PENDING) {
           setClaimPending(true);
+          setClaimPhysical(false);
           await AsyncStorage.setItem(pendingKey, '1');
         } else {
           setClaimPending(false);
+          setClaimPhysical(false);
           await AsyncStorage.removeItem(pendingKey);
         }
       } catch (e) {
         console.warn('Could not check claim status:', e?.message);
-        const [localPending, localRejectedAgain] = await Promise.all([
+        const [localPending, localRejectedAgain, localApproved] = await Promise.all([
           AsyncStorage.getItem(pendingKey),
           AsyncStorage.getItem(rejectedKey),
+          AsyncStorage.getItem(approvedKey),
         ]);
         if (!cancelled) {
           if (localRejectedAgain === '1') {
             setClaimRejected(true);
             setClaimPending(false);
+            setClaimPhysical(false);
+            setClaimApproved(false);
+          } else if (localApproved === '1') {
+            setClaimApproved(true);
+            setClaimPending(false);
+            setClaimPhysical(false);
+            setClaimRejected(false);
           } else {
             setClaimRejected(false);
+            setClaimApproved(false);
             setClaimPending(localPending === '1');
           }
         }
@@ -270,12 +337,24 @@ export default function ItemDetailScreen() {
     !isOwnItem &&
     !claimRejected &&
     !claimPending &&
+    !claimPhysical &&
+    !claimApproved &&
     !claimDismissed &&
     shouldShowClaimSection(item, userEmail, userName) &&
     (canShowThisIsMine(item, userEmail, userName) || canShowNotMine(item, userEmail, userName));
 
-  const showThisIsMine = !claimRejected && !claimPending && canShowThisIsMine(item, userEmail, userName);
-  const showNotMine = !claimRejected && !claimPending && canShowNotMine(item, userEmail, userName);
+  const showThisIsMine =
+    !claimRejected &&
+    !claimPending &&
+    !claimPhysical &&
+    !claimApproved &&
+    canShowThisIsMine(item, userEmail, userName);
+  const showNotMine =
+    !claimRejected &&
+    !claimPending &&
+    !claimPhysical &&
+    !claimApproved &&
+    canShowNotMine(item, userEmail, userName);
 
   // Reporter identity is admin-only — students never see owner/finder name or phone.
   const listingSourceLabel = isOwnItem
@@ -291,14 +370,38 @@ export default function ItemDetailScreen() {
     ? secureDisplay.notice
     : (item.description || 'No description provided.');
   const displayLocation = isSecure
-    ? (item.security_location || item.location || 'Campus Security Office')
-    : item.location;
+    ? normalizeOfficeLocation(
+        item.security_location || item.location,
+        STUDENT_AFFAIRS_OFFICE
+      )
+    : normalizeOfficeLocation(item.location, item.location || '');
 
   const itemType = isLost ? 'lost' : 'found';
 
   const markClaimPending = async () => {
     setClaimPending(true);
+    setClaimPhysical(false);
+    setClaimApproved(false);
     await AsyncStorage.setItem(pendingClaimStorageKey(item, userEmail), '1');
+    await AsyncStorage.removeItem(approvedClaimStorageKey(item, userEmail));
+  };
+
+  const markClaimPhysical = async () => {
+    setClaimPhysical(true);
+    setClaimPending(false);
+    setClaimApproved(false);
+    await AsyncStorage.setItem(pendingClaimStorageKey(item, userEmail), '1');
+    await AsyncStorage.removeItem(approvedClaimStorageKey(item, userEmail));
+  };
+
+  const markClaimApproved = async () => {
+    setClaimApproved(true);
+    setClaimPending(false);
+    setClaimPhysical(false);
+    setClaimRejected(false);
+    await AsyncStorage.setItem(approvedClaimStorageKey(item, userEmail), '1');
+    await AsyncStorage.removeItem(pendingClaimStorageKey(item, userEmail));
+    await AsyncStorage.removeItem(rejectedClaimStorageKey(item, userEmail));
   };
 
   const unlockLiveInstant = (snapshot) => {
@@ -347,8 +450,16 @@ export default function ItemDetailScreen() {
       toastRef.current?.show('Cannot retry', CLAIM_ALREADY_REJECTED_MSG, 'success');
       return;
     }
-    if (claimPending) {
-      toastRef.current?.show('Already sent', 'Admin is reviewing your request.', 'success');
+    if (claimPending || claimPhysical || claimApproved) {
+      toastRef.current?.show(
+        claimApproved ? 'Already returned' : 'Already sent',
+        claimApproved
+          ? `Please ${OWNERSHIP_OFFICE_VISIT}.`
+          : claimPhysical
+            ? `Please ${OWNERSHIP_OFFICE_VISIT} for verification.`
+            : 'Admin is reviewing your request.',
+        'success'
+      );
       return;
     }
 
@@ -408,11 +519,15 @@ export default function ItemDetailScreen() {
         showAppError('Sign in required', 'Please log in again.');
         return;
       }
-      if (claimPending || claimRejected) {
+      if (claimPending || claimPhysical || claimApproved || claimRejected) {
         setClaimModalVisible(false);
         toastRef.current?.show(
-          claimRejected ? 'Cannot retry' : 'Already sent',
-          claimRejected ? CLAIM_ALREADY_REJECTED_MSG : 'Admin is reviewing your request.',
+          claimRejected ? 'Cannot retry' : claimApproved ? 'Already returned' : 'Already sent',
+          claimRejected
+            ? CLAIM_ALREADY_REJECTED_MSG
+            : claimApproved
+              ? 'This item is already approved for you — collect at Lost & Found.'
+              : 'Admin is reviewing your request.',
           'success'
         );
         return;
@@ -427,9 +542,12 @@ export default function ItemDetailScreen() {
       if (outcome.result === 'reject') {
         setClaimRejected(true);
         setClaimPending(false);
+        setClaimPhysical(false);
+        setClaimApproved(false);
         unlockLiveInstant(item);
         await AsyncStorage.setItem(rejectedClaimStorageKey(item, userEmail), '1');
         await AsyncStorage.removeItem(pendingClaimStorageKey(item, userEmail));
+        await AsyncStorage.removeItem(approvedClaimStorageKey(item, userEmail));
         toastRef.current?.show(
           `Score ${outcome.score}%`,
           challengeResultLabel(outcome.result),
@@ -438,7 +556,13 @@ export default function ItemDetailScreen() {
         return;
       }
       optimisticLockRef.current = false;
-      await markClaimPending();
+      if (outcome.result === 'auto_pass') {
+        await markClaimApproved();
+      } else if (outcome.result === 'physical') {
+        await markClaimPhysical();
+      } else {
+        await markClaimPending();
+      }
       toastRef.current?.show(
         `Score ${outcome.score}%`,
         outcome.message || challengeResultLabel(outcome.result),
@@ -513,14 +637,12 @@ export default function ItemDetailScreen() {
             <Image source={{ uri: item.imageURI }} style={styles.heroImage} resizeMode="cover" />
           ) : (
             <View style={[styles.heroImage, styles.imagePlaceholder, isSecure && styles.securePlaceholder]}>
-              {isSecure ? (
-                <View style={styles.secureBadgeBig}>
-                  <MaterialCommunityIcons name="shield-alert" size={72} color={SECURE_COLOR} />
-                  <Text style={styles.secureMarkText}>SECURE HOLD</Text>
-                </View>
-              ) : (
-                <MaterialCommunityIcons name="image-off-outline" size={64} color="#CBD5E1" />
-              )}
+              <MaterialCommunityIcons
+                name={getItemPlaceholderMciIcon(displayName, item.category)}
+                size={72}
+                color={isSecure ? SECURE_COLOR : '#94A3B8'}
+              />
+              {isSecure ? <Text style={styles.secureMarkText}>SECURE HOLD</Text> : null}
             </View>
           )}
         </Animated.View>
@@ -574,7 +696,7 @@ export default function ItemDetailScreen() {
                   <View style={styles.secureNoticeBox}>
                     <Ionicons name="information-circle" size={16} color={SECURE_COLOR} />
                     <Text style={styles.secureHintText}>
-                      Photo and contact details are hidden for security. Please claim or visit Campus Security.
+                      Photo stays private for safety. Prove ownership with the Ownership Challenge to claim this item.
                     </Text>
                   </View>
                 )}
@@ -588,7 +710,7 @@ export default function ItemDetailScreen() {
                 <DetailRow icon="location-outline" label="Location" value={displayLocation} />
                 <DetailRow icon="calendar-outline" label="Date" value={itemDate} />
                 <DetailRow icon="time-outline" label="Time" value={itemTime} isLast={!isSecure} />
-                {isSecure && <DetailRow icon="shield-checkmark-outline" label="Security" value="Campus Security Office" isLast />}
+                {isSecure && <DetailRow icon="shield-checkmark-outline" label="Office" value={displayLocation} isLast />}
               </View>
             </View>
           </Animated.View>
@@ -602,11 +724,6 @@ export default function ItemDetailScreen() {
             <Ionicons name="shield-checkmark" size={18} color="#FFF" />
             <Text style={styles.primaryBtnText}>Your Report</Text>
           </TouchableOpacity>
-        ) : isSecure ? (
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#D97706' }]} disabled>
-            <Ionicons name="shield" size={18} color="#FFF" />
-            <Text style={styles.primaryBtnText}>Secure Hold</Text>
-          </TouchableOpacity>
         ) : (
           <View style={styles.bottomBarStack}>
             {claimRejected ? (
@@ -616,6 +733,22 @@ export default function ItemDetailScreen() {
               >
                 <Ionicons name="close-circle" size={18} color="#FFF" />
                 <Text style={styles.primaryBtnText}>Not matched — cannot retry</Text>
+              </TouchableOpacity>
+            ) : claimApproved ? (
+              <TouchableOpacity
+                style={[styles.primaryBtn, styles.bottomBarTopAction, { backgroundColor: '#059669' }]}
+                onPress={() => router.push('/(user)/MyRequests')}
+              >
+                <Ionicons name="checkmark-circle" size={18} color="#FFF" />
+                <Text style={styles.primaryBtnText}>Approved — Visit office</Text>
+              </TouchableOpacity>
+            ) : claimPhysical ? (
+              <TouchableOpacity
+                style={[styles.primaryBtn, styles.bottomBarTopAction, { backgroundColor: '#4F46E5' }]}
+                onPress={() => router.push('/(user)/MyRequests')}
+              >
+                <Ionicons name="business" size={18} color="#FFF" />
+                <Text style={styles.primaryBtnText}>Visit student affairs office</Text>
               </TouchableOpacity>
             ) : claimPending ? (
               <TouchableOpacity
@@ -637,8 +770,10 @@ export default function ItemDetailScreen() {
                     style={[styles.primaryBtn, { backgroundColor: themeColor }]}
                     onPress={openClaimModal}
                   >
-                    <Ionicons name="lock-closed" size={16} color="#FFF" />
-                    <Text style={styles.primaryBtnText}>Claim Item</Text>
+                    <Ionicons name={isSecure ? 'shield-checkmark' : 'lock-closed'} size={16} color="#FFF" />
+                    <Text style={styles.primaryBtnText}>
+                      {isSecure ? 'Claim Secure Item' : 'Claim Item'}
+                    </Text>
                   </TouchableOpacity>
                 ) : null}
               </View>

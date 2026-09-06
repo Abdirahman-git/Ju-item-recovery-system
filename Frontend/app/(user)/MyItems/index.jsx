@@ -22,6 +22,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 import { ITEM_STATUS, normalizeItemStatus } from '../../../src/utils/itemStatus';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
 
 const { width } = Dimensions.get('window');
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -237,7 +238,11 @@ export default function MyItemsPage() {
           <Image source={{ uri: item.imageURI }} style={styles.itemImage} />
         ) : (
           <View style={styles.placeholderImage}>
-            <Ionicons name="image-outline" size={40} color="#CBD5E1" />
+            <MaterialCommunityIcons
+              name={getItemPlaceholderMciIcon(item.itemName || item.item_name, item.category)}
+              size={40}
+              color="#94A3B8"
+            />
           </View>
         )}
         {withdrawMeta.canWithdraw && (

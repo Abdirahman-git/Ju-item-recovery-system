@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { isSecureListing, normalizeItemStatus, ITEM_STATUS } from '../utils/itemStatus';
 import { getSecureItemDisplay } from '../utils/secureItemDisplay';
+import { getItemPlaceholderMciIcon } from '../utils/itemPlaceholderIcon';
+import { normalizeOfficeLocation, STUDENT_AFFAIRS_OFFICE } from '../utils/officeLocation';
 
 const LOST_BLUE = '#3B82F6';
 const SECURE_AMBER = '#D97706';
@@ -24,34 +26,30 @@ export default function FeedItemCard({ item, onPress }) {
   const typeLabel = isReturned ? 'RETURNED' : 'LOST';
   const displayName = isSecure ? secureDisplay.name : item.itemName;
   const displayLocation = isSecure
-    ? (item.security_location || item.location || 'Campus Security Office')
-    : item.location;
+    ? normalizeOfficeLocation(
+        item.security_location || item.location,
+        STUDENT_AFFAIRS_OFFICE
+      )
+    : normalizeOfficeLocation(item.location, item.location || '');
   const displayDate = isSecure
     ? (item.dateFound || item.timeAgo || '')
     : (item.timeAgo || item.dateLost || item.dateFound || '');
+  const placeholderIcon = getItemPlaceholderMciIcon(displayName, item.category);
+  const showPhoto = !isSecure && Boolean(item.imageURI);
 
   return (
     <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={onPress}>
-      {/* Left: Thumbnail Image or Placeholder */}
+      {/* Left: Thumbnail Image or name-based icon */}
       <View style={styles.thumbWrap}>
-        {!isSecure && item.imageURI ? (
+        {showPhoto ? (
           <Image source={{ uri: item.imageURI }} style={styles.thumbImage} resizeMode="cover" />
         ) : (
           <View style={[styles.thumbPlaceholder, isSecure && styles.secureThumb]}>
-            {isSecure ? (
-              <View style={styles.secureIconContainer}>
-                <MaterialCommunityIcons name="shield-alert-outline" size={32} color={SECURE_AMBER} />
-                <View style={styles.secureMiniBadge}>
-                  <Text style={styles.secureMiniText}>!</Text>
-                </View>
-              </View>
-            ) : (
-              <MaterialCommunityIcons
-                name="magnify-scan"
-                size={34}
-                color={typeColor}
-              />
-            )}
+            <MaterialCommunityIcons
+              name={placeholderIcon}
+              size={34}
+              color={isSecure ? SECURE_AMBER : typeColor}
+            />
           </View>
         )}
       </View>

@@ -1449,6 +1449,43 @@ app.post('/api/admin/items/delete-to-recycle', async (req, res) => {
   }
 });
 
+app.post('/api/admin/returned/delete-to-recycle', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const itemId = req.body?.id;
+  const deletedBy = req.body?.deletedBy || actor.email || actor.userName || null;
+  if (itemId == null) {
+    return res.status(400).json({ error: 'id is required.' });
+  }
+
+  try {
+    const { data: raw, error: fetchError } = await supabase
+      .from('returned_items')
+      .select('*')
+      .eq('id', itemId)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!raw) return res.status(404).json({ error: 'Returned record not found or already deleted.' });
+
+    await snapshotToRecycleBin({
+      entityType: 'returned_item',
+      entityId: itemId,
+      title: raw.item_name || raw.itemName || 'Returned item',
+      summary: `Returned - ${raw.category || 'General'} · ${raw.recipient_name || 'Unknown recipient'}`,
+      payload: { table: 'returned_items', row: raw },
+      deletedBy,
+    });
+
+    const { error } = await supabase.from('returned_items').delete().eq('id', itemId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('returned delete-to-recycle error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete this returned record.' });
+  }
+});
+
 app.get('/api/admin/archived', async (req, res) => {
   const actor = requireAdminToken(req, res);
   if (!actor) return;
@@ -2417,24 +2454,39 @@ app.post('/api/admin/faculty-years/delete', async (req, res) => {
   if (!faculty) return res.status(400).json({ error: 'faculty is required.' });
 
   try {
-    const { count, error: countErr } = await supabase
+    const { data: dirRows, error: countErr } = await supabase
       .from('student_directory')
-      .select('student_id', { count: 'exact', head: true })
-      .eq('faculty', faculty);
+      .select('student_id, faculty');
     if (countErr) throw countErr;
-    if ((count || 0) > 0) {
+    const assigned = (dirRows || []).filter(
+      (row) => String(row.faculty || '').trim().toLowerCase() === faculty.toLowerCase()
+    ).length;
+    if (assigned > 0) {
       return res.status(400).json({
-        error: `Cannot remove "${faculty}" — ${count} people are assigned in the directory (must be 0).`,
-        assigned: count,
+        error: `Cannot remove "${faculty}" — ${assigned} people are assigned in the directory (must be 0).`,
+        assigned,
       });
     }
 
-    const { error } = await supabase
+    const { data: yearRows, error: listErr } = await supabase
       .from('faculty_program_years')
-      .delete()
-      .eq('faculty', faculty);
-    if (error) throw error;
-    res.json({ success: true, faculty, assigned: 0 });
+      .select('faculty');
+    if (listErr) throw listErr;
+    const matches = (yearRows || []).filter(
+      (row) => String(row.faculty || '').trim().toLowerCase() === faculty.toLowerCase()
+    );
+    if (!matches.length) {
+      return res.json({ success: true, faculty, assigned: 0, deleted: 0 });
+    }
+
+    for (const row of matches) {
+      const { error } = await supabase
+        .from('faculty_program_years')
+        .delete()
+        .eq('faculty', row.faculty);
+      if (error) throw error;
+    }
+    res.json({ success: true, faculty, assigned: 0, deleted: matches.length });
   } catch (err) {
     console.error('faculty-years delete error:', err.message);
     res.status(500).json({ error: err.message || 'Could not delete faculty.' });

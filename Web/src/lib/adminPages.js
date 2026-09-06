@@ -30,11 +30,11 @@ const CUSTOM_META = {
     subtitle: 'Saved lost and secure notices that are not published yet.',
   },
   '/admin/lost': {
-    title: 'Report Lost Item',
+    title: 'Register Item',
     subtitle: 'Enter lost property details, visual evidence, and last-seen context.',
   },
   '/admin/found': {
-    title: 'Report Lost Item',
+    title: 'Register Item',
     subtitle: 'Found reporting is closed — all new campus reports are Lost until returned.',
   },
   '/admin/secure-found': {

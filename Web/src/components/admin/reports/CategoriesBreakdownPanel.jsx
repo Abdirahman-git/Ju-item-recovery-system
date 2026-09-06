@@ -33,6 +33,7 @@ export default function CategoriesBreakdownPanel({
   subtitle = 'All campus inventory',
   onViewAll,
   totalItems = 0,
+  embedded = false,
 }) {
   const barsReady = useRevealBars(categories.length > 0);
   const maxCount = useMemo(() => Math.max(...categories.map((row) => row.count), 1), [categories]);
@@ -41,7 +42,13 @@ export default function CategoriesBreakdownPanel({
   const sumShown = categories.reduce((sum, row) => sum + row.count, 0);
 
   return (
-    <section className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_24px_rgba(15,23,42,0.04)]">
+    <section
+      className={`flex h-full min-h-[420px] flex-col overflow-hidden rounded-2xl border p-5 ${
+        embedded
+          ? 'border-slate-200/70 bg-white/90 shadow-sm'
+          : 'border-slate-200/80 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.04)]'
+      }`}
+    >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h4 className="m-0 text-lg font-bold text-slate-900">{title}</h4>

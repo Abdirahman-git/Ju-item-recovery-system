@@ -22,6 +22,7 @@ import {
   getClaimStatusBadgeConfig,
   normalizeClaimStatus,
 } from '../../../src/utils/claimStatus';
+import { OWNERSHIP_OFFICE_VISIT, challengeResultLabel } from '../../../src/utils/ownershipChallenge';
 import { showAppError } from '../../../src/utils/appAlert';
 
 const JU_LOGO = require('../../../assets/images/jazeera_logo.png');
@@ -136,8 +137,8 @@ function ClaimCard({ claim, index, onPress }) {
             <Ionicons name="checkmark-circle" size={16} color="#15803D" />
             <Text style={styles.noteTextApproved}>
               {claim.challenge_score != null && claim.challenge_score > 0
-                ? `Challenge score ${claim.challenge_score}%. Visit campus Lost & Found office to collect the item.`
-                : 'Your ownership was confirmed. Visit campus Lost & Found office to collect the item.'}
+                ? `Challenge ${claim.challenge_score}% · ${challengeResultLabel('auto_pass')}`
+                : `Your ownership was confirmed. Please ${OWNERSHIP_OFFICE_VISIT}.`}
             </Text>
           </View>
         )}
@@ -147,8 +148,8 @@ function ClaimCard({ claim, index, onPress }) {
             <Ionicons name="business" size={16} color="#4338CA" />
             <Text style={styles.noteTextPhysical}>
               {claim.challenge_score != null
-                ? `Score ${claim.challenge_score}%. Visit the campus office so staff can verify ownership.`
-                : 'Visit the campus Lost & Found office for physical verification.'}
+                ? `Challenge ${claim.challenge_score}% · ${challengeResultLabel('physical')}`
+                : `Please ${OWNERSHIP_OFFICE_VISIT} for physical verification.`}
             </Text>
           </View>
         )}

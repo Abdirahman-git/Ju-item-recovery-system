@@ -77,7 +77,7 @@ export default function ReviewModal({ item, onClose, onApprove, onReject, proces
   if (!item) return null;
 
   const typeStyle = TYPE_STYLES[item.reportType] || TYPE_STYLES.lost;
-  const reporterLabel = item.reportType === 'lost' ? 'Owner' : 'Finder';
+  const reporterLabel = 'Reporter';
   const displayTitle = clampText(item.displayName, TITLE_LIMIT);
 
   return (

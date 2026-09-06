@@ -11,6 +11,7 @@ import { Ionicons, Feather, MaterialCommunityIcons, FontAwesome5 } from '@expo/v
 import DateTimePicker from '@react-native-community/datetimepicker';
 import VisualEvidenceUpload from '../../../src/components/VisualEvidenceUpload';
 import { CATEGORY_ICONS } from '../../../src/constants/categories';
+import { getItemPlaceholderMciIcon } from '../../../src/utils/itemPlaceholderIcon';
 import { useDynamicCategories } from '../../../src/hooks/useDynamicCategories';
 import CategoryPills from '../../../src/components/CategoryPills';
 import {
@@ -24,7 +25,7 @@ import {
 } from '../../../src/services/supabase';
 import SuccessToast from '../../../src/components/SuccessToast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { validateLostItemForm, getValidationAlertMessage } from '../../../src/utils/itemFormValidation';
+import { validateLostItemForm } from '../../../src/utils/itemFormValidation';
 import { pickItemImage, getDefaultTimeLabel } from '../../../src/utils/pickItemImage';
 import {
   formatItemTime,
@@ -67,6 +68,7 @@ export default function AdminLostPage() {
   const [tempTime, setTempTime] = useState(() => parseTimeLabelToDate(getDefaultTimeLabel(), new Date().toISOString().split('T')[0]));
   const toastRef = useRef(null);
   const { categoryEntries, loading: categoriesLoading } = useDynamicCategories(items, { forAdmin: true });
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // New Item Form State
   const [newItem, setNewItem] = useState({
@@ -81,10 +83,20 @@ export default function AdminLostPage() {
     imageURI: ''
   });
 
+  const updateField = (key, value) => {
+    setNewItem((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
   const pickImage = async () => {
     const uri = await pickItemImage();
     if (uri) {
-      setNewItem({ ...newItem, imageURI: uri });
+      updateField('imageURI', uri);
     }
   };
 
@@ -92,7 +104,7 @@ export default function AdminLostPage() {
     setShowDatePicker(false);
     if (selectedDate) {
       const dateString = selectedDate.toISOString().split('T')[0];
-      setNewItem({ ...newItem, dateLost: dateString });
+      updateField('dateLost', dateString);
       setTempDate(selectedDate);
     }
   };
@@ -112,11 +124,14 @@ export default function AdminLostPage() {
 
     const timeString = formatItemTime(selectedTime);
     setTempTime(selectedTime);
-    setNewItem((prev) => ({ ...prev, timeLost: timeString }));
+    updateField('timeLost', timeString);
     if (Platform.OS === 'ios') setShowTimePicker(false);
   };
 
-  const openReportModal = () => setModalVisible(true);
+  const openReportModal = () => {
+    setFieldErrors({});
+    setModalVisible(true);
+  };
 
   const fetchLostItems = async () => {
     try {
@@ -198,9 +213,10 @@ export default function AdminLostPage() {
   const handleSaveDraft = async () => {
     const result = validateLostItemForm(newItem);
     if (!result.valid) {
-      showAppWarning(result.contentError?.title || 'Required fields', getValidationAlertMessage(result));
+      setFieldErrors(result.fieldErrors || {});
       return;
     }
+    setFieldErrors({});
 
     try {
       setSavingDraft(true);
@@ -236,9 +252,10 @@ export default function AdminLostPage() {
   const handleCreateItem = async () => {
     const result = validateLostItemForm(newItem);
     if (!result.valid) {
-      showAppWarning(result.contentError?.title || 'Required fields', getValidationAlertMessage(result));
+      setFieldErrors(result.fieldErrors || {});
       return;
     }
+    setFieldErrors({});
 
     try {
       setSubmitting(true);
@@ -316,7 +333,12 @@ export default function AdminLostPage() {
             <Image source={{ uri: item.imageURI }} style={styles.cardImage} />
           ) : (
             <View style={[styles.cardImage, styles.placeholderImage]}>
-              <MaterialCommunityIcons name={CATEGORY_ICONS[item.category] || 'cube-outline'} size={35} color={SLATE_400} style={{ opacity: 0.5 }} />
+              <MaterialCommunityIcons
+                name={getItemPlaceholderMciIcon(item.itemName || item.item_name, item.category)}
+                size={35}
+                color={SLATE_400}
+                style={{ opacity: 0.85 }}
+              />
             </View>
           )}
         </View>
@@ -418,14 +440,18 @@ export default function AdminLostPage() {
               <VisualEvidenceUpload
                 imageUri={newItem.imageURI}
                 onPick={pickImage}
-                onRemove={() => setNewItem({ ...newItem, imageURI: '' })}
+                onRemove={() => updateField('imageURI', '')}
                 accentColor={PRIMARY_BLUE}
                 subtitle="Clear photos help owners identify items"
               />
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>ITEM NAME</Text>
-                <View style={[styles.inputWrapper, { borderColor: PRIMARY_BLUE + '15', shadowColor: PRIMARY_BLUE }]}>
+                <View style={[
+                  styles.inputWrapper,
+                  { borderColor: PRIMARY_BLUE + '15', shadowColor: PRIMARY_BLUE },
+                  fieldErrors.itemName && styles.inputWrapperError,
+                ]}>
                   <MaterialCommunityIcons name="tag-outline" size={22} color={PRIMARY_BLUE} style={styles.inputIcon} />
                   <TextInput
                     style={styles.inputNew}
@@ -433,9 +459,10 @@ export default function AdminLostPage() {
                     placeholderTextColor="#94A3B8"
                     value={newItem.itemName}
                     maxLength={ITEM_NAME_LIMIT}
-                    onChangeText={(val) => setNewItem({ ...newItem, itemName: val })}
+                    onChangeText={(val) => updateField('itemName', val)}
                   />
                 </View>
+                {fieldErrors.itemName ? <Text style={styles.fieldError}>{fieldErrors.itemName}</Text> : null}
               </View>
 
               <View style={styles.inputGroup}>
@@ -444,14 +471,19 @@ export default function AdminLostPage() {
                   entries={categoryEntries}
                   loading={categoriesLoading}
                   selectedCategory={newItem.category}
-                  onSelect={(category) => setNewItem({ ...newItem, category })}
+                  onSelect={(category) => updateField('category', category)}
                   accentColor={PRIMARY_BLUE}
                 />
+                {fieldErrors.category ? <Text style={styles.fieldError}>{fieldErrors.category}</Text> : null}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>LOCATION LOST</Text>
-                <View style={[styles.inputWrapper, { borderColor: PRIMARY_BLUE + '15', shadowColor: PRIMARY_BLUE }]}>
+                <View style={[
+                  styles.inputWrapper,
+                  { borderColor: PRIMARY_BLUE + '15', shadowColor: PRIMARY_BLUE },
+                  fieldErrors.location && styles.inputWrapperError,
+                ]}>
                   <Ionicons name="location-outline" size={22} color={PRIMARY_BLUE} style={styles.inputIcon} />
                   <TextInput
                     style={styles.inputNew}
@@ -459,14 +491,19 @@ export default function AdminLostPage() {
                     placeholderTextColor="#94A3B8"
                     value={newItem.location}
                     maxLength={LOCATION_LIMIT}
-                    onChangeText={(val) => setNewItem({ ...newItem, location: val })}
+                    onChangeText={(val) => updateField('location', val)}
                   />
                 </View>
+                {fieldErrors.location ? <Text style={styles.fieldError}>{fieldErrors.location}</Text> : null}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>ADDITIONAL DESCRIPTION</Text>
-                <View style={[styles.inputWrapper, { height: 120, alignItems: 'flex-start', paddingTop: 15, borderColor: PRIMARY_BLUE + '15', shadowColor: PRIMARY_BLUE }]}>
+                <View style={[
+                  styles.inputWrapper,
+                  { height: 120, alignItems: 'flex-start', paddingTop: 15, borderColor: PRIMARY_BLUE + '15', shadowColor: PRIMARY_BLUE },
+                  fieldErrors.description && styles.inputWrapperError,
+                ]}>
                   <MaterialCommunityIcons name="text-box-outline" size={22} color={PRIMARY_BLUE} style={styles.inputIcon} />
                   <TextInput
                     style={[styles.inputNew, { height: '100%', textAlignVertical: 'top' }]}
@@ -475,17 +512,22 @@ export default function AdminLostPage() {
                     multiline
                     value={newItem.description}
                     maxLength={DESCRIPTION_LIMIT}
-                    onChangeText={(val) => setNewItem({ ...newItem, description: val })}
+                    onChangeText={(val) => updateField('description', val)}
                   />
                 </View>
                 <Text style={styles.characterCount}>{newItem.description.length}/{DESCRIPTION_LIMIT}</Text>
+                {fieldErrors.description ? <Text style={styles.fieldError}>{fieldErrors.description}</Text> : null}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.fieldLabel}>DATE & TIME LOST</Text>
                 <View style={styles.dateTimeRow}>
                    <TouchableOpacity 
-                     style={[styles.inputWrapper, { flex: 1, marginHorizontal: 0, marginRight: 15, borderColor: PRIMARY_BLUE + '30' }]}
+                     style={[
+                       styles.inputWrapper,
+                       { flex: 1, marginHorizontal: 0, marginRight: 15, borderColor: PRIMARY_BLUE + '30' },
+                       fieldErrors.dateLost && styles.inputWrapperError,
+                     ]}
                      onPress={() => setShowDatePicker(true)}
                    >
                       <Ionicons name="calendar-outline" size={24} color={PRIMARY_BLUE} style={styles.inputIcon} />
@@ -495,7 +537,11 @@ export default function AdminLostPage() {
                       </View>
                    </TouchableOpacity>
                    <TouchableOpacity 
-                     style={[styles.inputWrapper, { flex: 1, marginHorizontal: 0, borderColor: PRIMARY_BLUE + '30' }]}
+                     style={[
+                       styles.inputWrapper,
+                       { flex: 1, marginHorizontal: 0, borderColor: PRIMARY_BLUE + '30' },
+                       fieldErrors.timeLost && styles.inputWrapperError,
+                     ]}
                      onPress={() => setShowTimePicker(true)}
                    >
                       <MaterialCommunityIcons name="clock-outline" size={24} color={PRIMARY_BLUE} style={styles.inputIcon} />
@@ -507,6 +553,11 @@ export default function AdminLostPage() {
                       </View>
                    </TouchableOpacity>
                 </View>
+                {(fieldErrors.dateLost || fieldErrors.timeLost) ? (
+                  <Text style={styles.fieldError}>
+                    {fieldErrors.dateLost || fieldErrors.timeLost}
+                  </Text>
+                ) : null}
               </View>
 
               {showDatePicker && (
@@ -724,6 +775,17 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 18,
+  },
+  inputWrapperError: {
+    borderColor: '#F87171',
+  },
+  fieldError: {
+    marginTop: 6,
+    marginHorizontal: 25,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
+    lineHeight: 16,
   },
   inputWrapper: {
     flexDirection: 'row',

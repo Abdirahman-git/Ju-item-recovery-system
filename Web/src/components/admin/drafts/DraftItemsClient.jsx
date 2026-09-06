@@ -21,6 +21,7 @@ import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useSession } from '@/context/SessionProvider';
 import { getAdminCacheData, setAdminCache, invalidateAdminCaches } from '@/lib/adminDataCache';
 import { deleteDraftInventoryItem, fetchDraftInventoryItems } from '@/lib/supabase';
+import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { buildDraftsPageSparklines } from '@/lib/pageSparklines';
 import { useBackgroundFetch } from '@/hooks/useBackgroundFetch';
 import { isSecureListing } from '@/lib/itemStatus';
@@ -85,23 +86,26 @@ function getDraftDescription(draft) {
 
 function DraftImage({ draft }) {
   const [failed, setFailed] = useState(false);
+  const secure = isSecureDraft(draft);
 
   useEffect(() => {
     setFailed(false);
   }, [draft.imageUrl, draft.id]);
 
-  if (isSecureDraft(draft)) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-50 to-amber-100 text-amber-600">
-        <span className="text-6xl font-black leading-none">!</span>
-      </div>
-    );
-  }
-
   if (!draft.imageUrl || failed) {
+    const PlaceholderIcon = getItemPlaceholderIcon(
+      draft.displayName || draft.itemName || draft.item_name,
+      draft.displayCategory || draft.category
+    );
     return (
-      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-50 via-white/60 to-blue-50 text-violet-400">
-        <Package size={42} strokeWidth={1.5} />
+      <div
+        className={`flex h-full w-full items-center justify-center ${
+          secure
+            ? 'bg-gradient-to-br from-amber-50 to-amber-100 text-amber-700'
+            : 'bg-gradient-to-br from-violet-50 via-white/60 to-blue-50 text-violet-500'
+        }`}
+      >
+        <PlaceholderIcon size={46} strokeWidth={1.5} />
       </div>
     );
   }

@@ -38,13 +38,23 @@ export default function OwnershipChallengeEditor({
         if (challenge?.questions?.length) {
           setQuestions(
             challenge.questions.map((q, i) => {
-              const isDirect = q.question_type === 'direct';
-              if (isDirect) {
+              const type = String(q.question_type || '').toLowerCase();
+              if (type === 'ask' || type === 'open') {
+                return {
+                  question_type: 'ask',
+                  prompt: q.prompt || '',
+                  options: [],
+                  correct_index: null,
+                  correct_answer: '',
+                  sort_order: i,
+                };
+              }
+              if (type === 'direct') {
                 return {
                   question_type: 'direct',
                   prompt: q.prompt || '',
                   options: [],
-                  correct_index: 0,
+                  correct_index: null,
                   correct_answer: q.correct_answer || '',
                   sort_order: i,
                 };

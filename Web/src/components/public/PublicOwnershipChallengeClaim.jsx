@@ -15,7 +15,7 @@ import { challengeResultLabel } from '@/lib/ownershipChallenge';
 import { supabase } from '@/lib/supabase';
 
 function isQuestionAnswered(q, value) {
-  if (q?.question_type === 'direct') {
+  if (q?.question_type === 'direct' || q?.question_type === 'ask') {
     return String(value || '').trim().length > 0;
   }
   return Number.isInteger(Number(value));
@@ -150,7 +150,9 @@ export default function PublicOwnershipChallengeClaim({ item }) {
       if (priorReject) throw new Error(CLAIM_ALREADY_REJECTED_MSG);
 
       const answerList = questions.map((q, i) =>
-        q.question_type === 'direct' ? String(answers[i] || '').trim() : Number(answers[i])
+        q.question_type === 'direct' || q.question_type === 'ask'
+          ? String(answers[i] || '').trim()
+          : Number(answers[i])
       );
       const result = await submitOwnershipChallengeClaim({
         item: {
@@ -272,18 +274,22 @@ export default function PublicOwnershipChallengeClaim({ item }) {
               </div>
 
               {questions.map((q, qi) => {
-                const isDirect = q.question_type === 'direct';
+                const isText = q.question_type === 'direct' || q.question_type === 'ask';
                 return (
                   <fieldset key={q.id || qi} className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3">
                     <legend className="px-1 text-[11px] font-black uppercase tracking-wide text-[#1A56DB]">
                       Question {qi + 1}
                     </legend>
                     <p className="mb-2 text-sm font-bold text-slate-900">{q.prompt}</p>
-                    {isDirect ? (
+                    {isText ? (
                       <input
                         value={String(answers[qi] ?? '')}
                         onChange={(e) => setAnswers((prev) => ({ ...prev, [qi]: e.target.value }))}
-                        placeholder="Type your answer…"
+                        placeholder={
+                          q.question_type === 'ask'
+                            ? 'Type your answer in your own words…'
+                            : 'Type your answer…'
+                        }
                         className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#1A56DB]"
                         required
                       />

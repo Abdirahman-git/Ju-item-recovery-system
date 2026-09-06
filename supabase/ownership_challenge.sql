@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.ownership_challenge_questions (
     REFERENCES public.ownership_challenges(id) ON DELETE CASCADE,
   prompt TEXT NOT NULL,
   question_type TEXT NOT NULL DEFAULT 'mcq'
-    CHECK (question_type IN ('mcq', 'direct')),
+    CHECK (question_type IN ('mcq', 'direct', 'ask')),
   options JSONB NOT NULL DEFAULT '[]'::jsonb,
   correct_index INTEGER NOT NULL DEFAULT 0
     CHECK (correct_index >= 0 AND correct_index <= 9),
@@ -36,6 +36,33 @@ ALTER TABLE public.ownership_challenge_questions
 
 ALTER TABLE public.ownership_challenge_questions
   ADD COLUMN IF NOT EXISTS correct_answer TEXT DEFAULT '';
+
+-- Allow Ask mode (admin question only — no expected answer)
+-- Drop any existing question_type CHECK (name may vary)
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT con.conname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+    WHERE rel.relname = 'ownership_challenge_questions'
+      AND nsp.nspname = 'public'
+      AND con.contype = 'c'
+      AND pg_get_constraintdef(con.oid) ILIKE '%question_type%'
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.ownership_challenge_questions DROP CONSTRAINT IF EXISTS %I',
+      r.conname
+    );
+  END LOOP;
+END $$;
+
+ALTER TABLE public.ownership_challenge_questions
+  ADD CONSTRAINT ownership_challenge_questions_question_type_check
+  CHECK (question_type IN ('mcq', 'direct', 'ask'));
 
 CREATE INDEX IF NOT EXISTS idx_ownership_challenges_item
   ON public.ownership_challenges(item_type, item_id);

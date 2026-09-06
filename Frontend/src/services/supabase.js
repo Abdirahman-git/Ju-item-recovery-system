@@ -15,6 +15,7 @@ import {
   filterNotificationsAfterClear,
   getNotificationsClearedAt,
 } from '../utils/notificationInbox';
+import { normalizeOfficeLocation, STUDENT_AFFAIRS_OFFICE } from '../utils/officeLocation';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -76,9 +77,15 @@ export const normalizeItemRow = (item) => {
     ...item,
     itemName: item.itemName || item.item_name || item.itemname || 'Unnamed item',
     category: item.category || item.public_category || item.publicCategory || 'General',
-    location: item.location || item.security_location || item.securityLocation || 'Unknown',
+    location: normalizeOfficeLocation(
+      item.location || item.security_location || item.securityLocation,
+      'Unknown'
+    ),
     public_notice: item.public_notice || item.publicNotice || null,
-    security_location: item.security_location || item.securityLocation || null,
+    security_location: normalizeOfficeLocation(
+      item.security_location || item.securityLocation,
+      null
+    ),
     imageURI,
     status: normalizeItemStatus(item),
     timeLost: normalizeTime(readItemTimeField(item, 'lost')),
@@ -1097,6 +1104,69 @@ export const getUserPendingClaimForItem = async (itemId, itemType, claimerEmail)
   return legacyRows.find((row) => claimRowMatchesItemType(row, type)) || null;
 };
 
+/** Latest claim for this user + item (any status) — for UI after approve/return. */
+export const getUserLatestClaimForItem = async (itemId, itemType, claimerEmail) => {
+  const email = claimerEmail?.trim().toLowerCase();
+  if (!email || itemId == null) return null;
+
+  const id = Number(itemId);
+  if (!Number.isFinite(id)) return null;
+  const type = itemType === 'found' ? 'found' : 'lost';
+
+  const pick = (rows) => {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    return (
+      rows.find((row) => claimRowMatchesItemType(row, type)) ||
+      rows[0] ||
+      null
+    );
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('item_claims')
+      .select('id, status, created_at, item_type, item_id, challenge_result, challenge_score, match_breakdown')
+      .eq('claimer_email', email)
+      .eq('item_id', id)
+      .eq('item_type', type)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (!error && data?.[0]) return data[0];
+  } catch (e) {
+    /* columns may be missing */
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('item_claims')
+      .select('id, status, created_at, item_type, item_id, challenge_result, challenge_score, match_breakdown')
+      .eq('claimer_email', email)
+      .eq('item_id', id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (!error && data?.length) {
+      const match = pick(data);
+      if (match) return match;
+    }
+  } catch (e) {
+    /* item_id may be missing */
+  }
+
+  const fkCol = type === 'lost' ? 'lost_item_id' : 'found_item_id';
+  const { data: legacyRows, error: legacyError } = await supabase
+    .from('item_claims')
+    .select(
+      'id, status, created_at, item_type, item_id, challenge_result, challenge_score, match_breakdown, lost_item_id, found_item_id'
+    )
+    .eq('claimer_email', email)
+    .eq(fkCol, id)
+    .order('created_at', { ascending: false })
+    .limit(8);
+
+  if (legacyError || !legacyRows?.length) return null;
+  return pick(legacyRows);
+};
+
 export const CLAIM_ALREADY_PENDING_MSG =
   'You already sent a request for this item. Wait for admin review.';
 
@@ -1177,24 +1247,37 @@ export const ITEM_BEING_CLAIMED_MSG =
 /**
  * Soft-lock: hide from live as soon as claimant opens the challenge form.
  * Only succeeds if the item is currently live (first opener wins).
+ * Orphan soft-locks (Cancel never ran) are cleared once, then lock retries.
  */
 export const reserveItemForClaim = async (itemType, itemId) => {
   const type = itemType === 'found' ? 'found' : 'lost';
   const id = Number(itemId);
   if (!id) throw new Error('Item data is missing.');
 
-  // Atomic soft-lock only — no extra round-trip before update.
   const table = type === 'found' ? 'found_items' : 'lost_items';
-  const { data, error } = await supabase
-    .from(table)
-    .update({ status: 'claim_pending' })
-    .eq('id', id)
-    .eq('status', 'live')
-    .select('id')
-    .maybeSingle();
 
-  if (error) throw new Error(error.message || 'Could not reserve this item.');
-  if (!data?.id) throw new Error(ITEM_BEING_CLAIMED_MSG);
+  const tryLock = async () => {
+    const { data, error } = await supabase
+      .from(table)
+      .update({ status: 'claim_pending' })
+      .eq('id', id)
+      .eq('status', 'live')
+      .select('id')
+      .maybeSingle();
+    if (error) throw new Error(error.message || 'Could not reserve this item.');
+    return data?.id || null;
+  };
+
+  let lockedId = await tryLock();
+  if (!lockedId) {
+    const open = await getOpenClaimForItem(type, id);
+    if (!open) {
+      await supabase.from(table).update({ status: 'live' }).eq('id', id).eq('status', 'claim_pending');
+      lockedId = await tryLock();
+    }
+  }
+
+  if (!lockedId) throw new Error(ITEM_BEING_CLAIMED_MSG);
   return true;
 };
 
@@ -1335,14 +1418,20 @@ export const submitOwnershipChallengeClaim = async (item, itemType, form) => {
   const challenge = await fetchChallengeWithAnswers(type, itemId);
   if (!challenge?.questions?.length) throw new Error(CHALLENGE_NOT_READY_MSG);
 
-  const { scoreChallengeAnswers, getChallengeResultFromScore, buildChallengeAnswerReview } = await import(
-    '../utils/ownershipChallenge'
+  const { resolveChallengeOutcome, buildChallengeAnswerReview, challengeResultLabel, OWNERSHIP_OFFICE_VISIT } =
+    await import('../utils/ownershipChallenge');
+  const { score, correct, total, result, askOnly, askTotal } = resolveChallengeOutcome(
+    challenge.questions,
+    answers
   );
-  const { score, correct, total } = scoreChallengeAnswers(challenge.questions, answers);
-  const result = getChallengeResultFromScore(score);
   const itemName = item.itemName || item.item_name || 'Item';
   const answerReview = buildChallengeAnswerReview(challenge.questions, answers);
-  const description = `Ownership Challenge · ${score}% (${correct}/${total}) · ${result}`;
+  const description =
+    askTotal > 0
+      ? `Ownership Challenge · Ask review · Physical (${score}% on scored Qs)`
+      : askOnly
+        ? `Ownership Challenge · Ask review · physical`
+        : `Ownership Challenge · ${score}% (${correct}/${total}) · ${result}`;
 
   const payload = {
     lost_item_id: itemId,
@@ -1428,16 +1517,33 @@ export const submitOwnershipChallengeClaim = async (item, itemType, form) => {
         claimer_name: identity.claimer_name,
         claimer_student_id: identity.claimer_student_id,
       });
+      return {
+        claim: { ...inserted, status: 'approved' },
+        score,
+        result,
+        message: `Challenge ${score}% · ${challengeResultLabel('auto_pass')}`,
+      };
     } catch (approveErr) {
-      // Claim saved; admin can still approve if auto-archive failed
+      // Keep claim open as Physical so admin can Confirm office → Returned Items
       console.warn('Auto-pass archive failed:', approveErr?.message);
+      if (inserted?.id) {
+        await supabase
+          .from('item_claims')
+          .update({
+            status: 'physical',
+            challenge_result: 'physical',
+            reviewed_at: null,
+          })
+          .eq('id', inserted.id);
+      }
+      await setItemLifecycleStatus(type, itemId, 'awaiting_pickup').catch(() => {});
+      return {
+        claim: { ...inserted, status: 'physical', challenge_result: 'physical' },
+        score,
+        result: 'physical',
+        message: `Challenge ${score}% · Physical — ${OWNERSHIP_OFFICE_VISIT}. Office must confirm return.`,
+      };
     }
-    return {
-      claim: { ...inserted, status: 'approved' },
-      score,
-      result,
-      message: 'Approved — visit Lost & Found office to collect your item.',
-    };
   }
 
   if (result === 'reject') {
@@ -1460,7 +1566,10 @@ export const submitOwnershipChallengeClaim = async (item, itemType, form) => {
     claim: { ...inserted, status: 'physical' },
     score,
     result,
-    message: 'Visit campus Lost & Found office for physical verification.',
+    message:
+      askTotal > 0
+        ? `Ask answers need office review — ${OWNERSHIP_OFFICE_VISIT}.`
+        : `Challenge ${score}% · ${challengeResultLabel('physical')}`,
   };
 };
 
@@ -1586,30 +1695,56 @@ export const getPendingItemClaimCount = async () => {
 
 export const approveItemClaim = async (claim) => {
   const itemType = claim.itemType || claim.item_type || 'found';
-  const itemId = claim.itemId || claim.item_id || claim.lost_item_id;
+  const itemId =
+    claim.itemId ||
+    claim.item_id ||
+    claim.found_item_id ||
+    claim.lost_item_id;
   const table = itemType === 'found' ? 'found_items' : 'lost_items';
+  const reviewedAt = new Date().toISOString();
 
-  const { error: updateError } = await supabase
-    .from('item_claims')
-    .update({ status: 'approved', reviewed_at: new Date().toISOString() })
-    .eq('id', claim.id);
+  if (!itemId) throw new Error('This ownership request is missing a linked item.');
 
-  if (updateError) throw new Error(updateError.message);
-
-  const itemRow =
+  let itemRow =
     claim.targetItem ||
     (await supabase.from(table).select('*').eq('id', itemId).maybeSingle()).data;
 
-  if (itemRow) {
-    await markItemAsReturned(
-      itemRow,
-      itemType.toUpperCase(),
-      claim.claimer_name,
-      claim.claimer_student_id
-    ).catch((e) => console.warn('Archive skipped:', e?.message));
+  // Prefer fresh live row so archive fields are complete
+  if (itemRow?.id) {
+    const { data: live } = await supabase.from(table).select('*').eq('id', itemRow.id).maybeSingle();
+    if (live) itemRow = live;
   }
 
-  return { success: true };
+  if (!itemRow?.id) {
+    // Nothing left to archive — still mark claim approved
+    const { error: updateError } = await supabase
+      .from('item_claims')
+      .update({ status: 'approved', reviewed_at: reviewedAt })
+      .eq('id', claim.id);
+    if (updateError) throw new Error(updateError.message);
+    return { success: true, archived: false };
+  }
+
+  await markItemAsReturned(
+    itemRow,
+    itemType.toUpperCase(),
+    claim.claimer_name,
+    claim.claimer_student_id
+  );
+
+  const { error: claimError } = await supabase
+    .from('item_claims')
+    .update({ status: 'approved', challenge_result: 'auto_pass', reviewed_at: reviewedAt })
+    .eq('id', claim.id);
+
+  if (claimError) {
+    throw new Error(
+      claimError.message ||
+        'Item was returned, but claim status could not be updated.'
+    );
+  }
+
+  return { success: true, archived: true };
 };
 
 export const rejectItemClaim = async (claimId, adminNote = '') => {
@@ -1629,34 +1764,34 @@ export const rejectItemClaim = async (claimId, adminNote = '') => {
 // RETURNED ITEMS LOGS
 export const markItemAsReturned = async (item, type, recipientName, recipientStudentId) => {
   try {
-    // 1. Prepare data for insertion (using lowercase 'imageuri' to match PostgreSQL auto-lowercasing)
+    const typeUpper = String(type || '').toUpperCase();
     const dataToInsert = {
-      item_name: item.itemName,
-      category: item.category,
-      description: item.description,
-      location: item.location,
-      imageuri: item.imageURI || null,
-      type: type.toUpperCase(), // 'LOST' or 'FOUND'
-      original_reporter: type.toUpperCase() === 'LOST' ? (item.ownerName || 'Unknown') : (item.finderName || 'Unknown'),
-      reporter_email: item.email || 'N/A',
+      item_name: item.itemName || item.item_name || 'Unnamed item',
+      category: item.category || 'General',
+      description: item.description || null,
+      location: item.location || null,
+      imageuri: item.imageURI || item.imageuri || item.image_url || null,
+      type: typeUpper,
+      original_reporter:
+        typeUpper === 'LOST'
+          ? item.ownerName || item.owner_name || 'Unknown'
+          : item.finderName || item.finder_name || 'Unknown',
+      reporter_email: item.email || null,
       recipient_name: recipientName || null,
       recipient_student_id: recipientStudentId || null,
       returned_at: new Date().toISOString(),
       submitted_at: item.created_at || item.createdAt || null,
       date_reported:
-        type.toUpperCase() === 'LOST'
-          ? (item.dateLost || item.date_lost || null)
-          : (item.dateFound || item.date_found || null),
+        typeUpper === 'LOST'
+          ? item.dateLost || item.date_lost || null
+          : item.dateFound || item.date_found || null,
       time_reported:
-        type.toUpperCase() === 'LOST'
-          ? (item.timeLost || item.time_lost || null)
-          : (item.timeFound || item.time_found || null),
+        typeUpper === 'LOST'
+          ? item.timeLost || item.time_lost || null
+          : item.timeFound || item.time_found || null,
     };
 
-    // 2. Insert into returned_items table
-    let { error: insertError } = await supabase
-      .from('returned_items')
-      .insert(dataToInsert);
+    let { error: insertError } = await supabase.from('returned_items').insert(dataToInsert);
 
     if (insertError && /submitted_at|date_reported|time_reported|column/i.test(insertError.message || '')) {
       const { submitted_at, date_reported, time_reported, ...legacy } = dataToInsert;
@@ -1665,12 +1800,8 @@ export const markItemAsReturned = async (item, type, recipientName, recipientStu
 
     if (insertError) throw insertError;
 
-    // 3. Delete from original table
-    const table = type.toLowerCase() === 'lost' ? 'lost_items' : 'found_items';
-    const { error: deleteError } = await supabase
-      .from(table)
-      .delete()
-      .eq('id', item.id);
+    const table = typeUpper === 'LOST' ? 'lost_items' : 'found_items';
+    const { error: deleteError } = await supabase.from(table).delete().eq('id', item.id);
 
     if (deleteError) throw deleteError;
 
@@ -1840,7 +1971,14 @@ export const createSecureFoundItem = async (itemData, { asDraft = false } = {}) 
     listing_mode: LISTING_MODE.SECURE,
     public_notice: prepared.public_notice || prepared.description || null,
     public_category: prepared.public_category || prepared.category || 'General',
-    security_location: prepared.security_location || prepared.location || 'Campus Security Office',
+    location: normalizeOfficeLocation(
+      prepared.security_location || prepared.location,
+      STUDENT_AFFAIRS_OFFICE
+    ),
+    security_location: normalizeOfficeLocation(
+      prepared.security_location || prepared.location,
+      STUDENT_AFFAIRS_OFFICE
+    ),
     is_approved: status === ITEM_STATUS.LIVE,
     status,
   });
@@ -1855,7 +1993,14 @@ export const updateSecureFoundDraft = async (id, itemData) => {
     listing_mode: LISTING_MODE.SECURE,
     public_notice: prepared.public_notice || prepared.description || null,
     public_category: prepared.public_category || prepared.category || 'General',
-    security_location: prepared.security_location || prepared.location || 'Campus Security Office',
+    location: normalizeOfficeLocation(
+      prepared.security_location || prepared.location,
+      STUDENT_AFFAIRS_OFFICE
+    ),
+    security_location: normalizeOfficeLocation(
+      prepared.security_location || prepared.location,
+      STUDENT_AFFAIRS_OFFICE
+    ),
     is_approved: false,
     status: ITEM_STATUS.DRAFT,
   });
@@ -1869,7 +2014,14 @@ export const publishSecureFoundDraft = async (id, itemData) => {
     listing_mode: LISTING_MODE.SECURE,
     public_notice: prepared.public_notice || prepared.description || null,
     public_category: prepared.public_category || prepared.category || 'General',
-    security_location: prepared.security_location || prepared.location || 'Campus Security Office',
+    location: normalizeOfficeLocation(
+      prepared.security_location || prepared.location,
+      STUDENT_AFFAIRS_OFFICE
+    ),
+    security_location: normalizeOfficeLocation(
+      prepared.security_location || prepared.location,
+      STUDENT_AFFAIRS_OFFICE
+    ),
     is_approved: true,
     status: ITEM_STATUS.LIVE,
   });

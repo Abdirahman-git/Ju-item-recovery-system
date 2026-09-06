@@ -1,7 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+﻿import { createClient } from '@supabase/supabase-js';
 import { ITEM_STATUS, normalizeItemStatus, isSecureFoundItem } from './itemStatus';
 import { buildDashboardTrendRows } from './dashboardAnalytics';
-import { mapInventoryItem, mapRecentActivityItem, resolveItemImageUrl } from './itemImage';
+import {
+  mapInventoryItem,
+  mapRecentActivityItem,
+  normalizeOfficeLocation,
+  resolveItemImageUrl,
+  STUDENT_AFFAIRS_OFFICE,
+} from './itemImage';
 import { facultyFromStudentId, resolveFaculty } from './faculty';
 import { getChallengeResultFromScore } from './ownershipChallenge';
 
@@ -134,7 +140,7 @@ async function adminApi(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
-/** Admin web login — passwords never leave the Backend (service_role). */
+/** Admin web login â€” passwords never leave the Backend (service_role). */
 export async function loginUser(studentId, password) {
   const payload = await postAuth('/api/auth/login', {
     identifier: String(studentId || '').trim(),
@@ -548,11 +554,15 @@ export async function publishAdminFoundDraft(id, payload, imageFile, existingIma
 }
 
 function buildSecureFoundRow(payload, imageUrl, status) {
+  const office = normalizeOfficeLocation(
+    payload.securityLocation || payload.location,
+    STUDENT_AFFAIRS_OFFICE
+  );
   return {
     itemName: payload.itemName,
     category: payload.category,
     description: payload.description || null,
-    location: payload.location,
+    location: office,
     dateFound: payload.reportDate || null,
     date_found: payload.reportDate || null,
     timeFound: payload.reportTime || null,
@@ -566,7 +576,7 @@ function buildSecureFoundRow(payload, imageUrl, status) {
     listing_mode: 'secure',
     public_notice: payload.publicNotice,
     public_category: payload.publicCategory,
-    security_location: payload.securityLocation || 'Campus Security Office',
+    security_location: office,
     is_approved: status === ITEM_STATUS.LIVE,
     approved_at: status === ITEM_STATUS.LIVE ? new Date().toISOString() : null,
     status,
@@ -812,7 +822,7 @@ export async function deleteAdminUser(email, { deletedBy } = {}) {
   });
 }
 
-/** Setup — campus directory list */
+/** Setup â€” campus directory list */
 export async function fetchStudentDirectory() {
   return adminApi('/api/admin/directory', { method: 'GET' });
 }
@@ -1119,7 +1129,7 @@ function buildUserIdentityLookup(users = []) {
     const sid = String(studentId || '')
       .trim()
       .toUpperCase();
-    if (sid && sid !== '—' && sid !== '?' && byStudentId.has(sid)) return byStudentId.get(sid);
+    if (sid && sid !== 'â€”' && sid !== '?' && byStudentId.has(sid)) return byStudentId.get(sid);
 
     const normalizedName = normalizeLookupKey(name);
     if (normalizedName && normalizedName !== '?' && byName.has(normalizedName)) {
@@ -1166,7 +1176,7 @@ function buildUserIdentityLookup(users = []) {
           .trim()
           .toUpperCase()) ||
       (contributor.key?.startsWith('sid:') ? contributor.key.slice(4) : '') ||
-      (contributor.studentId && !['—', '?'].includes(String(contributor.studentId))
+      (contributor.studentId && !['â€”', '?'].includes(String(contributor.studentId))
         ? String(contributor.studentId).trim().toUpperCase()
         : '');
 
@@ -1174,7 +1184,7 @@ function buildUserIdentityLookup(users = []) {
       ...contributor,
       name: user?.name || contributor.name,
       email: user?.email || contributor.email || contributor.posterEmail || '',
-      studentId: sid || '—',
+      studentId: sid || 'â€”',
       faculty: user?.faculty
         ? resolveFaculty({ faculty: user.faculty, studentId: user.student_id || user.studentId })
         : contributor.faculty || 'Unassigned',
@@ -1218,7 +1228,7 @@ function buildTopContributors(items = [], users = [], limit = 0) {
         key: row.key,
         name: fallbackName,
         email: row.key.startsWith('email:') ? row.key.slice(6) : '',
-        studentId: row.key.startsWith('sid:') ? row.key.slice(4) : '—',
+        studentId: row.key.startsWith('sid:') ? row.key.slice(4) : 'â€”',
         faculty: 'Unassigned',
         count: row.count,
         lost: row.lost,
@@ -1371,7 +1381,7 @@ function parseClaimBreakdown(raw) {
   }
 }
 
-/** Snapshot saved on the claim when submitted — survives approve (live row deleted). */
+/** Snapshot saved on the claim when submitted â€” survives approve (live row deleted). */
 function buildClaimItemFromBreakdown(row) {
   const breakdown = parseClaimBreakdown(row?.match_breakdown);
   if (!breakdown) return null;
@@ -1460,11 +1470,20 @@ async function fetchClaimItem(row) {
     if (!error && data) return normalizeClaimItem(data, candidate.type);
   }
 
-  // Approved claims delete the live row — recover name/photo from claim snapshot.
+  // Approved claims delete the live row â€” recover name/photo from claim snapshot.
   const fromBreakdown = buildClaimItemFromBreakdown(row);
   if (fromBreakdown) return fromBreakdown;
 
   return fetchClaimItemFromReturned(row);
+}
+
+function claimHasAskReview(row) {
+  const review =
+    row?.match_breakdown?.answer_review ||
+    row?.matchBreakdown?.answer_review ||
+    [];
+  if (!Array.isArray(review)) return false;
+  return review.some((r) => r?.open || String(r?.question_type || '').toLowerCase() === 'ask');
 }
 
 function normalizeClaimRow(row, targetItem) {
@@ -1474,19 +1493,33 @@ function normalizeClaimRow(row, targetItem) {
   const result = String(row.challenge_result || '').trim().toLowerCase();
   const score = Number(row.challenge_score);
   const hasScore = Number.isFinite(score) && score >= 0 && row.challenge_score != null;
+  const hasAsk = claimHasAskReview(row);
+  const manualReject = Boolean(String(row.admin_note || '').trim()) && rawStatus === 'rejected';
 
-  // Auto outcomes from Ownership Challenge — no manual "Pending" queue for scored claims.
+  // Auto outcomes from Ownership Challenge â€” no manual "Pending" queue for scored claims.
   let displayStatus;
   if (rawStatus === 'approved' || result === 'auto_pass') {
     displayStatus = 'Approved';
-  } else if (rawStatus === 'rejected' || result === 'reject') {
-    displayStatus = 'Rejected';
   } else if (rawStatus === 'physical' || result === 'physical') {
     displayStatus = 'Physical';
+  } else if (hasAsk && !manualReject) {
+    // Ask answers always need office review (never show as auto-Rejected).
+    displayStatus = 'Physical';
+  } else if (
+    hasScore &&
+    !manualReject &&
+    (result === 'reject' || rawStatus === 'rejected') &&
+    score >= 50 &&
+    score < 85
+  ) {
+    // Heal older auto-rejects that belong in the Physical band.
+    displayStatus = 'Physical';
+  } else if (rawStatus === 'rejected' || result === 'reject') {
+    displayStatus = 'Rejected';
   } else if (hasScore && score > 0) {
-    displayStatus = score >= 90 ? 'Approved' : score >= 60 ? 'Physical' : 'Rejected';
+    displayStatus = score >= 85 ? 'Approved' : score >= 50 ? 'Physical' : 'Rejected';
   } else {
-    // Legacy free-text claims (pre-challenge) — still listed under All only
+    // Legacy free-text claims (pre-challenge) â€” still listed under All only
     displayStatus = 'Pending';
   }
 
@@ -1497,6 +1530,10 @@ function normalizeClaimRow(row, targetItem) {
     targetItem,
     displayStatus,
     refId: `CLM-${String(row.id).padStart(4, '0')}`,
+    challenge_result:
+      displayStatus === 'Physical' && (result === 'reject' || !result)
+        ? 'physical'
+        : row.challenge_result,
     requestedAt: createdAt,
   };
 }
@@ -1513,6 +1550,7 @@ export async function fetchPendingItemClaims() {
     (data || []).map(async (row) => normalizeClaimRow(row, await fetchClaimItem(row)))
   );
 
+  // Heal runs on Returned Items load (syncApprovedClaimsIntoReturned) — avoid double sync here.
   return enriched;
 }
 
@@ -1530,21 +1568,25 @@ export async function approveItemClaim(claim) {
     const { data, error } = await supabase.from(table).select('*').eq('id', itemId).maybeSingle();
     if (error) throw new Error(error.message || 'Could not load linked item.');
     item = data;
+  } else {
+    // Refresh from live table when possible (mobile snapshots can be incomplete)
+    const { data: live } = await supabase.from(table).select('*').eq('id', item.id).maybeSingle();
+    if (live) item = live;
   }
   if (!item) throw new Error('Linked item was not found. It may already have been returned or deleted.');
 
   const returnedRow = {
-    item_name: item.itemName || item.item_name || 'Unnamed item',
-    category: item.category || 'General',
+    item_name: item.itemName || item.item_name || item.displayName || 'Unnamed item',
+    category: item.category || item.displayCategory || 'General',
     description: item.description || null,
-    location: item.location || null,
-    imageuri: item.imageURI || item.imageuri || item.image_url || null,
+    location: item.location || item.displayLocation || null,
+    imageuri: item.imageURI || item.imageuri || item.image_url || item.imageUrl || null,
     type: String(itemType).toUpperCase(),
     original_reporter:
       itemType === 'lost'
-        ? item.ownerName || item.owner_name || 'Unknown'
-        : item.finderName || item.finder_name || 'Unknown',
-    reporter_email: item.email || null,
+        ? item.ownerName || item.owner_name || item.reporterName || 'Unknown'
+        : item.finderName || item.finder_name || item.reporterName || 'Unknown',
+    reporter_email: item.email || item.reporterEmail || null,
     recipient_name: claim.claimer_name || null,
     recipient_student_id: claim.claimer_student_id || null,
     returned_at: reviewedAt,
@@ -1567,7 +1609,7 @@ export async function approveItemClaim(claim) {
 
   const { error: claimError } = await supabase
     .from('item_claims')
-    .update({ status: 'approved', reviewed_at: reviewedAt })
+    .update({ status: 'approved', challenge_result: 'auto_pass', reviewed_at: reviewedAt })
     .eq('id', claim.id);
 
   if (claimError) {
@@ -1578,6 +1620,278 @@ export async function approveItemClaim(claim) {
   }
 
   return { success: true };
+}
+
+function normalizeDedupeKeyPart(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Same return archived more than once (sync race) → keep one row. */
+async function dedupeReturnedArchiveRows() {
+  const { data, error } = await supabase
+    .from('returned_items')
+    .select('id, item_name, recipient_name, recipient_student_id, returned_at, submitted_at')
+    .order('id', { ascending: true });
+
+  if (error || !Array.isArray(data) || data.length < 2) return { removed: 0 };
+
+  const groups = new Map();
+  for (const row of data) {
+    const returnedDay = row.returned_at
+      ? String(row.returned_at).slice(0, 10)
+      : normalizeDedupeKeyPart(row.submitted_at).slice(0, 10);
+    const key = [
+      normalizeDedupeKeyPart(row.item_name),
+      normalizeDedupeKeyPart(row.recipient_name),
+      normalizeDedupeKeyPart(row.recipient_student_id),
+      returnedDay,
+    ].join('|');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const deleteIds = [];
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+    const sorted = [...rows].sort((a, b) => {
+      const am = new Date(a.returned_at || 0).getTime();
+      const bm = new Date(b.returned_at || 0).getTime();
+      if (bm !== am) return bm - am;
+      return Number(b.id) - Number(a.id);
+    });
+    for (const extra of sorted.slice(1)) {
+      if (extra?.id != null) deleteIds.push(extra.id);
+    }
+  }
+
+  if (!deleteIds.length) return { removed: 0 };
+
+  for (let i = 0; i < deleteIds.length; i += 40) {
+    const chunk = deleteIds.slice(i, i + 40);
+    await supabase.from('returned_items').delete().in('id', chunk);
+  }
+  return { removed: deleteIds.length };
+}
+
+async function findExistingReturnedArchive({ itemName, recipient, recipientStudentId }) {
+  const name = String(itemName || '').trim();
+  const who = String(recipient || '').trim();
+  const sid = String(recipientStudentId || '').trim();
+  if (!name || !who) return null;
+
+  const { data, error } = await supabase
+    .from('returned_items')
+    .select('id, item_name, recipient_name, recipient_student_id')
+    .ilike('item_name', name)
+    .ilike('recipient_name', who)
+    .limit(20);
+
+  if (error || !data?.length) return null;
+
+  if (sid) {
+    const byId = data.find(
+      (row) =>
+        normalizeDedupeKeyPart(row.recipient_student_id) === normalizeDedupeKeyPart(sid)
+    );
+    if (byId) return byId;
+  }
+  return data[0];
+}
+
+/**
+ * Heal Approved / auto_pass claims that never landed in returned_items
+ * (mobile used to mark Approved even when archive failed).
+ */
+export async function repairApprovedClaimArchive(claim) {
+  const status = String(claim?.status || '').toLowerCase();
+  const result = String(claim?.challenge_result || '').toLowerCase();
+  const display = String(claim?.displayStatus || '').toLowerCase();
+  if (status !== 'approved' && result !== 'auto_pass' && display !== 'approved') {
+    return { repaired: false };
+  }
+
+  const itemType = claim.itemType || claim.item_type || 'found';
+  const itemId = claim.itemId || claim.item_id || claim.found_item_id || claim.lost_item_id;
+  const breakdown = parseClaimBreakdown(claim.match_breakdown) || {};
+  const itemName = String(
+    claim.targetItem?.displayName ||
+      claim.targetItem?.item_name ||
+      claim.targetItem?.itemName ||
+      breakdown.item_name ||
+      breakdown.itemName ||
+      claim.item_name ||
+      ''
+  ).trim();
+  const recipient = String(claim.claimer_name || '').trim();
+  const recipientStudentId = String(claim.claimer_student_id || '').trim();
+
+  const already = await findExistingReturnedArchive({
+    itemName,
+    recipient,
+    recipientStudentId,
+  });
+  if (already) {
+    if (itemId) {
+      await supabase.from('lost_items').delete().eq('id', itemId);
+      await supabase.from('found_items').delete().eq('id', itemId);
+    }
+    return { repaired: false, already: true };
+  }
+
+  let live = null;
+  let liveType = itemType;
+  if (itemId) {
+    for (const tryType of [itemType, itemType === 'lost' ? 'found' : 'lost']) {
+      const tryTable = tryType === 'lost' ? 'lost_items' : 'found_items';
+      const { data } = await supabase.from(tryTable).select('*').eq('id', itemId).maybeSingle();
+      if (data) {
+        live = data;
+        liveType = tryType;
+        break;
+      }
+    }
+  }
+
+  if (live) {
+    try {
+      await approveItemClaim({
+        ...claim,
+        itemType: liveType,
+        itemId: live.id,
+        targetItem: live,
+      });
+      return { repaired: true, fromLive: true };
+    } catch (liveErr) {
+      console.warn('repair approveItemClaim failed:', liveErr?.message);
+      const after = await findExistingReturnedArchive({
+        itemName: itemName || live.itemName || live.item_name,
+        recipient,
+        recipientStudentId,
+      });
+      if (after) {
+        if (itemId) {
+          await supabase.from('lost_items').delete().eq('id', itemId);
+          await supabase.from('found_items').delete().eq('id', itemId);
+        }
+        return { repaired: false, already: true };
+      }
+    }
+  }
+
+  const raced = await findExistingReturnedArchive({
+    itemName,
+    recipient,
+    recipientStudentId,
+  });
+  if (raced) {
+    if (itemId) {
+      await supabase.from('lost_items').delete().eq('id', itemId);
+      await supabase.from('found_items').delete().eq('id', itemId);
+    }
+    return { repaired: false, already: true };
+  }
+
+  const source = live || claim.targetItem || {};
+  const returnedRow = {
+    item_name:
+      itemName ||
+      source.itemName ||
+      source.item_name ||
+      source.displayName ||
+      'Unnamed item',
+    category:
+      source.category ||
+      source.displayCategory ||
+      breakdown.category ||
+      'General',
+    description: source.description || null,
+    location: source.location || source.displayLocation || breakdown.location || null,
+    imageuri:
+      source.imageURI ||
+      source.imageuri ||
+      source.image_url ||
+      source.imageUrl ||
+      breakdown.image_uri ||
+      breakdown.imageURI ||
+      null,
+    type: String(liveType || itemType).toUpperCase(),
+    original_reporter:
+      liveType === 'lost' || itemType === 'lost'
+        ? source.ownerName || source.owner_name || source.reporterName || 'Unknown'
+        : source.finderName || source.finder_name || source.reporterName || 'Unknown',
+    reporter_email: source.email || source.reporterEmail || null,
+    recipient_name: claim.claimer_name || null,
+    recipient_student_id: claim.claimer_student_id || null,
+    returned_at: claim.reviewed_at || claim.reviewedAt || new Date().toISOString(),
+    ...pickReturnedReportTiming(source, liveType || itemType),
+  };
+
+  await insertReturnedArchiveRow(returnedRow);
+
+  if (itemId) {
+    await supabase.from('lost_items').delete().eq('id', itemId);
+    await supabase.from('found_items').delete().eq('id', itemId);
+  }
+  if (claim.id) {
+    await supabase
+      .from('item_claims')
+      .update({ status: 'approved', reviewed_at: returnedRow.returned_at })
+      .eq('id', claim.id);
+  }
+  return { repaired: true, fromSnapshot: true };
+}
+
+let syncApprovedClaimsPromise = null;
+
+/** Run on Returned Items load so refresh actually backfills missing archives. */
+export async function syncApprovedClaimsIntoReturned() {
+  if (syncApprovedClaimsPromise) return syncApprovedClaimsPromise;
+
+  syncApprovedClaimsPromise = (async () => {
+    let rows = [];
+    const filtered = await supabase
+      .from('item_claims')
+      .select('*')
+      .or('status.eq.approved,challenge_result.eq.auto_pass')
+      .order('created_at', { ascending: false })
+      .limit(80);
+
+    if (filtered.error) {
+      const fallback = await supabase
+        .from('item_claims')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(80);
+      if (fallback.error) return { healed: 0, removed: 0 };
+      rows = (fallback.data || []).filter((row) => {
+        const status = String(row.status || '').toLowerCase();
+        const result = String(row.challenge_result || '').toLowerCase();
+        return status === 'approved' || result === 'auto_pass';
+      });
+    } else {
+      rows = filtered.data || [];
+    }
+
+    let healed = 0;
+    for (const row of rows) {
+      const claim = normalizeClaimRow(row, await fetchClaimItem(row));
+      const outcome = await repairApprovedClaimArchive(claim).catch((err) => {
+        console.warn('syncApprovedClaimsIntoReturned', row?.id, err?.message);
+        return null;
+      });
+      if (outcome?.repaired) healed += 1;
+    }
+
+    const deduped = await dedupeReturnedArchiveRows().catch(() => ({ removed: 0 }));
+    return { healed, removed: deduped?.removed || 0 };
+  })().finally(() => {
+    syncApprovedClaimsPromise = null;
+  });
+
+  return syncApprovedClaimsPromise;
 }
 
 export async function rejectItemClaim(claimId, adminNote = '', claimMeta = null) {
@@ -1645,7 +1959,7 @@ export async function fetchAllInventoryItems() {
       return {
         ...item,
         displayReporterName: user?.name || (reporterName && reporterName !== '?' ? reporterName : 'Unknown'),
-        displayReporterStudentId: studentId || '—',
+        displayReporterStudentId: studentId || 'â€”',
       };
     })
     .sort((a, b) => b.sortKey - a.sortKey);
@@ -1751,7 +2065,7 @@ export async function purgeArchivedItem(archived) {
   return { success: true };
 }
 
-/** Public contact form → Supabase direct (fast), API fallback if RLS not applied yet. */
+/** Public contact form â†’ Supabase direct (fast), API fallback if RLS not applied yet. */
 export async function submitContactMessage(form) {
   const firstName = String(form.firstName || '').trim();
   const lastName = String(form.lastName || '').trim();
@@ -1972,6 +2286,11 @@ function normalizeReturnedItem(item) {
 }
 
 export async function fetchReturnedItems() {
+  // Backfill Approved/auto_pass claims that never reached returned_items
+  await syncApprovedClaimsIntoReturned().catch((err) => {
+    console.warn('syncApprovedClaimsIntoReturned:', err?.message);
+  });
+
   const { data, error } = await supabase
     .from('returned_items')
     .select('*')
@@ -1984,6 +2303,19 @@ export async function fetchReturnedItems() {
   }
 
   return enrichReturnedSubmittedTimes((data || []).map(normalizeReturnedItem));
+}
+
+/** Soft-delete a returned archive row into the admin recycle bin. */
+export async function deleteReturnedItem(item, { deletedBy } = {}) {
+  if (!item?.id) throw new Error('Invalid returned item.');
+  await adminApi('/api/admin/returned/delete-to-recycle', {
+    method: 'POST',
+    body: {
+      id: item.id,
+      deletedBy,
+    },
+  });
+  return { success: true };
 }
 
 export async function fetchDistinctCategories() {
@@ -2105,6 +2437,15 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       meta: `${lostItems.length + foundItems.length} still missing`,
     },
     {
+      id: 'people',
+      label: 'People ranking',
+      description:
+        'Lost = reported missing · Found = open finds · Returned = finder completed return · Ownership = claims',
+      href: '/admin/reports',
+      count: 0,
+      meta: 'Rank · Lost · Found · Returned · Ownership',
+    },
+    {
       id: 'lost',
       label: 'Lost Reports',
       description: 'All open Lost listings (including secure holds)',
@@ -2115,7 +2456,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     {
       id: 'returned',
       label: 'Returned Items',
-      description: 'Found — recovered and reunited with owners',
+      description: 'Found â€” recovered and reunited with owners',
       href: '/admin/returned',
       count: recovered,
       meta: `${recoveryRate}% recovery rate`,
@@ -2134,7 +2475,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       description: 'Ownership claims on Lost campus items',
       href: '/admin/claims',
       count: claims.length,
-      meta: `${physicalClaims.length} physical · ${approvedClaims.length} approved · ${rejectedClaims.length} rejected`,
+      meta: `${physicalClaims.length} physical Â· ${approvedClaims.length} approved Â· ${rejectedClaims.length} rejected`,
     },
     {
       id: 'drafts',
@@ -2178,7 +2519,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
         description: 'Public LOFO desk form submissions and follow-ups',
         href: '/admin/contact-messages',
         count: contacts.length,
-        meta: `${contactNew} new · ${contactRead} read · ${contactArchived} archived`,
+        meta: `${contactNew} new Â· ${contactRead} read Â· ${contactArchived} archived`,
       }
     );
   }
@@ -2195,7 +2536,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     // All open campus listings are Lost (still missing), including secure holds.
     lost: mapSystemReportItems([...lostItems, ...foundItems], facultyFor, identity),
     found: mapSystemReportItems(foundItems, facultyFor, identity),
-    returned: mapSystemReportReturned(returnedItems, facultyFor),
+    returned: mapSystemReportReturned(returnedItems, facultyFor, identity),
     pending: mapSystemReportPending(pendingData.combined || [], facultyFor, identity),
     claims: mapSystemReportClaims(claims, facultyFor),
     drafts: mapSystemReportItems(draftItems, facultyFor, identity),
@@ -2206,6 +2547,21 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
     records.recycle = mapSystemReportRecycle(recycleItems);
     records.archived = mapSystemReportArchived(archived, facultyFor);
     records.contact = mapSystemReportContact(contacts, facultyFor);
+  }
+
+  const peopleSource = dataSources.find((source) => source.id === 'people');
+  if (peopleSource) {
+    const keys = new Set();
+    const lostOnly = (records.lost || []).filter((row) => row.itemKind !== 'found');
+    const returnedForPeople = (records.returned || []).filter((row) => row.peopleReturnedCredit);
+    [...lostOnly, ...(records.found || []), ...returnedForPeople, ...(records.claims || [])].forEach(
+      (row) => {
+        const sid = String(row.studentId || '').trim().toUpperCase();
+        if (sid && sid !== '—' && sid !== '?' && sid !== 'â€”') keys.add(`sid:${sid}`);
+        else keys.add(String(row.posterKey || row.reporter || row.claimer || 'unknown').trim() || 'unknown');
+      }
+    );
+    peopleSource.count = keys.size;
   }
 
   return {
@@ -2235,7 +2591,7 @@ export async function fetchSystemReportsData({ includePrivilegedSources = false 
       rejectedClaims: rejectedClaims.length,
       recoveryRate,
       maxUserActivityCount: topContributor?.count ?? 0,
-      maxUserActivityName: topContributor?.name ?? '—',
+      maxUserActivityName: topContributor?.name ?? 'â€”',
       maxUserActivityMeta: topContributor
         ? `${topContributor.count} report${topContributor.count === 1 ? '' : 's'}`
         : 'No item posts yet',
@@ -2256,6 +2612,8 @@ function formatReportDate(value) {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
     }).format(new Date(value));
   } catch {
     return '?';
@@ -2338,12 +2696,13 @@ function mapSystemReportItems(items = [], facultyFor = () => 'Unassigned', ident
       name: item.displayName || 'Unnamed item',
       category: item.displayCategory || item.category || 'General',
       faculty: facultyFor(item),
-      location: item.displayLocation || item.location || 'Campus',
+      location: normalizeOfficeLocation(item.displayLocation || item.location, 'Campus'),
       type: 'Lost',
+      itemKind: item.itemType === 'found' ? 'found' : 'lost',
       status: normalizeItemStatus(item),
       reporter: resolveItemReporterName(item),
       posterKey,
-      studentId: studentId || '—',
+      studentId: studentId || 'â€”',
       posterEmail,
       reportedAt: formatReportDate(rawDate(item)),
       dateKey: toReportDateKey(rawDate(item)),
@@ -2351,19 +2710,67 @@ function mapSystemReportItems(items = [], facultyFor = () => 'Unassigned', ident
   });
 }
 
-function mapSystemReportReturned(items = [], facultyFor = () => 'Unassigned') {
-  return items.map((item) => ({
-    id: String(item.id),
-    ref: item.refId || `RET-${item.id}`,
-    imageUrl: item.imageUrl || resolveItemImageUrl(item) || null,
-    name: item.displayName || 'Unnamed item',
-    category: item.displayCategory || 'General',
-    faculty: facultyFor(item),
-    recipient: item.displayRecipient || '?',
-    type: 'Found',
-    returnedAt: formatReportDate(item.returnedAt),
-    dateKey: toReportDateKey(item.returnedAt),
-  }));
+function mapSystemReportReturned(items = [], facultyFor = () => 'Unassigned', identity = null) {
+  return items.map((item) => {
+    const recipient = item.displayRecipient || item.recipient_name || '?';
+    const recipientStudentId = String(
+      item.displayRecipientId || item.recipient_student_id || ''
+    ).trim();
+
+    const returnKind =
+      String(item.displayType || item.type || 'FOUND').toUpperCase() === 'LOST' ? 'LOST' : 'FOUND';
+
+    // Credit the finder / original reporter who recovered the missing item — not the recipient.
+    const finderName =
+      String(item.displayOriginalReporter || item.original_reporter || '').trim() || 'Unknown';
+    const finderEmail = String(item.displayReporterEmail || item.reporter_email || '')
+      .trim()
+      .toLowerCase();
+
+    const finderEntity = {
+      email: finderEmail,
+      userId: finderEmail,
+      userid: finderEmail,
+      finderName,
+      finder_name: finderName,
+      itemType: 'found',
+      reporterEmail: finderEmail,
+    };
+    const studentId = identity?.studentIdFor(finderEntity) || '';
+    const posterKey = resolveItemPosterKey({
+      ...finderEntity,
+      student_id: studentId,
+      studentId,
+    });
+    const faculty = facultyFor({
+      email: finderEmail,
+      reporterEmail: finderEmail,
+      studentId,
+      student_id: studentId,
+    });
+
+    return {
+      id: String(item.id),
+      ref: item.refId || `RET-${item.id}`,
+      imageUrl: item.imageUrl || resolveItemImageUrl(item) || null,
+      name: item.displayName || 'Unnamed item',
+      category: item.displayCategory || 'General',
+      faculty,
+      recipient,
+      recipientStudentId: recipientStudentId || '—',
+      originalReporter: finderName,
+      reporter: finderName,
+      posterKey,
+      studentId: studentId || '—',
+      posterEmail: finderEmail,
+      type: returnKind === 'LOST' ? 'Lost' : 'Found',
+      returnKind,
+      // People ranking "Returned" = finder completed found → owner reunion (FOUND path only)
+      peopleReturnedCredit: returnKind === 'FOUND',
+      returnedAt: formatReportDate(item.returnedAt),
+      dateKey: toReportDateKey(item.returnedAt),
+    };
+  });
 }
 
 function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned', identity = null) {
@@ -2386,7 +2793,7 @@ function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned', ide
       faculty: facultyFor(item),
       reporter: item.reporterName || resolveItemReporterName(typed) || '?',
       posterKey,
-      studentId: studentId || '—',
+      studentId: studentId || 'â€”',
       posterEmail,
       type: 'Lost',
       reportedAt: formatReportDate(rawDate(item)),
@@ -2407,16 +2814,16 @@ function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
       const band = getChallengeResultFromScore(score);
       if (band === 'auto_pass') {
         status = 'Approved';
-        resultLabel = 'Pass (90%+)';
+        resultLabel = 'Pass (85%+)';
       } else if (band === 'physical') {
         status = 'Physical';
-        resultLabel = 'Physical (60–89%)';
+        resultLabel = 'Physical (50â€“80%)';
       } else {
         status = 'Rejected';
-        resultLabel = 'Reject (<60%)';
+        resultLabel = 'Reject (<50%)';
       }
     } else {
-      // Legacy unscored claims: no Pending — treat as Rejected until challenge is used
+      // Legacy unscored claims: no Pending â€” treat as Rejected until challenge is used
       const raw = String(claim.displayStatus || claim.status || '').toLowerCase();
       status =
         raw === 'approved'
@@ -2426,8 +2833,18 @@ function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
             : raw === 'rejected' || raw === 'pending'
               ? 'Rejected'
               : 'Rejected';
-      resultLabel = status === 'Approved' ? 'Pass (90%+)' : status === 'Physical' ? 'Physical (60–89%)' : 'Reject (<60%)';
+      resultLabel = status === 'Approved' ? 'Pass (85%+)' : status === 'Physical' ? 'Physical (50â€“80%)' : 'Reject (<50%)';
     }
+
+    const claimer = claim.claimer_name || claim.claimerName || '?';
+    const studentId = String(claim.claimer_student_id || claim.claimerStudentId || '').trim();
+    const sid = studentId.toUpperCase();
+    const nameKey = normalizeLookupKey(claimer);
+    const posterKey = sid
+      ? `sid:${sid}`
+      : nameKey && nameKey !== '?'
+        ? `name:${nameKey}`
+        : 'unknown:anonymous';
 
     return {
       id: String(claim.id),
@@ -2440,11 +2857,13 @@ function mapSystemReportClaims(claims = [], facultyFor = () => 'Unassigned') {
         claim.item_category ||
         claim.category ||
         'General',
-      claimer: claim.claimer_name || claim.claimerName || '?',
-      studentId: claim.claimer_student_id || claim.claimerStudentId || '?',
+      claimer,
+      reporter: claimer,
+      posterKey,
+      studentId: studentId || '—',
       faculty: facultyFor(claim),
       status,
-      score: hasScore ? `${Math.round(score)}%` : '—',
+      score: hasScore ? `${Math.round(score)}%` : 'â€”',
       result: resultLabel,
       requestedAt: formatReportDate(rawDate(claim)),
       dateKey: toReportDateKey(rawDate(claim)),
@@ -2477,11 +2896,11 @@ function mapSystemReportArchived(items = [], facultyFor = () => 'Unassigned') {
       name: item.displayName || item.item_name || 'Unnamed item',
       category: item.displayCategory || item.category || 'General',
       faculty: facultyFor(item),
-      location: item.displayLocation || item.location || '—',
+      location: normalizeOfficeLocation(item.displayLocation || item.location, '—'),
       type: 'Lost',
       status: 'Archived',
-      reason: item.displayReason || item.reason || '—',
-      archivedBy: item.displayArchivedBy || item.archived_by || '—',
+      reason: item.displayReason || item.reason || 'â€”',
+      archivedBy: item.displayArchivedBy || item.archived_by || 'â€”',
       reportedAt: formatReportDate(item.archivedAt || item.archived_at),
       dateKey: toReportDateKey(item.archivedAt || item.archived_at),
     };
@@ -2490,7 +2909,7 @@ function mapSystemReportArchived(items = [], facultyFor = () => 'Unassigned') {
 
 function parseContactMessageExtras(message) {
   const raw = String(message || '');
-  const marker = '— Lost & Found details —';
+  const marker = 'â€” Lost & Found details â€”';
   const idx = raw.indexOf(marker);
   const body = idx === -1 ? raw.trim() : raw.slice(0, idx).trim();
   const details = idx === -1 ? '' : raw.slice(idx + marker.length);
@@ -2509,14 +2928,14 @@ function mapSystemReportContact(messages = [], facultyFor = () => 'Unassigned') 
     return {
       id: String(row.id),
       name: row.fullName || 'Unknown',
-      email: row.email || '—',
-      phone: row.phone || '—',
-      studentId: studentId || '—',
+      email: row.email || 'â€”',
+      phone: row.phone || 'â€”',
+      studentId: studentId || 'â€”',
       faculty: facultyFor({ ...row, studentId, email: row.email }),
       subject: row.subject || 'LOFO contact',
-      item: extras.itemName || '—',
-      place: extras.place || '—',
-      message: extras.body || row.message || '—',
+      item: extras.itemName || 'â€”',
+      place: extras.place || 'â€”',
+      message: extras.body || row.message || 'â€”',
       status: row.status || 'new',
       submittedAt: formatReportDate(row.createdAt || row.created_at),
       dateKey: toReportDateKey(row.createdAt || row.created_at),
@@ -2640,7 +3059,7 @@ export async function fetchRecycleBinItems() {
   const payload = await adminApi('/api/admin/recycle-bin');
   const tableItems = (payload.items || []).map((row) => mapRecycleRow({ ...row, backend: 'table' }));
 
-  // Legacy storage entries (from before table existed) — still readable via anon storage
+  // Legacy storage entries (from before table existed) â€” still readable via anon storage
   let storageItems = [];
   try {
     storageItems = await listRecycleStorageItems();

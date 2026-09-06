@@ -24,7 +24,7 @@ import {
 import DetailPhotoPanel from '@/components/admin/DetailPhotoPanel';
 import ItemThumbnail from '@/components/admin/ItemThumbnail';
 import { deleteItemClaim, fetchPendingItemClaims } from '@/lib/supabase';
-import { confirmPhysicalClaim, restoreItemAfterFailedClaim, fetchOwnershipChallenge } from '@/lib/ownershipChallengeApi';
+import { confirmPhysicalClaim, restoreItemAfterFailedClaim, fetchOwnershipChallenge, releaseItemClaimReserve } from '@/lib/ownershipChallengeApi';
 import { challengeResultLabel, buildChallengeAnswerReview } from '@/lib/ownershipChallenge';
 import { resolveSystemCategories } from '@/lib/categories';
 import { invalidateClaimCaches } from '@/lib/adminDataCache';
@@ -156,7 +156,7 @@ function ClaimsSummary({ summary }) {
       <div className="relative mb-4 overflow-hidden rounded-2xl border border-white/70 bg-white/50 p-3 backdrop-blur-sm">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">Score bands</p>
-          <p className="text-[11px] font-semibold text-slate-400">90%+ returned · 60–89% office · &lt;60% reject</p>
+          <p className="text-[11px] font-semibold text-slate-400">85%+ returned · 50–80% office · &lt;50% reject</p>
         </div>
         <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
           <div
@@ -191,8 +191,8 @@ function ClaimsSummary({ summary }) {
       <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-5">
         <SummaryStat label="Total" value={summary.total} tone="blue" />
         <SummaryStat label="Waiting" value={summary.waiting} tone="amber" hint="Open queue" />
-        <SummaryStat label="Office" value={summary.physical || 0} tone="indigo" hint="60–89%" />
-        <SummaryStat label="Pass" value={summary.approved} tone="emerald" hint="90%+" />
+        <SummaryStat label="Office" value={summary.physical || 0} tone="indigo" hint="50–80%" />
+        <SummaryStat label="Pass" value={summary.approved} tone="emerald" hint="85%+" />
         <SummaryStat label="Reject" value={summary.rejected} tone="red" hint="&lt;60%" />
       </div>
 
@@ -312,7 +312,7 @@ function resolveClaimDisplayName(claim) {
   );
 }
 
-function ProofDialog({ claim, onClose }) {
+function ProofDialog({ claim, onClose, onRestoreLive, onConfirmOffice, busy }) {
   const [answerReview, setAnswerReview] = useState(() => getClaimAnswerReview(claim));
   const [loadingAnswers, setLoadingAnswers] = useState(false);
 
@@ -421,8 +421,17 @@ function ProofDialog({ claim, onClose }) {
                 </p>
                 {claim.challenge_score != null && claim.challenge_score > 0 ? (
                   <p className="mt-3 text-sm font-black text-[#1A56DB]">
-                    Score {claim.challenge_score}% ·{' '}
-                    {challengeResultLabel(claim.challenge_result) || claim.displayStatus}
+                    Challenge {claim.challenge_score}% ·{' '}
+                    {claim.displayStatus === 'Approved' ||
+                    String(claim.status || '')
+                      .toLowerCase()
+                      .includes('approv')
+                      ? challengeResultLabel('auto_pass')
+                      : claim.displayStatus === 'Physical'
+                        ? challengeResultLabel('physical')
+                        : claim.displayStatus === 'Rejected'
+                          ? challengeResultLabel('reject')
+                          : challengeResultLabel(claim.challenge_result) || claim.displayStatus}
                   </p>
                 ) : null}
               </div>
@@ -432,14 +441,17 @@ function ProofDialog({ claim, onClose }) {
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                     Claimant answers
                   </p>
-                  {answerReview.map((row, index) => (
+                  {answerReview.map((row, index) => {
+                    const isOpen = row.open || row.question_type === 'ask';
+                    const tone = isOpen
+                      ? 'border-sky-200/80 bg-sky-50/70'
+                      : row.correct
+                        ? 'border-emerald-200/80 bg-emerald-50/70'
+                        : 'border-red-200/80 bg-red-50/60';
+                    return (
                     <div
                       key={`${row.prompt}-${index}`}
-                      className={`rounded-2xl border px-3 py-2.5 ${
-                        row.correct
-                          ? 'border-emerald-200/80 bg-emerald-50/70'
-                          : 'border-red-200/80 bg-red-50/60'
-                      }`}
+                      className={`rounded-2xl border px-3 py-2.5 ${tone}`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-bold text-slate-900">
@@ -447,18 +459,31 @@ function ProofDialog({ claim, onClose }) {
                         </p>
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${
-                            row.correct ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+                            isOpen
+                              ? 'bg-sky-600 text-white'
+                              : row.correct
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-red-600 text-white'
                           }`}
                         >
-                          {row.correct ? 'Correct' : 'Wrong'}
+                          {isOpen ? 'For review' : row.correct ? 'Correct' : 'Wrong'}
                         </span>
                       </div>
                       <p className="mt-2 text-xs font-semibold text-slate-500">Their answer</p>
                       <p className="text-sm font-bold text-slate-800">{row.given || '—'}</p>
-                      <p className="mt-1.5 text-xs font-semibold text-slate-500">Expected</p>
-                      <p className="text-sm font-medium text-slate-700">{row.expected || '—'}</p>
+                      {!isOpen ? (
+                        <>
+                          <p className="mt-1.5 text-xs font-semibold text-slate-500">Expected</p>
+                          <p className="text-sm font-medium text-slate-700">{row.expected || '—'}</p>
+                        </>
+                      ) : (
+                        <p className="mt-1.5 text-xs font-semibold text-sky-700">
+                          Open Ask — no expected answer stored. Review their text at the office.
+                        </p>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : loadingAnswers ? (
                 <div className="glass-tile p-4">
@@ -488,14 +513,36 @@ function ProofDialog({ claim, onClose }) {
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-white/60 bg-white/25 px-5 py-4 text-right backdrop-blur-md sm:px-6">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-2xl bg-[#1A56DB] px-5 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:bg-[#1E40AF]"
-          >
-            Close
-          </button>
+        <div className="shrink-0 border-t border-white/60 bg-white/25 px-5 py-4 backdrop-blur-md sm:px-6">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {claim.displayStatus === 'Physical' ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onRestoreLive?.(claim)}
+                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-black text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                >
+                  Restore live
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onConfirmOffice?.(claim)}
+                  className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  Confirm office
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-2xl bg-[#1A56DB] px-5 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-500/25 transition hover:bg-[#1E40AF]"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -703,6 +750,7 @@ export default function OwnershipRequestsClient() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [confirmExport, setConfirmExport] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [unlockingSoftLock, setUnlockingSoftLock] = useState(false);
 
   const focusedClaims = useMemo(() => {
     if (!focusActive) return [];
@@ -785,7 +833,7 @@ export default function OwnershipRequestsClient() {
     const autoPass = claims.filter((c) => {
       const result = c.challenge_result;
       if (result === 'auto_pass') return true;
-      return c.displayStatus === 'Approved' && Number(c.challenge_score) >= 90;
+      return c.displayStatus === 'Approved' && Number(c.challenge_score) >= 85;
     }).length;
     const scoreReject = claims.filter((c) => {
       if (c.challenge_result === 'reject') return true;
@@ -853,13 +901,13 @@ export default function OwnershipRequestsClient() {
       const result = String(claim.challenge_result || '').trim().toLowerCase();
       const resultLabel =
         result === 'auto_pass'
-          ? 'Pass (90%+)'
+          ? 'Pass (85%+)'
           : result === 'physical'
-            ? 'Physical (60–89%)'
+            ? 'Physical (50–80%)'
             : result === 'reject'
-              ? 'Reject (<60%)'
+              ? 'Reject (<50%)'
               : claim.displayStatus === 'Physical'
-                ? 'Physical (60–89%)'
+                ? 'Physical (50–80%)'
                 : claim.displayStatus || '';
 
       return [
@@ -987,17 +1035,50 @@ export default function OwnershipRequestsClient() {
                 ? `Office check for “${focusItemLabel}” — Confirm office after verification, or Restore live if it is not a match.`
                 : focusedClaims.length > 0
                   ? `Requests for “${focusItemLabel}” are shown below. Challenge score already decided open ones.`
-                  : `No submitted request for this item yet (ID ${focusItemId}). If it shows “Answering challenge / Challenge hold”, a student opened the form but has not Submitted — Cancel restores live; Submit is scored by %. Use “Show all requests” to see other claims.`}
+                  : `No submitted request for this item yet (ID ${focusItemId}). “Answering challenge” means someone opened the form but did not Submit — tap Restore live below (or student Cancel) to put it back on the board.`}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={clearItemFocus}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            <X size={14} />
-            Show all requests
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {focusedClaims.length === 0 && focusItemId ? (
+              <button
+                type="button"
+                disabled={unlockingSoftLock}
+                onClick={async () => {
+                  setUnlockingSoftLock(true);
+                  try {
+                    await releaseItemClaimReserve(focusItemType || 'lost', focusItemId);
+                    setFeedback({
+                      type: 'success',
+                      title: 'Restored to live',
+                      message: 'Soft-lock cleared. Item is available on the board again.',
+                    });
+                    invalidateClaimCaches();
+                    clearItemFocus();
+                    router.push('/admin/items');
+                  } catch (err) {
+                    setFeedback({
+                      type: 'error',
+                      title: 'Could not restore',
+                      message: err?.message || 'Try again from Global Inventory refresh.',
+                    });
+                  } finally {
+                    setUnlockingSoftLock(false);
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {unlockingSoftLock ? 'Restoring…' : 'Restore live'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={clearItemFocus}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <X size={14} />
+              Show all requests
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -1134,7 +1215,13 @@ export default function OwnershipRequestsClient() {
                       >
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          <ItemThumbnail src={imageSrc} alt={displayName} itemType={itemType} />
+                          <ItemThumbnail
+                            src={imageSrc}
+                            alt={displayName}
+                            itemType={itemType}
+                            itemName={displayName}
+                            category={claim.displayCategory || claim.category}
+                          />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="truncate text-[15px] font-black leading-tight text-slate-900">
@@ -1163,7 +1250,11 @@ export default function OwnershipRequestsClient() {
                           {hasScore ? (
                             <p className="mb-1 text-xs font-black text-[#1A56DB]">
                               Challenge {score}% ·{' '}
-                              {challengeResultLabel(claim.challenge_result) || claim.displayStatus}
+                              {String(claim.status || claim.displayStatus || '')
+                                .toLowerCase()
+                                .includes('approv')
+                                ? challengeResultLabel('auto_pass')
+                                : challengeResultLabel(claim.challenge_result) || claim.displayStatus}
                             </p>
                           ) : null}
                           <p className="line-clamp-2 text-sm leading-6 text-slate-600">
@@ -1310,7 +1401,19 @@ export default function OwnershipRequestsClient() {
       </section>
 
       <ClaimsSummary summary={summary} />
-      <ProofDialog claim={selectedProof} onClose={() => setSelectedProof(null)} />
+      <ProofDialog
+        claim={selectedProof}
+        busy={Boolean(processingId)}
+        onClose={() => setSelectedProof(null)}
+        onRestoreLive={(claim) => {
+          setSelectedProof(null);
+          setConfirmAction({ type: 'reject', claim, note: '' });
+        }}
+        onConfirmOffice={(claim) => {
+          setSelectedProof(null);
+          setConfirmAction({ type: 'confirmPhysical', claim });
+        }}
+      />
       {confirmExport ? (
         <ExportConfirmModal
           count={filteredClaims.length}
