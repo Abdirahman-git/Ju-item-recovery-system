@@ -8,15 +8,33 @@ export function isSuperAdmin(session) {
   return email === SUPER_ADMIN_EMAIL;
 }
 
+export function isUserSession(session) {
+  return session?.isLoggedIn && session?.role !== 'admin';
+}
+
+export function isAdminSession(session) {
+  return session?.isLoggedIn && session?.role === 'admin' && Boolean(String(session?.adminToken || '').trim());
+}
+
 export function getSession() {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const session = JSON.parse(raw);
-    if (!session?.isLoggedIn || session?.role !== 'admin') return null;
-    // Phase 3A: admin mutations need adminToken from Backend login
-    if (!String(session.adminToken || '').trim()) {
+    if (!session?.isLoggedIn) return null;
+
+    if (session.role === 'admin') {
+      // Admin mutations need adminToken from Backend login
+      if (!String(session.adminToken || '').trim()) {
+        localStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+      return session;
+    }
+
+    // Student & Staff user sessions
+    if (!session.studentId && !session.email) {
       localStorage.removeItem(SESSION_KEY);
       return null;
     }

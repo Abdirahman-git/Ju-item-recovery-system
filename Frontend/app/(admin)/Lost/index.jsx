@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect, DrawerActions, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   TextInput, ActivityIndicator, Image, Modal,
@@ -67,7 +68,7 @@ export default function AdminLostPage() {
   const [tempDate, setTempDate] = useState(new Date());
   const [tempTime, setTempTime] = useState(() => parseTimeLabelToDate(getDefaultTimeLabel(), new Date().toISOString().split('T')[0]));
   const toastRef = useRef(null);
-  const { categoryEntries, loading: categoriesLoading } = useDynamicCategories(items, { forAdmin: true });
+  const { categoryEntries, loading: categoriesLoading, persistCategory } = useDynamicCategories(items, { forAdmin: true });
   const [fieldErrors, setFieldErrors] = useState({});
 
   // New Item Form State
@@ -473,6 +474,7 @@ export default function AdminLostPage() {
                   selectedCategory={newItem.category}
                   onSelect={(category) => updateField('category', category)}
                   accentColor={PRIMARY_BLUE}
+                  onPersistCustom={persistCategory}
                 />
                 {fieldErrors.category ? <Text style={styles.fieldError}>{fieldErrors.category}</Text> : null}
               </View>

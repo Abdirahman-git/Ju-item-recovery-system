@@ -17,6 +17,7 @@ import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useAdminBadges } from '@/context/AdminBadgeContext';
 import { getAdminPageMeta } from '@/lib/adminPages';
 import { isSuperAdmin as checkSuperAdmin } from '@/lib/session';
+import { isSecureFoundItem } from '@/lib/itemStatus';
 import {
   fetchPendingReports,
   fetchPendingItemClaims,
@@ -93,25 +94,35 @@ export default function AdminTopBar() {
       const itemsList = [];
 
       (reportsData.combined || []).forEach((item) => {
+        const hidePhoto = isSecureFoundItem(item);
+        const kind = item.reportType || item.itemType || 'found';
         itemsList.push({
-          id: `report-${item.id}-${item.itemType}`,
+          id: `report-${item.id}-${kind}`,
           type: 'report',
-          title: `New ${item.itemType === 'lost' ? 'Lost' : 'Found'} Item`,
-          description: `"${item.itemName || 'Item'}" waiting for approval in ${item.location || 'Campus'}`,
+          title: `New ${kind === 'lost' ? 'Lost' : 'Found'} Item`,
+          description: `"${item.itemName || item.displayName || 'Item'}" waiting for approval in ${item.location || 'Campus'}`,
           time: item.created_at || item.createdAt || null,
           link: '/admin/pending',
+          imageUrl: hidePhoto ? null : item.imageUrl || null,
+          isSecure: hidePhoto,
         });
       });
 
       (claimsData || []).forEach((claim) => {
         if (claim.status === 'pending' || claim.status === 'physical' || claim.displayStatus === 'Physical') {
+          const target = claim.targetItem || {};
+          const hidePhoto = isSecureFoundItem(target);
           itemsList.push({
             id: `claim-${claim.id}`,
             type: 'claim',
             title: claim.status === 'physical' ? 'Physical verification' : 'New Ownership Claim',
-            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'User'} claimed "${claim.targetItem?.itemName || 'Item'}"`,
+            description: `${claim.full_name || claim.claimer_name || claim.student_id || 'User'} claimed "${target.itemName || target.displayName || 'Item'}"`,
             time: claim.created_at || claim.requestedAt || null,
             link: '/admin/claims',
+            imageUrl: hidePhoto
+              ? null
+              : target.imageUrl || target.imageURI || target.imageuri || null,
+            isSecure: hidePhoto,
           });
         }
       });
@@ -125,6 +136,8 @@ export default function AdminTopBar() {
           description: `${msg.fullName || 'Visitor'} · ${msg.subject || 'LOFO contact'}`,
           time: msg.createdAt || msg.created_at || null,
           link: '/admin/contact-messages',
+          imageUrl: null,
+          isSecure: false,
         });
       });
 
@@ -184,7 +197,7 @@ export default function AdminTopBar() {
   }, []);
 
   return (
-    <header className="glass-header sticky top-0 z-20 shrink-0">
+    <header className={`glass-header sticky top-0 shrink-0 ${isOpen ? 'z-[200]' : 'z-20'}`}>
       <div className="h-px bg-gradient-to-r from-[#1A56DB]/40 via-[#8B5CF6]/35 to-transparent" />
 
       <div className="flex items-center gap-2.5 px-3 py-3 sm:gap-3 sm:px-5 lg:px-6">
@@ -233,7 +246,7 @@ export default function AdminTopBar() {
             </button>
 
             {isOpen ? (
-              <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-white/50 bg-white/95 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200 sm:w-96">
+              <div className="absolute right-0 z-[210] mt-2 w-80 overflow-hidden rounded-2xl border border-white/50 bg-white/95 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200 sm:w-96">
                 <div className="flex items-center justify-between border-b border-slate-100/80 bg-slate-50/50 px-4 py-3.5">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-black text-slate-900">Notifications</span>
@@ -270,11 +283,24 @@ export default function AdminTopBar() {
                           }}
                           className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50/70"
                         >
-                          <div
-                            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toneForType(n.type)}`}
-                          >
-                            <Icon size={16} />
-                          </div>
+                          {n.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={n.imageUrl}
+                              alt=""
+                              className="mt-0.5 h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+                            />
+                          ) : n.isSecure ? (
+                            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-xs font-black text-amber-700 ring-1 ring-amber-100">
+                              !
+                            </div>
+                          ) : (
+                            <div
+                              className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${toneForType(n.type)}`}
+                            >
+                              <Icon size={16} />
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <p className="text-xs font-bold leading-snug text-slate-900">{n.title}</p>
                             <p className="mt-0.5 truncate text-xs leading-relaxed text-slate-500">

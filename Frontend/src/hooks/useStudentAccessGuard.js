@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { clearUserSession, verifySessionUserAccess } from '../utils/userAccess';
 
 /** Kick suspended / deleted students out of the user app area. */

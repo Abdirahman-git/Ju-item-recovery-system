@@ -351,7 +351,7 @@ export default function PendingReportsClient() {
                 <th className="px-5 py-4">Item</th>
                 <th className="px-4 py-4">Report</th>
                 <th className="px-4 py-4">Submitted By</th>
-                <th className="px-4 py-4">Date & Time</th>
+                <th className="px-4 py-4">Lost / Found date</th>
                 <th className="px-5 py-4 text-center">Action</th>
               </tr>
             </thead>
@@ -425,7 +425,13 @@ export default function PendingReportsClient() {
                       </td>
                       <td className="px-4 py-4">
                         <p className="text-sm font-semibold leading-5 text-slate-700">{formatDate(item.reportedAt)}</p>
-                        <p className="mt-1 text-xs text-slate-400">Waiting for admin review</p>
+                        {item.submittedAt && String(item.submittedAt) !== String(item.reportedAt) ? (
+                          <p className="mt-1 text-[11px] font-medium text-slate-400">
+                            Submitted {formatDate(item.submittedAt)}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-400">Waiting for admin review</p>
+                        )}
                       </td>
                       <td className="px-5 py-4 text-center">
                         <button

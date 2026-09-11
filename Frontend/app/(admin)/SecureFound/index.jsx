@@ -8,7 +8,8 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,6 +28,7 @@ import {
   markSecureFoundReturned,
 } from '../../../src/services/supabase';
 import { validateSecureNoticeContent } from '../../../src/utils/contentValidation';
+import { validateCategoryName } from '../../../src/utils/categories';
 import { showAppWarning, showAppFailure, showAppConfirm } from '../../../src/utils/appAlert';
 import { STUDENT_AFFAIRS_OFFICE, normalizeOfficeLocation } from '../../../src/utils/officeLocation';
 
@@ -63,7 +65,7 @@ export default function SecureFoundScreen() {
   const [loadingHolds, setLoadingHolds] = useState(true);
   const [returningId, setReturningId] = useState(null);
 
-  const { categoryEntries, loading: categoriesLoading } = useDynamicCategories([], { forAdmin: true });
+  const { categoryEntries, loading: categoriesLoading, persistCategory } = useDynamicCategories([], { forAdmin: true });
 
   const fetchHolds = async () => {
     try {
@@ -140,6 +142,10 @@ export default function SecureFoundScreen() {
   const validateForm = () => {
     if (!form.category) {
       return { valid: false, title: 'Category required', message: 'Select a category for this secure hold.' };
+    }
+    const categoryCheck = validateCategoryName(form.category);
+    if (!categoryCheck.valid) {
+      return { valid: false, title: 'Invalid category', message: categoryCheck.message };
     }
     return validateSecureNoticeContent({
       name: form.itemName,
@@ -288,6 +294,7 @@ export default function SecureFoundScreen() {
                 selectedCategory={form.category}
                 onSelect={(category) => setForm((prev) => ({ ...prev, category }))}
                 accentColor={AMBER}
+                onPersistCustom={persistCategory}
               />
             </View>
 

@@ -122,12 +122,12 @@ export default function ReportFiltersPanel({
           />
         </FilterField>
 
-        <FilterField label="Data source" dropdown elevated={openMenu === 'source'}>
+        <FilterField label="Filter by" dropdown elevated={openMenu === 'source'}>
           <ReportSelect
             value={sourceValue}
             onChange={onSourceChange}
             options={sourceOptions}
-            placeholder="Select data source"
+            placeholder="Filter by"
             theme="blue"
             variant="filter"
             searchable

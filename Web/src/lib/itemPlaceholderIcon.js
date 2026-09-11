@@ -46,7 +46,22 @@ const NAME_RULES = [
       'headset',
     ],
   },
-  { icon: Smartphone, keywords: ['phone', 'mobile', 'iphone', 'android', 'samsung', 'telefoon', 'taleefoon', 'taleefan', 'smartphone', 'cellphone', 'cell phone'] },
+  {
+    icon: Smartphone,
+    keywords: [
+      'phone',
+      'mobile',
+      'iphone',
+      'android',
+      'samsung',
+      'telefoon',
+      'taleefoon',
+      'taleefan',
+      'smartphone',
+      'cellphone',
+      'cell phone',
+    ],
+  },
   { icon: Laptop, keywords: ['laptop', 'macbook', 'notebook', 'chromebook', 'computer', 'pc'] },
   { icon: Tablet, keywords: ['tablet', 'ipad'] },
   { icon: Mouse, keywords: ['mouse', 'jiir'] },
@@ -59,7 +74,20 @@ const NAME_RULES = [
   { icon: IdCard, keywords: ['id card', 'student id', 'idcard', 'badge', 'passport', 'kaadh'] },
   { icon: Briefcase, keywords: ['bag', 'handbag', 'briefcase', 'shanta', 'boorso'] },
   { icon: Backpack, keywords: ['backpack', 'rucksack', 'schoolbag'] },
-  { icon: Shirt, keywords: ['shirt', 'jacket', 'hoodie', 'sweater', 'coat', 'clothing', 'clothes', 'shaati', 'jaakad'] },
+  {
+    icon: Shirt,
+    keywords: [
+      'shirt',
+      'jacket',
+      'hoodie',
+      'sweater',
+      'coat',
+      'clothing',
+      'clothes',
+      'shaati',
+      'jaakad',
+    ],
+  },
   { icon: Umbrella, keywords: ['umbrella', 'dallad'] },
   { icon: BookOpen, keywords: ['book', 'notebook', 'buug'] },
   { icon: FileText, keywords: ['document', 'paper', 'papers', 'file', 'warqad'] },
@@ -108,4 +136,9 @@ export function getItemPlaceholderIcon(name, category) {
   }
 
   return Package;
+}
+
+/** Alias used by portal cards — same as getItemPlaceholderIcon. */
+export function getItemPlaceholderIconKey(name, category) {
+  return getItemPlaceholderIcon(name, category);
 }

@@ -73,30 +73,22 @@ function parseIntakeYearFromStudentId() {
 }
 
 /**
- * New directory rows may only use the current academic year (no past / future).
+ * Resolve intake year for directory row (defaults to current academic year if missing).
  * @returns {number} academic year start (e.g. 2026 for 2026–2027)
  */
 function resolveAllowedIntakeYear(rawYear, { strict = true } = {}) {
   const current = getCurrentAcademicYearStart();
   if (rawYear == null || rawYear === '') return current;
   const y = parseIntakeYearInput(rawYear);
-  if (!Number.isFinite(y)) {
+  if (!Number.isFinite(y) || y < 1990 || y > 2100) {
     if (strict) {
       throw new Error(
-        `Invalid intake year. Use ${current} or ${formatAcademicYearLabel(current)}.`
+        `Invalid intake year. Use a valid year (e.g. ${current} or ${formatAcademicYearLabel(current)}).`
       );
     }
     return current;
   }
-  if (y !== current) {
-    if (strict) {
-      throw new Error(
-        `Intake must be the current academic year ${formatAcademicYearLabel(current)} (not past or future).`
-      );
-    }
-    return current;
-  }
-  return current;
+  return y;
 }
 
 function resolveProgramYears(faculty, yearsMap = {}) {

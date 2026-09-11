@@ -19,9 +19,26 @@ export const ADMIN_ONLY_CATEGORIES = ['Financial'];
 /** Full system list for admins (public + Financial). */
 export const SYSTEM_CATEGORIES = [...PUBLIC_CATEGORIES.slice(0, -1), 'Financial', 'Other'];
 
-/** Never offer these in pickers (Books + removed vague categories). */
-const EXCLUDED_CATEGORIES = new Set(['books', 'personal', 'general']);
+/** Never offer these in pickers (Books, Jewelry, vague categories). */
+const EXCLUDED_CATEGORIES = new Set(['books', 'personal', 'general', 'jewelry']);
 const ADMIN_ONLY_SET = new Set(ADMIN_ONLY_CATEGORIES.map((c) => c.toLowerCase()));
+/** Obvious junk labels that should never become categories. */
+const BLOCKED_CATEGORY_LABELS = new Set([
+  'cream',
+  'test',
+  'testing',
+  'dummy',
+  'asdf',
+  'qwerty',
+  'spam',
+  'none',
+  'null',
+  'undefined',
+  'n/a',
+  'na',
+  'xxx',
+  'abc',
+]);
 
 /** Lucide icon names mapped like mobile CategoryPills. */
 export const CATEGORY_ICON_NAMES = {
@@ -43,8 +60,81 @@ export function normalizeCategory(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** Title-case category labels: "perfume" → "Perfume", "sports equipment" → "Sports Equipment". */
+export function formatCategoryLabel(value) {
+  const raw = normalizeCategory(value);
+  if (!raw) return '';
+  return raw
+    .split(/(\s+|\/)/)
+    .map((part) => {
+      if (!part || /^\s+$/.test(part) || part === '/') return part;
+      return part.charAt(0).toLocaleUpperCase() + part.slice(1);
+    })
+    .join('');
+}
+
 export function isExcludedCategory(value) {
   return EXCLUDED_CATEGORIES.has(normalizeCategory(value).toLowerCase());
+}
+
+/**
+ * Strip report/status prefixes like "Found - Electronics" → "Electronics".
+ */
+export function canonicalizeCategory(value) {
+  const raw = normalizeCategory(value);
+  if (!raw) return '';
+  const prefixed = raw.match(/^(lost|found|returned|secure|draft|pending)\s*[-–—:/]\s*(.+)$/i);
+  if (prefixed) return formatCategoryLabel(prefixed[2]);
+  return formatCategoryLabel(raw);
+}
+
+/** True for composite labels that are not real category names. */
+export function isStatusPrefixedCategory(value) {
+  return /^(lost|found|returned|secure|draft|pending)\s*[-–—:/]/i.test(normalizeCategory(value));
+}
+
+/**
+ * Rejects numbers-only / symbols-only / spam / status-prefixed labels (e.g. "66666", "Found - Jewelry").
+ */
+export function isJunkCategoryName(value) {
+  const category = normalizeCategory(value);
+  if (!category) return true;
+  if (isStatusPrefixedCategory(category)) return true;
+  if (isExcludedCategory(category)) return true;
+  if (BLOCKED_CATEGORY_LABELS.has(category.toLowerCase())) return true;
+  if (category.length < 2 || category.length > 40) return true;
+
+  const letters = category.match(/[\p{L}]/gu) || [];
+  if (letters.length < 2) return true;
+
+  const digits = category.match(/\d/g) || [];
+  if (digits.length > 0 && digits.length >= letters.length) return true;
+
+  const compact = category.replace(/\s+/g, '').toLowerCase();
+  if (compact.length >= 3 && /^(.)\1+$/u.test(compact)) return true;
+  if (compact.length >= 6 && /^(..)\1{2,}$/u.test(compact)) return true;
+
+  return false;
+}
+
+export function validateCategoryName(value) {
+  const category = formatCategoryLabel(value);
+  if (!category) {
+    return { valid: false, message: 'Select or enter a category.' };
+  }
+  if (isJunkCategoryName(category)) {
+    return {
+      valid: false,
+      message: 'Category must be a real name with letters — not only numbers, status labels, or symbols.',
+    };
+  }
+  return { valid: true, value: category };
+}
+
+export function categoriesMatch(rowCategory, filterCategory) {
+  const filter = canonicalizeCategory(filterCategory);
+  if (!filter || filter === 'all') return true;
+  return canonicalizeCategory(rowCategory).toLowerCase() === filter.toLowerCase();
 }
 
 export function isAdminOnlyCategory(value) {
@@ -59,8 +149,8 @@ export function collectCategoriesFromItems(items = [], field = 'displayCategory'
   const set = new Set();
   const list = Array.isArray(items) ? items : [];
   list.forEach((item) => {
-    const category = normalizeCategory(item?.[field] ?? item?.category);
-    if (category && !isExcludedCategory(category)) set.add(category);
+    const category = canonicalizeCategory(item?.[field] ?? item?.category);
+    if (category && !isExcludedCategory(category) && !isJunkCategoryName(category)) set.add(category);
   });
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
@@ -71,8 +161,8 @@ export function mergeCategoryLists(...lists) {
     .flat()
     .filter((value) => value != null)
     .forEach((value) => {
-      const category = normalizeCategory(value);
-      if (category && !isExcludedCategory(category)) set.add(category);
+      const category = canonicalizeCategory(value);
+      if (category && !isExcludedCategory(category) && !isJunkCategoryName(category)) set.add(category);
     });
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }

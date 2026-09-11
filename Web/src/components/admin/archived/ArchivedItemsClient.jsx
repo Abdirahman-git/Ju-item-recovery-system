@@ -23,7 +23,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { fetchArchivedItems, purgeArchivedItem, restoreArchivedItem } from '@/lib/supabase';
+import { fetchArchivedItems, purgeArchivedItem, restoreArchivedItem, runAutoArchiveStaleItems } from '@/lib/supabase';
 import { getItemPlaceholderIcon } from '@/lib/itemPlaceholderIcon';
 import { categoriesForFilter } from '@/lib/categories';
 import { buildArchivedPageSparklines } from '@/lib/pageSparklines';
@@ -298,6 +298,31 @@ export default function ArchivedItemsClient() {
     if (!isSuperAdmin) router.replace('/admin/items');
   }, [ready, isSuperAdmin, router]);
 
+  // When Super Admin opens Archive, run Backend auto-archive then refresh list.
+  useEffect(() => {
+    if (!ready || !isSuperAdmin) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await runAutoArchiveStaleItems();
+        if (cancelled) return;
+        if (result?.archived > 0) {
+          invalidateAdminCaches('admin:archived', 'admin:items', 'admin:dashboard', 'admin:reports');
+          await refresh();
+          setToast({
+            type: 'success',
+            text: result.message || `Auto-archived ${result.archived} stale item(s).`,
+          });
+        }
+      } catch {
+        /* scheduler still runs on Backend; ignore UI trigger failures */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, isSuperAdmin, refresh]);
+
   useEffect(() => {
     setSparkPlayKey((k) => k + 1);
   }, []);
@@ -449,7 +474,7 @@ export default function ArchivedItemsClient() {
             </span>
           </div>
           <p className="truncate text-[11px] font-medium text-slate-500">
-            Off app feed · restore anytime · archive from All Items → Stale 60d+
+            Off app feed · restore anytime · auto after 60 days · or All Items → Archive
           </p>
         </div>
       </div>
@@ -608,7 +633,7 @@ export default function ArchivedItemsClient() {
           </h3>
           <p className="mt-2 max-w-md text-sm font-medium leading-6 text-slate-500">
             {items.length === 0
-              ? 'From All Items, open a stale report and tap Move to archive. It will land here and leave the mobile app.'
+              ? 'Items older than 60 days are auto-archived off the mobile feed. You can also archive manually from All Items.'
               : 'Try Reset, change type/category, or clear your search.'}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">

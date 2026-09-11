@@ -1,4 +1,5 @@
 import { validateItemReportContent } from './contentValidation';
+import { validateCategoryName } from './categories';
 
 const isFilled = (value) => typeof value === 'string' && value.trim() !== '';
 
@@ -39,6 +40,15 @@ export const validateLostItemForm = (item) => {
     return { valid: false, missing, fieldErrors };
   }
 
+  const categoryCheck = validateCategoryName(item.category);
+  if (!categoryCheck.valid) {
+    return {
+      valid: false,
+      missing: [],
+      fieldErrors: { category: categoryCheck.message },
+    };
+  }
+
   const content = validateItemReportContent({
     itemName: item.itemName,
     location: item.location,
@@ -70,6 +80,15 @@ export const validateFoundItemForm = (item) => {
 
   if (missing.length) {
     return { valid: false, missing, fieldErrors };
+  }
+
+  const categoryCheck = validateCategoryName(item.category);
+  if (!categoryCheck.valid) {
+    return {
+      valid: false,
+      missing: [],
+      fieldErrors: { category: categoryCheck.message },
+    };
   }
 
   const content = validateItemReportContent({

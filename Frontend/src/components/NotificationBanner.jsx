@@ -18,6 +18,7 @@ const NotificationBanner = forwardRef((props, ref) => {
   const [visible, setVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [imageUrl, setImageUrl] = useState(null);
   const translateY = useRef(new Animated.Value(-120)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef(null);
@@ -51,6 +52,7 @@ const NotificationBanner = forwardRef((props, ref) => {
       clearTimer();
       setTitle(String(msg || 'New notification'));
       setBody(String(subMsg || ''));
+      setImageUrl(options.imageUrl || options.imageURI || null);
       onPressRef.current = typeof options.onPress === 'function' ? options.onPress : null;
       setVisible(true);
       translateY.setValue(-120);
@@ -102,7 +104,11 @@ const NotificationBanner = forwardRef((props, ref) => {
         }}
       >
         <View style={styles.logoWrap}>
-          <Image source={JU_LOGO} style={styles.logo} resizeMode="contain" />
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.itemImage} resizeMode="cover" />
+          ) : (
+            <Image source={JU_LOGO} style={styles.logo} resizeMode="contain" />
+          )}
         </View>
         <View style={styles.textCol}>
           <Text style={styles.appLabel}>JU LOFO</Text>
@@ -154,10 +160,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
   },
   logo: {
     width: 26,
     height: 26,
+  },
+  itemImage: {
+    width: 40,
+    height: 40,
   },
   textCol: {
     flex: 1,

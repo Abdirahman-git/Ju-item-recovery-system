@@ -1,4 +1,4 @@
-﻿import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { ITEM_STATUS, normalizeItemStatus, isSecureFoundItem } from './itemStatus';
 import { buildDashboardTrendRows } from './dashboardAnalytics';
 import {
@@ -140,12 +140,12 @@ async function adminApi(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
-/** Admin web login â€” passwords never leave the Backend (service_role). */
-export async function loginUser(studentId, password) {
+/** Web login (Admin, Student, Staff) — passwords never leave the Backend (service_role). */
+export async function loginUser(studentId, password, { adminOnly = false } = {}) {
   const payload = await postAuth('/api/auth/login', {
     identifier: String(studentId || '').trim(),
     password: String(password || ''),
-    adminOnly: true,
+    adminOnly: Boolean(adminOnly),
   });
   return payload.session;
 }
@@ -842,6 +842,13 @@ export async function deleteStudentDirectoryRow(studentId) {
   });
 }
 
+export async function setStudentDirectoryAccess(studentId, accessStatus) {
+  return adminApi('/api/admin/directory/set-access', {
+    method: 'POST',
+    body: { studentId, access_status: accessStatus },
+  });
+}
+
 export async function enforceDirectoryExpiry() {
   return adminApi('/api/admin/directory/enforce-expiry', { method: 'POST', body: {} });
 }
@@ -858,6 +865,26 @@ export async function deleteFacultyProgramYear(faculty) {
   return adminApi('/api/admin/faculty-years/delete', {
     method: 'POST',
     body: { faculty },
+  });
+}
+
+/** Setup — staff directory */
+export async function fetchStaffDirectory() {
+  return adminApi('/api/admin/staff-directory', { method: 'GET' });
+}
+
+export async function upsertStaffDirectoryRow(row) {
+  return adminApi('/api/admin/staff-directory/upsert', { method: 'POST', body: row });
+}
+
+export async function uploadStaffDirectoryRows(rows) {
+  return adminApi('/api/admin/staff-directory/upload', { method: 'POST', body: { rows } });
+}
+
+export async function deleteStaffDirectoryRow(staffId) {
+  return adminApi('/api/admin/staff-directory/delete', {
+    method: 'POST',
+    body: { staffId },
   });
 }
 
@@ -1307,14 +1334,16 @@ function normalizePendingRow(item, type, reporterLookup = {}) {
     reporterStudentId: studentId,
     refId: `#${prefix}-${String(item.id).padStart(5, '0')}`,
     imageUrl: resolveItemImageUrl(item),
+    // Incident date (form) first — not created_at — so admin sees the Lost/Found date the user picked.
     reportedAt:
-      item.created_at ||
-      item.date_reported ||
       item.dateLost ||
       item.dateFound ||
       item.date_lost ||
       item.date_found ||
+      item.date_reported ||
+      item.created_at ||
       null,
+    submittedAt: item.created_at || null,
   };
 }
 
@@ -2024,6 +2053,11 @@ export async function archiveInventoryItem(item, { archivedBy, reason } = {}) {
   return { success: true };
 }
 
+/** Run Backend auto-archive for items ≥60 days (same job as hourly scheduler). */
+export async function runAutoArchiveStaleItems() {
+  return adminApi('/api/admin/archive-stale', { method: 'POST', body: {} });
+}
+
 function normalizeArchivedItem(row) {
   const archivedAt = row.archived_at || row.created_at || null;
   const archivedMs = archivedAt ? new Date(archivedAt).getTime() : NaN;
@@ -2332,10 +2366,101 @@ export async function fetchDistinctCategories() {
     const category = typeof row.category === 'string' ? row.category.trim() : '';
     if (!category) return;
     const lower = category.toLowerCase();
-    if (lower === 'books' || lower === 'personal' || lower === 'general') return;
+    if (lower === 'books' || lower === 'personal' || lower === 'general' || lower === 'jewelry') return;
+    if (!/[\p{L}]/u.test(category)) return;
+    const letters = category.match(/[\p{L}]/gu) || [];
+    const digits = category.match(/\d/g) || [];
+    if (letters.length < 2) return;
+    if (digits.length > 0 && digits.length >= letters.length) return;
     set.add(category);
   });
 
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Categories stored in item_categories (persistent system list).
+ * Falls back to [] if the table has not been created yet.
+ */
+export async function fetchStoredCategories({ forAdmin = false } = {}) {
+  const { data, error } = await supabase
+    .from('item_categories')
+    .select('name, is_admin_only, is_active')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error)) return [];
+    throw error;
+  }
+
+  return (data || [])
+    .filter((row) => {
+      const name = typeof row.name === 'string' ? row.name.trim() : '';
+      if (!name) return false;
+      if (!forAdmin && row.is_admin_only) return false;
+      return true;
+    })
+    .map((row) => row.name.trim());
+}
+
+/**
+ * Persist a new category so it appears in all pickers like Electronics.
+ * Reuses existing row when the same name exists with different casing.
+ */
+export async function upsertStoredCategory(name, { isAdminOnly = false } = {}) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) throw new Error('Category name is required.');
+
+  const { data: existingRows, error: findError } = await supabase
+    .from('item_categories')
+    .select('name, is_admin_only, is_active')
+    .ilike('name', trimmed)
+    .limit(5);
+
+  if (findError && !isMissingRelationError(findError)) throw findError;
+  if (findError && isMissingRelationError(findError)) {
+    throw new Error(
+      'Category storage is not set up yet. Run supabase/item_categories.sql in Supabase SQL Editor.'
+    );
+  }
+
+  const existing = (existingRows || []).find(
+    (row) => String(row.name || '').trim().toLowerCase() === trimmed.toLowerCase()
+  );
+
+  if (existing) {
+    if (!existing.is_active) {
+      const { error: reactivateError } = await supabase
+        .from('item_categories')
+        .update({
+          is_active: true,
+          is_admin_only: Boolean(existing.is_admin_only || isAdminOnly),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('name', existing.name);
+      if (reactivateError) throw reactivateError;
+    }
+    return existing.name;
+  }
+
+  const { error: insertError } = await supabase.from('item_categories').insert({
+    name: trimmed,
+    is_admin_only: Boolean(isAdminOnly),
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  });
+  if (insertError) throw insertError;
+  return trimmed;
+}
+
+/** Stored categories + distinct item categories for pickers. */
+export async function fetchPickerCategories({ forAdmin = false } = {}) {
+  const [stored, fromItems] = await Promise.all([
+    fetchStoredCategories({ forAdmin }),
+    fetchDistinctCategories().catch(() => []),
+  ]);
+  const set = new Set([...stored, ...fromItems]);
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
@@ -2632,6 +2757,22 @@ function toReportDateKey(value) {
   }
 }
 
+/** Incident / form date for report filters (not publish/created-at). */
+function resolveInventoryReportDate(item = {}) {
+  return (
+    item.dateLost ||
+    item.date_lost ||
+    item.dateFound ||
+    item.date_found ||
+    item.date_reported ||
+    item.reportDate ||
+    item.reportedAt ||
+    item.created_at ||
+    item.approved_at ||
+    null
+  );
+}
+
 function buildFacultyResolver(users = []) {
   const byStudentId = new Map();
   const byEmail = new Map();
@@ -2680,7 +2821,7 @@ function mapSystemReportUsers(users = []) {
 }
 
 function mapSystemReportItems(items = [], facultyFor = () => 'Unassigned', identity = null) {
-  const rawDate = (item) => item.reportedAt || item.created_at;
+  const rawDate = (item) => resolveInventoryReportDate(item);
   return items.map((item) => {
     const posterKey = resolveItemPosterKey(item);
     const studentId = identity?.studentIdFor(item) || '';
@@ -2774,7 +2915,7 @@ function mapSystemReportReturned(items = [], facultyFor = () => 'Unassigned', id
 }
 
 function mapSystemReportPending(items = [], facultyFor = () => 'Unassigned', identity = null) {
-  const rawDate = (item) => item.reportedAt || item.created_at;
+  const rawDate = (item) => resolveInventoryReportDate(item);
   return items.map((item) => {
     const typed = { ...item, itemType: item.reportType };
     const posterKey = resolveItemPosterKey(typed);
@@ -2953,7 +3094,7 @@ function isMissingRelationError(error) {
   return (
     error?.code === '42P01' ||
     error?.code === 'PGRST205' ||
-    /relation|does not exist|Could not find the table/i.test(message)
+    /relation|does not exist|schema cache|Could not find the table/i.test(message)
   );
 }
 

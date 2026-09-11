@@ -66,7 +66,7 @@ export function isRepeatedCharSpam(value) {
 export function isNumbersOrSymbolsOnly(value) {
   const text = normalizeText(value);
   if (!text) return true;
-  return false;
+  return !hasLetters(text);
 }
 
 /** Too few real letters vs length (e.g. "ab!!!!!!!!!!"). */
@@ -124,6 +124,14 @@ export function validateMeaningfulText(value, options = {}) {
         message: `${fieldLabel} must include at least ${minLetters} letters (not only numbers or symbols).`,
       };
     }
+  }
+
+  if (isNumbersOrSymbolsOnly(text)) {
+    return {
+      valid: false,
+      title: `Invalid ${fieldLabel.toLowerCase()}`,
+      message: `${fieldLabel} must include real letters — not only numbers or symbols.`,
+    };
   }
 
   if (isRepeatedCharSpam(text)) {

@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Crown, Search, TrendingUp, UserRound, Users, X } from 'lucide-react';
 import ReportSelect from '@/components/admin/ReportSelect';
 import { isValidJuStudentId } from '@/lib/faculty';
+import {
+  canonicalizeCategory,
+  isJunkCategoryName,
+  resolveSystemCategories,
+} from '@/lib/categories';
 import ItemThumbnail from '@/components/admin/ItemThumbnail';
 import ItemNamePlaceholder from '@/components/admin/ItemNamePlaceholder';
 
@@ -123,16 +128,15 @@ function buildFacultyOptions(contributors = []) {
 }
 
 function buildCategoryOptions(rows = []) {
-  const values = new Set();
+  const extras = [];
   rows.forEach((row) => {
-    const category = String(row.category || '').trim();
-    if (category) values.add(category);
+    const category = canonicalizeCategory(row.category);
+    if (category && !isJunkCategoryName(category)) extras.push(category);
   });
+  const list = resolveSystemCategories({ forAdmin: true, extras });
   return [
     { value: 'all', label: 'All categories' },
-    ...Array.from(values)
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ value, label: value })),
+    ...list.map((value) => ({ value, label: value })),
   ];
 }
 
@@ -142,8 +146,8 @@ function rowMatchesLocalFilters(row, faculty, category) {
     if (rowFaculty !== faculty) return false;
   }
   if (category !== 'all') {
-    const rowCategory = String(row.category || 'Other').trim() || 'Other';
-    if (rowCategory !== category) return false;
+    const rowCategory = canonicalizeCategory(row.category) || 'Other';
+    if (rowCategory.toLowerCase() !== String(category).trim().toLowerCase()) return false;
   }
   return true;
 }

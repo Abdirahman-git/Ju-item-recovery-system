@@ -10,9 +10,18 @@ export const LISTING_MODE = {
   SECURE: 'secure',
 };
 
+/** Statuses visible on the public student feed (match mobile). */
+export const FEED_STATUSES = [ITEM_STATUS.LIVE];
+
 export function isSecureListing(item) {
   if (!item) return false;
   return item.listing_mode === LISTING_MODE.SECURE || item.listingMode === LISTING_MODE.SECURE;
+}
+
+export function isFeedVisible(item) {
+  const raw = typeof item?.status === 'string' ? item.status.trim().toLowerCase() : '';
+  if (raw === 'claim_pending' || raw === 'awaiting_pickup' || raw === 'matched') return false;
+  return FEED_STATUSES.includes(normalizeItemStatus(item));
 }
 
 /** Any secure listing (live hold or secure draft) — amber ! mark. */

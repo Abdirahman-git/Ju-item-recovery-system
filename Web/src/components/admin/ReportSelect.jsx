@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search } from 'lucide-react';
+import { validateCategoryName } from '@/lib/categories';
 
 const THEMES = {
   blue: {
@@ -52,6 +53,9 @@ export default function ReportSelect({
   placeholder = 'Select option',
   theme = 'blue',
   searchable = true,
+  allowCustom = false,
+  customLabel = 'Add category',
+  onPersistCustom,
   disabled = false,
   className = '',
   variant = 'default',
@@ -70,18 +74,40 @@ export default function ReportSelect({
 
   const [query, setQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [persistingCustom, setPersistingCustom] = useState(false);
+  const [persistError, setPersistError] = useState('');
   const rootRef = useRef(null);
   const searchRef = useRef(null);
   const tone = THEMES[theme] || THEMES.blue;
 
   const normalized = useMemo(() => normalizeOptions(options), [options]);
-  const selected = normalized.find((option) => option.value === value);
+  const selected = normalized.find((option) => option.value === value) ||
+    (value
+      ? { value, label: value }
+      : null);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (!term) return normalized;
     return normalized.filter((option) => option.label.toLowerCase().includes(term));
   }, [normalized, query]);
+
+  const customCandidate = query.trim();
+  const customValidation = allowCustom && customCandidate ? validateCategoryName(customCandidate) : null;
+  const canAddCustom =
+    allowCustom &&
+    Boolean(customCandidate) &&
+    customValidation?.valid &&
+    !normalized.some(
+      (option) => option.label.toLowerCase() === customCandidate.toLowerCase()
+    );
+  const showInvalidCustom =
+    allowCustom &&
+    Boolean(customCandidate) &&
+    !customValidation?.valid &&
+    !normalized.some(
+      (option) => option.label.toLowerCase() === customCandidate.toLowerCase()
+    );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -98,6 +124,7 @@ export default function ReportSelect({
     if (!open) {
       setQuery('');
       setHighlightIndex(0);
+      setPersistError('');
       return;
     }
     const selectedIndex = filtered.findIndex((option) => option.value === value);
@@ -109,6 +136,23 @@ export default function ReportSelect({
   function selectOption(option) {
     onChange(option.value);
     setOpen(false);
+  }
+
+  async function commitCustomCategory() {
+    if (!canAddCustom || !customValidation?.valid || persistingCustom) return;
+    try {
+      setPersistingCustom(true);
+      setPersistError('');
+      const saved = onPersistCustom
+        ? await onPersistCustom(customValidation.value)
+        : customValidation.value;
+      onChange(saved);
+      setOpen(false);
+    } catch (error) {
+      setPersistError(error?.message || 'Could not save category.');
+    } finally {
+      setPersistingCustom(false);
+    }
   }
 
   function handleTriggerKeyDown(event) {
@@ -133,9 +177,13 @@ export default function ReportSelect({
       event.preventDefault();
       setHighlightIndex((current) => Math.max(current - 1, 0));
     }
-    if (event.key === 'Enter' && filtered[highlightIndex]) {
+    if (event.key === 'Enter') {
       event.preventDefault();
-      selectOption(filtered[highlightIndex]);
+      if (filtered[highlightIndex]) {
+        selectOption(filtered[highlightIndex]);
+        return;
+      }
+      commitCustomCategory();
     }
   }
 
@@ -216,7 +264,7 @@ export default function ReportSelect({
                     setQuery(event.target.value);
                     setHighlightIndex(0);
                   }}
-                  placeholder="Search..."
+                  placeholder={allowCustom ? 'Search or type new...' : 'Search...'}
                   className={`h-10 w-full rounded-xl border bg-slate-50 pl-9 pr-3 text-sm font-medium text-slate-800 outline-none focus:bg-white ${tone.searchBorder}`}
                 />
               </div>
@@ -224,8 +272,10 @@ export default function ReportSelect({
           ) : null}
 
           <ul className="max-h-72 overflow-y-auto p-1.5">
-            {filtered.length === 0 ? (
-              <li className="px-3 py-6 text-center text-sm font-medium text-slate-400">No matches found</li>
+            {filtered.length === 0 && !canAddCustom && !showInvalidCustom ? (
+              <li className="px-3 py-6 text-center text-sm font-medium text-slate-400">
+                {allowCustom ? 'Type a name to add a new category' : 'No matches found'}
+              </li>
             ) : (
               filtered.map((option, index) => {
                 const isSelected = option.value === value;
@@ -262,6 +312,34 @@ export default function ReportSelect({
                 );
               })
             )}
+            {showInvalidCustom ? (
+              <li className="px-3 py-3 text-center text-xs font-semibold text-red-600">
+                {customValidation?.message ||
+                  'Category must use letters — not only numbers.'}
+              </li>
+            ) : null}
+            {persistError ? (
+              <li className="px-3 py-3 text-center text-xs font-semibold text-red-600">
+                {persistError}
+              </li>
+            ) : null}
+            {canAddCustom ? (
+              <li>
+                <button
+                  type="button"
+                  role="option"
+                  disabled={persistingCustom}
+                  onClick={() => commitCustomCategory()}
+                  className={`group/option flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${tone.optionIdle} disabled:opacity-60`}
+                >
+                  <span className="truncate">
+                    {persistingCustom
+                      ? 'Saving category…'
+                      : `${customLabel}: “${customValidation.value}”`}
+                  </span>
+                </button>
+              </li>
+            ) : null}
           </ul>
         </div>
       ) : null}

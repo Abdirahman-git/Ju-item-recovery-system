@@ -63,7 +63,7 @@ const CUSTOM_META = {
   },
   '/admin/archived': {
     title: 'Archived Items',
-    subtitle: 'Stale unclaimed items removed from the mobile app feed (Super Admin only).',
+    subtitle: 'Unclaimed items auto-archived after 60 days (also manual). Super Admin only.',
   },
   '/admin/contact-messages': {
     title: 'Contact Messages',

@@ -35,13 +35,16 @@ export function parseIntakeYearInput(raw) {
   return Number.isFinite(y) ? Math.trunc(y) : null;
 }
 
-/** Only the current academic year may be chosen for new directory rows. */
+/** Allowed academic years for directory rows (past cohorts up to future cohorts). */
 export function getAllowedIntakeOptions(now = new Date()) {
-  const start = getCurrentAcademicYearStart(now);
-  return [
-    {
+  const current = getCurrentAcademicYearStart(now);
+  const options = [];
+  // From 6 years in the past to 3 years in the future
+  for (let start = current - 6; start <= current + 3; start++) {
+    options.push({
       value: start,
       label: formatAcademicYearLabel(start),
-    },
-  ];
+    });
+  }
+  return options;
 }

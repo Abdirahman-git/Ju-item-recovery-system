@@ -36,12 +36,11 @@ import {
   updateAdminLostDraft,
 } from '@/lib/supabase';
 import { resolveItemImageUrl } from '@/lib/itemImage';
-import { ADMIN_CATEGORY_OPTIONS } from '@/components/admin/categoryOptions';
 import ReportSelect from '@/components/admin/ReportSelect';
 import { invalidateAdminCaches, invalidateInventoryCaches } from '@/lib/adminDataCache';
 import { validateMeaningfulText } from '@/lib/contentValidation';
-
-const CATEGORY_OPTIONS = ADMIN_CATEGORY_OPTIONS;
+import { validateCategoryName } from '@/lib/categories';
+import { useAdminCategoryOptions } from '@/hooks/useAdminCategoryOptions';
 
 const initialForm = {
   itemName: '',
@@ -561,6 +560,7 @@ export default function ReportLostClient({ mode = 'lost' }) {
   const draftParam = searchParams.get('draft');
   const { session } = useSession();
   const { clearActions } = useAdminHeaderActions();
+  const { options: categoryOptions, persistCategory } = useAdminCategoryOptions();
   const [form, setForm] = useState(() => createInitialForm());
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
@@ -689,6 +689,11 @@ export default function ReportLostClient({ mode = 'lost' }) {
     // 2. Category
     if (!form.category) {
       errors.category = 'Select a category.';
+    } else {
+      const categoryCheck = validateCategoryName(form.category);
+      if (!categoryCheck.valid) {
+        errors.category = categoryCheck.message;
+      }
     }
 
     // 3. Location
@@ -958,9 +963,11 @@ export default function ReportLostClient({ mode = 'lost' }) {
                 <ReportSelect
                   value={form.category}
                   onChange={(category) => updateField('category', category)}
-                  options={CATEGORY_OPTIONS}
+                  options={categoryOptions}
                   placeholder="Select category"
                   theme={isFound ? 'emerald' : 'blue'}
+                  allowCustom
+                  onPersistCustom={persistCategory}
                 />
                 {fieldErrors.category ? (
                   <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">

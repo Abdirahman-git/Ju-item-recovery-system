@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect, DrawerActions, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   TextInput, ActivityIndicator, Image, Modal,
@@ -78,7 +79,7 @@ export default function AdminFoundPage() {
   const [tempDate, setTempDate] = useState(new Date());
   const [tempTime, setTempTime] = useState(() => parseTimeLabelToDate(getDefaultTimeLabel(), new Date().toISOString().split('T')[0]));
   const toastRef = useRef(null);
-  const { categoryEntries, loading: categoriesLoading } = useDynamicCategories(items, { forAdmin: true });
+  const { categoryEntries, loading: categoriesLoading, persistCategory } = useDynamicCategories(items, { forAdmin: true });
 
   // New Item Form State
   const [newItem, setNewItem] = useState({
@@ -472,6 +473,7 @@ export default function AdminFoundPage() {
                   selectedCategory={newItem.category}
                   onSelect={(category) => setNewItem({ ...newItem, category })}
                   accentColor={PRIMARY_GREEN}
+                  onPersistCustom={persistCategory}
                 />
               </View>
 
