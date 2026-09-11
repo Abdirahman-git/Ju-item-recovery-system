@@ -601,10 +601,78 @@ export const fetchAppNotifications = async (userEmail) => {
     }
   }
 
-  return visibleNotes.map((n) => ({
+  const withRead = visibleNotes.map((n) => ({
     ...n,
     isRead: readIds.has(n.id),
   }));
+
+  return enrichNotificationsWithImages(withRead);
+};
+
+/** Resolve public item photos for inbox rows (lost/found by item_id). */
+async function enrichNotificationsWithImages(notes = []) {
+  if (!notes.length) return notes;
+
+  const lostIds = [
+    ...new Set(
+      notes
+        .filter((n) => n.item_type === 'lost' && n.item_id != null)
+        .map((n) => Number(n.item_id))
+        .filter((id) => Number.isFinite(id))
+    ),
+  ];
+  const foundIds = [
+    ...new Set(
+      notes
+        .filter((n) => n.item_type === 'found' && n.item_id != null)
+        .map((n) => Number(n.item_id))
+        .filter((id) => Number.isFinite(id))
+    ),
+  ];
+
+  const imageByKey = new Map();
+
+  const loadTable = async (table, ids, type) => {
+    if (!ids.length) return;
+    const { data, error } = await supabase.from(table).select('*').in('id', ids);
+    if (error) {
+      console.warn(`notification images ${table}:`, error.message);
+      return;
+    }
+    (data || []).forEach((row) => {
+      const normalized = normalizeItemRow(row);
+      if (!normalized || isSecureListing(normalized)) {
+        imageByKey.set(`${type}:${row.id}`, null);
+        return;
+      }
+      imageByKey.set(`${type}:${row.id}`, normalized.imageURI || null);
+    });
+  };
+
+  await Promise.all([
+    loadTable('lost_items', lostIds, 'lost'),
+    loadTable('found_items', foundIds, 'found'),
+  ]);
+
+  return notes.map((n) => {
+    if (!n.item_id || !n.item_type) return { ...n, imageURI: null };
+    return {
+      ...n,
+      imageURI: imageByKey.get(`${n.item_type}:${Number(n.item_id)}`) || null,
+    };
+  });
+}
+
+export const resolveNotificationItemImage = async (itemType, itemId) => {
+  const type = itemType === 'lost' ? 'lost' : 'found';
+  const id = Number(itemId);
+  if (!Number.isFinite(id)) return null;
+  const table = type === 'lost' ? 'lost_items' : 'found_items';
+  const { data, error } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
+  if (error || !data) return null;
+  const normalized = normalizeItemRow(data);
+  if (!normalized || isSecureListing(normalized)) return null;
+  return normalized.imageURI || null;
 };
 
 export const getUnreadNotificationCount = async (userEmail) => {
@@ -1835,10 +1903,105 @@ export async function fetchDistinctCategories() {
     const category = typeof row.category === 'string' ? row.category.trim() : '';
     if (!category) return;
     const lower = category.toLowerCase();
-    if (lower === 'books' || lower === 'personal' || lower === 'general') return;
+    if (lower === 'books' || lower === 'personal' || lower === 'general' || lower === 'jewelry') return;
+    // Skip numbers-only / junk labels so they never reappear in pickers
+    if (!/[\p{L}]/u.test(category)) return;
+    const letters = category.match(/[\p{L}]/gu) || [];
+    const digits = category.match(/\d/g) || [];
+    if (letters.length < 2) return;
+    if (digits.length > 0 && digits.length >= letters.length) return;
     set.add(category);
   });
 
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+function isMissingRelationError(error) {
+  return /relation|does not exist|schema cache/i.test(String(error?.message || ''));
+}
+
+/**
+ * Categories stored in item_categories (persistent system list).
+ * Falls back to [] if the table has not been created yet.
+ */
+export async function fetchStoredCategories({ forAdmin = false } = {}) {
+  const { data, error } = await supabase
+    .from('item_categories')
+    .select('name, is_admin_only, is_active')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error)) return [];
+    throw error;
+  }
+
+  return (data || [])
+    .filter((row) => {
+      const name = typeof row.name === 'string' ? row.name.trim() : '';
+      if (!name) return false;
+      if (!forAdmin && row.is_admin_only) return false;
+      return true;
+    })
+    .map((row) => row.name.trim());
+}
+
+/**
+ * Persist a new category so it appears in all pickers like Electronics.
+ */
+export async function upsertStoredCategory(name, { isAdminOnly = false } = {}) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) throw new Error('Category name is required.');
+
+  const { data: existingRows, error: findError } = await supabase
+    .from('item_categories')
+    .select('name, is_admin_only, is_active')
+    .ilike('name', trimmed)
+    .limit(5);
+
+  if (findError && !isMissingRelationError(findError)) throw findError;
+  if (findError && isMissingRelationError(findError)) {
+    throw new Error(
+      'Category storage is not set up yet. Run supabase/item_categories.sql in Supabase SQL Editor.'
+    );
+  }
+
+  const existing = (existingRows || []).find(
+    (row) => String(row.name || '').trim().toLowerCase() === trimmed.toLowerCase()
+  );
+
+  if (existing) {
+    if (!existing.is_active) {
+      const { error: reactivateError } = await supabase
+        .from('item_categories')
+        .update({
+          is_active: true,
+          is_admin_only: Boolean(existing.is_admin_only || isAdminOnly),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('name', existing.name);
+      if (reactivateError) throw reactivateError;
+    }
+    return existing.name;
+  }
+
+  const { error: insertError } = await supabase.from('item_categories').insert({
+    name: trimmed,
+    is_admin_only: Boolean(isAdminOnly),
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  });
+  if (insertError) throw insertError;
+  return trimmed;
+}
+
+/** Stored categories + distinct item categories for pickers. */
+export async function fetchPickerCategories({ forAdmin = false } = {}) {
+  const [stored, fromItems] = await Promise.all([
+    fetchStoredCategories({ forAdmin }),
+    fetchDistinctCategories().catch(() => []),
+  ]);
+  const set = new Set([...stored, ...fromItems]);
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 

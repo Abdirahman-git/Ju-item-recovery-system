@@ -21,10 +21,11 @@ import {
   updateAdminSecureFoundDraft,
 } from '@/lib/supabase';
 import { resolveItemImageUrl } from '@/lib/itemImage';
-import { ADMIN_CATEGORY_OPTIONS } from '@/components/admin/categoryOptions';
 import ReportSelect from '@/components/admin/ReportSelect';
 import { invalidateInventoryCaches } from '@/lib/adminDataCache';
 import { validateMeaningfulText } from '@/lib/contentValidation';
+import { validateCategoryName } from '@/lib/categories';
+import { useAdminCategoryOptions } from '@/hooks/useAdminCategoryOptions';
 import { STUDENT_AFFAIRS_OFFICE } from '@/lib/itemImage';
 
 function getLocalDateValue(date = new Date()) {
@@ -107,6 +108,7 @@ export default function SecureFoundClient() {
   const draftParam = searchParams.get('draft');
   const { session } = useSession();
   const { clearActions } = useAdminHeaderActions();
+  const { options: categoryOptions, persistCategory } = useAdminCategoryOptions();
   const [form, setForm] = useState(createInitialForm);
   const [editingDraftId, setEditingDraftId] = useState(null);
   const [existingImageUrl, setExistingImageUrl] = useState('');
@@ -206,6 +208,11 @@ export default function SecureFoundClient() {
 
     if (!form.category) {
       errors.category = 'Select a category.';
+    } else {
+      const categoryCheck = validateCategoryName(form.category);
+      if (!categoryCheck.valid) {
+        errors.category = categoryCheck.message;
+      }
     }
 
     if (!form.description.trim()) {
@@ -385,9 +392,11 @@ export default function SecureFoundClient() {
               <ReportSelect
                 value={form.category}
                 onChange={(category) => updateField('category', category)}
-                options={ADMIN_CATEGORY_OPTIONS}
+                options={categoryOptions}
                 placeholder="Select category"
                 theme="amber"
+                allowCustom
+                onPersistCustom={persistCategory}
               />
               {fieldErrors.category ? (
                 <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600">

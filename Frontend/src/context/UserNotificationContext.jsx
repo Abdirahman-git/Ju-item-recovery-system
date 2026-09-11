@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import NotificationBanner from '../components/NotificationBanner';
 import useLiveNotificationBadge from '../hooks/useLiveNotificationBadge';
+import { resolveNotificationItemImage } from '../services/supabase';
 
 const UserNotificationContext = createContext({
   unreadCount: 0,
@@ -15,14 +16,27 @@ export function UserNotificationProvider({ children }) {
   const router = useRouter();
 
   const live = useLiveNotificationBadge({
-    onNewNotification: ({ grew, title, body }) => {
+    onNewNotification: ({ grew, title, body, row }) => {
       const msg =
         title ||
         (grew === 1 ? 'New notification' : `${grew} new notifications`);
-      bannerRef.current?.show(msg, body || '', 'success', {
-        durationMs: 5000,
-        onPress: () => router.push('/(user)/Notifications'),
-      });
+      const openInbox = () => router.push('/(user)/Notifications');
+
+      const show = (imageUrl) => {
+        bannerRef.current?.show(msg, body || '', 'success', {
+          durationMs: 5000,
+          onPress: openInbox,
+          imageUrl: imageUrl || null,
+        });
+      };
+
+      if (row?.item_id && row?.item_type) {
+        resolveNotificationItemImage(row.item_type, row.item_id)
+          .then((uri) => show(uri))
+          .catch(() => show(null));
+      } else {
+        show(null);
+      }
     },
   });
 

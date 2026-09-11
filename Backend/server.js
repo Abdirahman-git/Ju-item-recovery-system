@@ -1263,6 +1263,177 @@ async function deleteRelatedItemClaims({ itemType, id }) {
   }
 }
 
+const STALE_ARCHIVE_DAYS = 60;
+const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000; // hourly
+
+function getInventoryItemAgeDays(row, now = new Date()) {
+  const raw =
+    row?.created_at ||
+    row?.dateLost ||
+    row?.dateFound ||
+    row?.date_lost ||
+    row?.date_found ||
+    row?.date_reported ||
+    row?.reportedAt ||
+    null;
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+}
+
+function isDraftInventoryRow(row) {
+  const status = String(row?.status || '').trim().toLowerCase();
+  if (status === 'draft') return true;
+  // Legacy drafts sometimes only flip is_approved without status
+  if (!status && row?.is_approved === false && row?.listing_mode === 'secure') {
+    // keep secure pending in review — not draft
+  }
+  return false;
+}
+
+function isReturnedInventoryRow(row) {
+  const status = String(row?.status || '').trim().toLowerCase();
+  return status === 'returned';
+}
+
+function shouldAutoArchiveInventoryRow(row, now = new Date()) {
+  if (!row || isDraftInventoryRow(row) || isReturnedInventoryRow(row)) return false;
+  const age = getInventoryItemAgeDays(row, now);
+  return age != null && age >= STALE_ARCHIVE_DAYS;
+}
+
+/** Move one lost/found row into archived_items and delete from live inventory. */
+async function archiveInventoryRow({ itemType, id, archivedBy, reason }) {
+  const type = itemType === 'found' ? 'found' : itemType === 'lost' ? 'lost' : null;
+  if (!type || id == null) throw new Error('itemType and id are required.');
+
+  const table = type === 'found' ? 'found_items' : 'lost_items';
+  const { data: raw, error: fetchError } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!raw) throw new Error('Item not found or already archived.');
+
+  const typeLabel = type === 'found' ? 'FOUND' : 'LOST';
+  const archivedRow = {
+    item_name: raw.itemName || raw.item_name || 'Item',
+    category: raw.category || 'General',
+    description: raw.description || null,
+    location: raw.location || null,
+    imageuri: raw.imageURI || raw.imageuri || raw.image_url || null,
+    type: typeLabel,
+    original_reporter:
+      typeLabel === 'LOST'
+        ? raw.ownerName || raw.owner_name || 'Unknown'
+        : raw.finderName || raw.finder_name || 'Unknown',
+    reporter_email: raw.email || null,
+    source_table: table,
+    source_id: String(raw.id),
+    reason: reason || 'Unclaimed / stale item',
+    archived_by: archivedBy || 'system-auto',
+    archived_at: new Date().toISOString(),
+    payload: { table, itemType: type, row: raw },
+  };
+
+  const { error: insertError } = await supabase.from('archived_items').insert(archivedRow);
+  if (insertError) {
+    if (isMissingRelationError(insertError)) {
+      const err = new Error(
+        'Archived items table is missing. Run supabase/archived_items.sql in the Supabase SQL editor.'
+      );
+      err.code = 'MISSING_ARCHIVED_TABLE';
+      throw err;
+    }
+    throw new Error(insertError.message || 'Could not archive item.');
+  }
+
+  await deleteRelatedItemClaims({ itemType: type, id });
+
+  const { error: deleteError } = await supabase.from(table).delete().eq('id', id);
+  if (deleteError) {
+    throw new Error(
+      deleteError.message ||
+        'Item was archived, but could not be removed from live inventory. Check Archived Items.'
+    );
+  }
+
+  return { success: true, itemType: type, id, ageDays: getInventoryItemAgeDays(raw) };
+}
+
+/** Auto-move unclaimed items older than 60 days into Archived Items (off live feed). */
+async function runAutoArchiveStaleItems() {
+  const now = new Date();
+  const results = { scanned: 0, archived: 0, failed: 0, errors: [], items: [] };
+
+  for (const itemType of ['lost', 'found']) {
+    const table = itemType === 'found' ? 'found_items' : 'lost_items';
+    const { data, error } = await supabase.from(table).select('*');
+    if (error) {
+      if (isMissingRelationError(error)) continue;
+      throw error;
+    }
+
+    const rows = data || [];
+    results.scanned += rows.length;
+
+    for (const row of rows) {
+      if (!shouldAutoArchiveInventoryRow(row, now)) continue;
+      const age = getInventoryItemAgeDays(row, now);
+      try {
+        await archiveInventoryRow({
+          itemType,
+          id: row.id,
+          archivedBy: 'system-auto',
+          reason: `Unclaimed / stale (${age} days) — auto-archived`,
+        });
+        results.archived += 1;
+        results.items.push({ itemType, id: row.id, ageDays: age });
+      } catch (err) {
+        results.failed += 1;
+        results.errors.push({
+          itemType,
+          id: row.id,
+          error: err.message || 'Archive failed',
+        });
+        if (err.code === 'MISSING_ARCHIVED_TABLE') {
+          return {
+            success: false,
+            ...results,
+            message: err.message,
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    success: true,
+    ...results,
+    message:
+      results.archived > 0
+        ? `Auto-archived ${results.archived} stale item(s) (≥${STALE_ARCHIVE_DAYS} days).`
+        : `No stale items to auto-archive (≥${STALE_ARCHIVE_DAYS} days).`,
+  };
+}
+
+let autoArchiveTimer = null;
+function startAutoArchiveScheduler() {
+  if (autoArchiveTimer) return;
+  const tick = async () => {
+    try {
+      const result = await runAutoArchiveStaleItems();
+      if (result.archived > 0 || result.failed > 0) {
+        console.log(`[auto-archive] ${result.message} failed=${result.failed}`);
+      }
+    } catch (err) {
+      console.error('[auto-archive] job error:', err.message);
+    }
+  };
+  // First pass shortly after boot, then hourly.
+  setTimeout(tick, 15_000);
+  autoArchiveTimer = setInterval(tick, AUTO_ARCHIVE_INTERVAL_MS);
+  if (typeof autoArchiveTimer.unref === 'function') autoArchiveTimer.unref();
+}
+
 async function restorePayloadRow(payload) {
   const table = payload?.table;
   const row = payload?.row;
@@ -1529,56 +1700,26 @@ app.post('/api/admin/archive-item', async (req, res) => {
   }
 
   try {
-    const table = itemType === 'found' ? 'found_items' : 'lost_items';
-    const { data: raw, error: fetchError } = await supabase.from(table).select('*').eq('id', itemId).maybeSingle();
-    if (fetchError) throw fetchError;
-    if (!raw) return res.status(404).json({ error: 'Item not found or already archived.' });
-
-    const typeLabel = itemType === 'found' ? 'FOUND' : 'LOST';
-    const archivedRow = {
-      item_name: raw.itemName || raw.item_name || 'Item',
-      category: raw.category || 'General',
-      description: raw.description || null,
-      location: raw.location || null,
-      imageuri: raw.imageURI || raw.imageuri || raw.image_url || null,
-      type: typeLabel,
-      original_reporter:
-        typeLabel === 'LOST'
-          ? raw.ownerName || raw.owner_name || 'Unknown'
-          : raw.finderName || raw.finder_name || 'Unknown',
-      reporter_email: raw.email || null,
-      source_table: table,
-      source_id: String(raw.id),
-      reason,
-      archived_by: archivedBy,
-      archived_at: new Date().toISOString(),
-      payload: { table, itemType, row: raw },
-    };
-
-    const { error: insertError } = await supabase.from('archived_items').insert(archivedRow);
-    if (insertError) {
-      if (isMissingRelationError(insertError)) {
-        return res.status(404).json({
-          error: 'Archived items table is missing. Run supabase/archived_items.sql in the Supabase SQL editor.',
-        });
-      }
-      throw new Error(insertError.message || 'Could not archive item.');
-    }
-
-    await deleteRelatedItemClaims({ itemType, id: itemId });
-
-    const { error: deleteError } = await supabase.from(table).delete().eq('id', itemId);
-    if (deleteError) {
-      throw new Error(
-        deleteError.message ||
-          'Item was archived, but could not be removed from live inventory. Check Archived Items.'
-      );
-    }
-
+    await archiveInventoryRow({ itemType, id: itemId, archivedBy, reason });
     res.json({ success: true });
   } catch (err) {
     console.error('archive-item error:', err.message);
-    res.status(500).json({ error: err.message || 'Could not archive item.' });
+    const status = err.code === 'MISSING_ARCHIVED_TABLE' ? 404 : 500;
+    res.status(status).json({ error: err.message || 'Could not archive item.' });
+  }
+});
+
+/** Manual trigger (Super Admin tools / ops) — same job the hourly scheduler runs. */
+app.post('/api/admin/archive-stale', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const result = await runAutoArchiveStaleItems();
+    res.json(result);
+  } catch (err) {
+    console.error('archive-stale error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not auto-archive stale items.' });
   }
 });
 
@@ -2149,8 +2290,8 @@ app.get('/api/admin/directory', async (req, res) => {
     const students = (data || []).map((row) => enrichDirectoryRow(row, yearsMap));
     const summary = {
       total: students.length,
-      pending: students.filter((s) => s.status === 'pending').length,
-      activated: students.filter((s) => s.status === 'activated').length,
+      pending: students.filter((s) => s.status === 'pending' && !s.is_expired).length,
+      activated: students.filter((s) => s.status === 'activated' && !s.is_expired).length,
       expired: students.filter((s) => s.is_expired).length,
       missingPhone: students.filter((s) => !s.phone_number).length,
     };
@@ -2288,6 +2429,79 @@ app.post('/api/admin/directory/delete', async (req, res) => {
   }
 });
 
+/** Manually expire or restore LOFO access for one directory student. */
+app.post('/api/admin/directory/set-access', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const studentId = normalizeStudentId(req.body?.studentId || req.body?.student_id);
+  const next = String(req.body?.access_status || req.body?.accessStatus || '')
+    .trim()
+    .toLowerCase();
+  if (!studentId) return res.status(400).json({ error: 'student_id is required.' });
+  if (!['expired', 'active'].includes(next)) {
+    return res.status(400).json({ error: 'access_status must be "expired" or "active".' });
+  }
+
+  try {
+    const yearsMap = await loadFacultyYearsMap();
+    const { data: row, error: fetchErr } = await supabase
+      .from('student_directory')
+      .select(
+        'student_id, full_name, phone_number, faculty, email, status, intake_year, expires_at, access_status'
+      )
+      .eq('student_id', studentId)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!row) return res.status(404).json({ error: 'Student not found in campus directory.' });
+
+    const enriched = enrichDirectoryRow(row, yearsMap);
+    // Date-based expiry cannot be cleared while program end date is already past.
+    if (next === 'active' && isDateExpired(enriched.expires_at)) {
+      return res.status(400).json({
+        error: `Cannot restore ${studentId}: program end date (${enriched.expires_at}) has already passed.`,
+      });
+    }
+
+    const { data: updated, error: upErr } = await supabase
+      .from('student_directory')
+      .update({ access_status: next })
+      .eq('student_id', studentId)
+      .select(
+        'student_id, full_name, phone_number, faculty, email, status, intake_year, expires_at, access_status'
+      )
+      .maybeSingle();
+    if (upErr) throw upErr;
+
+    if (next === 'expired') {
+      await supabase
+        .from('users')
+        .update({ is_approved: false })
+        .eq('student_id', studentId)
+        .eq('role', 'user');
+    } else if (row.status === 'activated') {
+      await supabase
+        .from('users')
+        .update({ is_approved: true })
+        .eq('student_id', studentId)
+        .eq('role', 'user');
+    }
+
+    const student = enrichDirectoryRow(updated || { ...row, access_status: next }, yearsMap);
+    res.json({
+      success: true,
+      student,
+      message:
+        next === 'expired'
+          ? `${studentId} marked Expired Access (manual).`
+          : `${studentId} access restored.`,
+    });
+  } catch (err) {
+    console.error('directory set-access error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not update access status.' });
+  }
+});
+
 /** Recompute expires_at for all directory rows and lock expired user accounts. */
 async function runDirectoryExpiryEnforce() {
   const yearsMap = await loadFacultyYearsMap();
@@ -2361,6 +2575,239 @@ app.post('/api/admin/directory/enforce-expiry', async (req, res) => {
   } catch (err) {
     console.error('enforce-expiry error:', err.message);
     res.status(500).json({ error: err.message || 'Could not enforce expiry.' });
+  }
+});
+
+function normalizeStaffId(value) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+}
+
+function buildStaffDirectoryUpsertRow(raw = {}) {
+  const staff_id = normalizeStaffId(raw.staff_id || raw.staffId || raw.id);
+  if (!staff_id || staff_id.length < 3) {
+    throw new Error('staff_id is required (min 3 characters).');
+  }
+  if (!/^[A-Z0-9][A-Z0-9._/-]{2,31}$/i.test(staff_id)) {
+    throw new Error(`Invalid staff_id "${staff_id}". Use letters/numbers (3–32 chars).`);
+  }
+
+  const full_name = String(raw.full_name || raw.fullName || '').trim();
+  if (!full_name || full_name.length < 2) {
+    throw new Error('full_name is required.');
+  }
+
+  let phone_number = String(raw.phone_number || raw.phone || '').trim();
+  if (phone_number) {
+    phone_number = phone_number.replace(/[^\d+]/g, '');
+    if (phone_number.length < 7) {
+      throw new Error('phone_number looks invalid.');
+    }
+  } else {
+    phone_number = null;
+  }
+
+  let email = String(raw.email || '').trim().toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('email looks invalid.');
+  }
+  if (!email) email = null;
+
+  const department = String(raw.department || raw.dept || '').trim() || null;
+  const statusRaw = String(raw.status || 'pending').trim().toLowerCase();
+  const status = statusRaw === 'activated' ? 'activated' : 'pending';
+
+  return {
+    staff_id,
+    full_name,
+    phone_number,
+    email,
+    department,
+    status,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function isMissingStaffTableError(error) {
+  return /relation|does not exist|schema cache|Could not find the table/i.test(
+    String(error?.message || '')
+  );
+}
+
+app.get('/api/admin/staff-directory', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('staff_directory')
+      .select('staff_id, full_name, phone_number, email, department, status, created_at, updated_at')
+      .order('staff_id', { ascending: true });
+
+    if (error) {
+      if (isMissingStaffTableError(error)) {
+        return res.json({
+          success: true,
+          staff: [],
+          summary: { total: 0, pending: 0, activated: 0 },
+          seeded: false,
+          message: 'Run supabase/staff_directory.sql in Supabase SQL Editor.',
+        });
+      }
+      throw error;
+    }
+
+    const staff = data || [];
+    res.json({
+      success: true,
+      staff,
+      summary: {
+        total: staff.length,
+        pending: staff.filter((s) => s.status === 'pending').length,
+        activated: staff.filter((s) => s.status === 'activated').length,
+      },
+      seeded: true,
+    });
+  } catch (err) {
+    console.error('staff-directory list error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not load staff directory.' });
+  }
+});
+
+app.post('/api/admin/staff-directory/upsert', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const row = buildStaffDirectoryUpsertRow(req.body || {});
+    const { data, error } = await supabase
+      .from('staff_directory')
+      .upsert(row, { onConflict: 'staff_id' })
+      .select('*')
+      .maybeSingle();
+    if (error) {
+      if (isMissingStaffTableError(error)) {
+        return res.status(400).json({
+          error: 'Staff directory is not set up yet. Run supabase/staff_directory.sql.',
+        });
+      }
+      throw error;
+    }
+    res.json({ success: true, staff: data || row });
+  } catch (err) {
+    console.error('staff-directory upsert error:', err.message);
+    res.status(400).json({ error: err.message || 'Could not save staff row.' });
+  }
+});
+
+app.post('/api/admin/staff-directory/upload', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) {
+      return res.status(400).json({ error: 'No rows to upload. Expected { rows: [...] }.' });
+    }
+    if (rows.length > 2000) {
+      return res.status(400).json({ error: 'Upload limit is 2000 rows per batch.' });
+    }
+
+    const prepared = [];
+    const rowErrors = [];
+    const seenInFile = new Set();
+
+    rows.forEach((raw, index) => {
+      try {
+        const row = buildStaffDirectoryUpsertRow(raw);
+        if (seenInFile.has(row.staff_id)) {
+          throw new Error('Duplicate in this CSV — already listed above.');
+        }
+        seenInFile.add(row.staff_id);
+        prepared.push(row);
+      } catch (e) {
+        rowErrors.push({
+          index,
+          staff_id: raw?.staff_id || raw?.staffId || raw?.id,
+          error: e.message,
+        });
+      }
+    });
+
+    let existingIds = new Set();
+    if (prepared.length) {
+      const ids = prepared.map((r) => r.staff_id);
+      const { data: existing, error: existErr } = await supabase
+        .from('staff_directory')
+        .select('staff_id')
+        .in('staff_id', ids);
+      if (existErr && !isMissingStaffTableError(existErr)) throw existErr;
+      if (existErr && isMissingStaffTableError(existErr)) {
+        return res.status(400).json({
+          error: 'Staff directory is not set up yet. Run supabase/staff_directory.sql.',
+        });
+      }
+      existingIds = new Set((existing || []).map((r) => r.staff_id));
+    }
+
+    const toInsert = [];
+    prepared.forEach((row) => {
+      if (existingIds.has(row.staff_id)) {
+        rowErrors.push({
+          index: -1,
+          staff_id: row.staff_id,
+          error: 'Already in directory — duplicate rejected.',
+        });
+      } else {
+        toInsert.push(row);
+      }
+    });
+
+    let inserted = 0;
+    const chunkSize = 100;
+    for (let i = 0; i < toInsert.length; i += chunkSize) {
+      const chunk = toInsert.slice(i, i + chunkSize);
+      const { error } = await supabase.from('staff_directory').insert(chunk);
+      if (error) throw error;
+      inserted += chunk.length;
+    }
+
+    res.json({
+      success: true,
+      inserted,
+      failed: rowErrors.length,
+      duplicates: rowErrors.filter((e) => /duplicate|already in directory/i.test(e.error || '')).length,
+      errors: rowErrors.slice(0, 40),
+    });
+  } catch (err) {
+    console.error('staff-directory upload error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not upload staff directory.' });
+  }
+});
+
+app.post('/api/admin/staff-directory/delete', async (req, res) => {
+  const actor = requireAdminToken(req, res);
+  if (!actor) return;
+
+  const staffId = normalizeStaffId(req.body?.staffId || req.body?.staff_id);
+  if (!staffId) return res.status(400).json({ error: 'staff_id is required.' });
+
+  try {
+    const { error } = await supabase.from('staff_directory').delete().eq('staff_id', staffId);
+    if (error) {
+      if (isMissingStaffTableError(error)) {
+        return res.status(400).json({
+          error: 'Staff directory is not set up yet. Run supabase/staff_directory.sql.',
+        });
+      }
+      throw error;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('staff-directory delete error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not delete staff row.' });
   }
 });
 
@@ -2498,4 +2945,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`================================================`);
   console.log(`🚀 JU LOFO Backend server running on port ${PORT}`);
   console.log(`================================================`);
+  startAutoArchiveScheduler();
+  console.log(`📦 Auto-archive: items ≥${STALE_ARCHIVE_DAYS} days → Archived Items (hourly)`);
 });

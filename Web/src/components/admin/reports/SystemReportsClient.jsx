@@ -16,9 +16,9 @@ import {
   Trophy,
   Users,
 } from 'lucide-react';
-import { collectCategoriesFromItems, resolveSystemCategories } from '@/lib/categories';
+import { categoriesMatch, canonicalizeCategory, resolveSystemCategories } from '@/lib/categories';
 import { isValidJuStudentId } from '@/lib/faculty';
-import { enrichContributorsWithUsers, fetchSystemReportsData } from '@/lib/supabase';
+import { enrichContributorsWithUsers, fetchStoredCategories, fetchSystemReportsData } from '@/lib/supabase';
 import { buildReportsPageSparklinesFromRecords } from '@/lib/pageSparklines';
 import { useAdminHeaderActions } from '@/context/AdminHeaderActionsContext';
 import { useSession } from '@/context/SessionProvider';
@@ -526,7 +526,7 @@ function filterReportRows(rows, filters, posterUsersBySid = null, adminPosters =
     }
 
     if (filters.category && filters.category !== 'all') {
-      if (String(row.category || 'Other') !== filters.category) {
+      if (!categoriesMatch(row.category || 'Other', filters.category)) {
         return false;
       }
     }
@@ -1101,6 +1101,21 @@ export default function SystemReportsClient() {
   const [searchDraft, setSearchDraft] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [sparkPlayKey, setSparkPlayKey] = useState(0);
+  const [storedCategories, setStoredCategories] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchStoredCategories({ forAdmin: true })
+      .then((list) => {
+        if (!cancelled) setStoredCategories(list);
+      })
+      .catch(() => {
+        if (!cancelled) setStoredCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchReports = useCallback(
     () => fetchSystemReportsData({ includePrivilegedSources: isSuperAdmin }),
@@ -1312,16 +1327,13 @@ export default function SystemReportsClient() {
   }, [filters.sourceId, records, allRows]);
 
   const categoryOptions = useMemo(() => {
-    const fromRows = [];
-    ITEM_REPORT_SOURCES.forEach((sourceId) => {
-      fromRows.push(...collectCategoriesFromItems(records[sourceId] || [], 'category'));
-    });
-    const list = resolveSystemCategories({ forAdmin: true, extras: fromRows });
+    // System list + admin-added item_categories only (no junk like "cream" / "Found - Jewelry")
+    const list = resolveSystemCategories({ forAdmin: true, extras: storedCategories });
     return [
       { value: 'all', label: 'All categories' },
       ...list.map((value) => ({ value, label: value })),
     ];
-  }, [records]);
+  }, [storedCategories]);
 
   const sourceOptions = useMemo(
     () =>
@@ -1349,7 +1361,7 @@ export default function SystemReportsClient() {
     }
     const map = {};
     filteredRows.forEach((row) => {
-      const name = row.category || 'Other';
+      const name = canonicalizeCategory(row.category) || 'Other';
       map[name] = (map[name] || 0) + 1;
     });
     return Object.entries(map)

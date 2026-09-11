@@ -5,13 +5,16 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Briefcase,
   Download,
   GraduationCap,
+  Lock,
   Plus,
   RefreshCw,
   Search,
   Settings2,
   Trash2,
+  Unlock,
   Upload,
   Users,
 } from 'lucide-react';
@@ -22,6 +25,7 @@ import {
   fetchFacultyProgramYears,
   fetchStudentDirectory,
   saveFacultyProgramYears,
+  setStudentDirectoryAccess,
   uploadStudentDirectoryRows,
   upsertStudentDirectoryRow,
 } from '@/lib/supabase';
@@ -35,10 +39,12 @@ import {
 import { useSession } from '@/context/SessionProvider';
 import { isSuperAdmin as checkSuperAdmin } from '@/lib/session';
 import StatCard from '@/components/admin/StatCard';
+import StaffDirectoryPanel from '@/components/admin/setup/StaffDirectoryPanel';
 
 const PAGE_SIZE = 10;
 const TABS = [
   { id: 'directory', label: 'Campus directory', icon: Users },
+  { id: 'staff', label: 'Staff directory', icon: Briefcase },
   { id: 'years', label: 'Faculty years', icon: GraduationCap },
 ];
 
@@ -198,9 +204,9 @@ function validateCsvRow(row, index, existingIds = null, allowedFaculties = []) {
   let intake_year = row.intake_year;
   if (intake_year == null || intake_year === '') intake_year = currentAy;
   else intake_year = parseIntakeYearInput(intake_year);
-  if (!Number.isFinite(intake_year) || intake_year !== currentAy) {
+  if (!Number.isFinite(intake_year) || intake_year < 1990 || intake_year > 2100) {
     throw new Error(
-      `Row ${index + 2} (${student_id}): intake_year must be ${currentAy} or ${formatAcademicYearLabel(currentAy)} (you wrote "${row.intake_year}")`
+      `Row ${index + 2} (${student_id}): invalid intake_year (you wrote "${row.intake_year}")`
     );
   }
 
@@ -314,6 +320,12 @@ function StatusPill({ student }) {
       Pending
     </span>
   );
+}
+
+function isProgramEndPast(expiresAt) {
+  if (!expiresAt) return false;
+  const end = new Date(`${String(expiresAt).slice(0, 10)}T23:59:59`);
+  return !Number.isNaN(end.getTime()) && end.getTime() < Date.now();
 }
 
 function buildSetupSparklines(students = []) {
@@ -481,10 +493,9 @@ export default function SetupClient() {
       if (!savedId) throw new Error('ID is required.');
       if (!String(form.full_name || '').trim()) throw new Error('Full name is required.');
       validateCsvPhone(form.phone_number);
-      if (Number(form.intake_year) !== getCurrentAcademicYearStart()) {
-        throw new Error(
-          `Intake must be ${formatAcademicYearLabel(getCurrentAcademicYearStart())} only.`
-        );
+      const intakeNum = Number(form.intake_year);
+      if (!Number.isFinite(intakeNum) || intakeNum < 1990 || intakeNum > 2100) {
+        throw new Error('Please select a valid intake year.');
       }
       await upsertStudentDirectoryRow({
         ...form,
@@ -611,6 +622,33 @@ export default function SetupClient() {
     } catch (e) {
       setFeedback({ tone: 'error', message: e.message || 'Delete failed.' });
       await showError('Could not remove', e.message || 'Delete failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSetAccess = async (student, accessStatus) => {
+    const id = student.student_id;
+    const expire = accessStatus === 'expired';
+    const ok = await showConfirm({
+      title: expire ? 'Mark Expired Access?' : 'Restore access?',
+      text: expire
+        ? `${id} (${student.full_name}) will get Expired Access immediately and their app login will be locked.`
+        : `${id} (${student.full_name}) will be restored to active LOFO access.`,
+      confirmText: expire ? 'Yes, expire' : 'Yes, restore',
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const result = await setStudentDirectoryAccess(id, accessStatus);
+      await showSuccess(
+        expire ? 'Expired Access' : 'Access restored',
+        result?.message || `${id} updated.`
+      );
+      await loadAll();
+    } catch (e) {
+      setFeedback({ tone: 'error', message: e.message || 'Access update failed.' });
+      await showError('Could not update access', e.message || 'Access update failed.');
     } finally {
       setSaving(false);
     }
@@ -1053,15 +1091,40 @@ export default function SetupClient() {
                             <StatusPill student={student} />
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => handleDelete(student.student_id)}
-                              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:text-red-600"
-                            >
-                              <Trash2 size={14} />
-                              Remove
-                            </button>
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {!(student.is_expired || student.access_status === 'expired') ? (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => handleSetAccess(student, 'expired')}
+                                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 text-xs font-bold text-amber-700 hover:bg-amber-50"
+                                  title="Mark Expired Access now"
+                                >
+                                  <Lock size={14} />
+                                  Expire
+                                </button>
+                              ) : !isProgramEndPast(student.expires_at) ? (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => handleSetAccess(student, 'active')}
+                                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50"
+                                  title="Restore LOFO access"
+                                >
+                                  <Unlock size={14} />
+                                  Restore
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => handleDelete(student.student_id)}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:text-red-600"
+                              >
+                                <Trash2 size={14} />
+                                Remove
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1101,8 +1164,7 @@ export default function SetupClient() {
                 <h3 className="text-base font-black text-slate-950">Add / update</h3>
               </div>
               <p className="text-xs font-medium text-slate-500">
-                Upserts by ID. Intake is the current academic year only (
-                {formatAcademicYearLabel(getCurrentAcademicYearStart())}) — no past or future.
+                Upserts by ID. Select the student's cohort intake year.
               </p>
               {[
                 ['student_id', 'ID', 'CS2600123'],
@@ -1165,6 +1227,8 @@ export default function SetupClient() {
             </form>
           </div>
         </>
+      ) : tab === 'staff' ? (
+        <StaffDirectoryPanel />
       ) : (
         <div className="glass-card max-w-3xl space-y-4 rounded-[28px] p-5">
           <div>

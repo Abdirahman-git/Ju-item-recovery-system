@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native';
-import { useFocusEffect, useNavigation, DrawerActions } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../../src/constants/colors';

@@ -34,6 +34,7 @@ export default function ReportExportMenu({
   buttonLabel = 'Export',
   compact = false,
 }) {
+  const { session } = useSession();
   const [open, setOpen] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const rootRef = useRef(null);
@@ -51,11 +52,16 @@ export default function ReportExportMenu({
     setOpen(false);
     if (disabled || !rows?.length) return;
 
+    const adminName = session?.userName || session?.name || 'LOFO Administrator';
     const formatters = { formatStatusLabel };
     const payload = {
       title: title || 'JU LOFO Report',
       subtitle,
       generatedAt,
+      generatedBy: adminName,
+      reportedBy: adminName,
+      authorizedBy: 'Lost & Found Office',
+      authorizedTitle: 'Authorized Officer',
       metaLines,
       columns,
       rows,
@@ -149,7 +155,7 @@ export function SummaryExportMenu({ view, formatGeneratedAt, compact = true }) {
       if (formatId === 'official_pdf') {
         exportOfficialExecutivePdf(view, formatGeneratedAt, session);
       } else if (formatId === 'print' || formatId === 'pdf') {
-        printSummaryReport(view, formatGeneratedAt);
+        printSummaryReport(view, formatGeneratedAt, session);
       } else if (formatId === 'excel') {
         exportSummaryExcel(view, formatGeneratedAt);
       } else {

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomBottomTab from '../../../src/components/CustomBottomTab';
@@ -208,7 +208,8 @@ export default function NotificationsPage() {
         ) : notifications.length > 0 ? (
           <View style={styles.list}>
             {notifications.map((note, index) => {
-              const accent = LOST_BLUE;
+              const accent = note.item_type === 'found' ? FOUND_GREEN : LOST_BLUE;
+              const hasImage = Boolean(note.imageURI);
               return (
                 <Animated.View key={note.id} entering={FadeInDown.delay(index * 40).springify()}>
                   <TouchableOpacity
@@ -216,12 +217,16 @@ export default function NotificationsPage() {
                     activeOpacity={0.9}
                     onPress={() => openNotification(note)}
                   >
-                    <View style={[styles.iconWrap, { backgroundColor: `${accent}15` }]}>
-                      <MaterialCommunityIcons
-                        name="magnify"
-                        size={22}
-                        color={accent}
-                      />
+                    <View style={[styles.iconWrap, !hasImage && { backgroundColor: `${accent}15` }]}>
+                      {hasImage ? (
+                        <Image source={{ uri: note.imageURI }} style={styles.itemThumb} />
+                      ) : (
+                        <MaterialCommunityIcons
+                          name={note.item_type === 'found' ? 'package-variant' : 'magnify'}
+                          size={22}
+                          color={accent}
+                        />
+                      )}
                       {!note.isRead ? <View style={styles.unreadDot} /> : null}
                     </View>
                     <View style={styles.cardBody}>
@@ -339,6 +344,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+  },
+  itemThumb: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
   },
   unreadDot: {
     position: 'absolute',

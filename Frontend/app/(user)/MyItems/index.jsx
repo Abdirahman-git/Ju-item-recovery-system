@@ -18,7 +18,7 @@ import { supabase, normalizeItemRow, getUserPendingClaimCount } from '../../../s
 import ItemStatusBadge from '../../../src/components/ItemStatusBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomBottomTab from '../../../src/components/CustomBottomTab';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import SuccessToast from '../../../src/components/SuccessToast';
 import { showAppConfirm, showAppError, showAppFailure } from '../../../src/utils/appAlert';
 import { ITEM_STATUS, normalizeItemStatus } from '../../../src/utils/itemStatus';

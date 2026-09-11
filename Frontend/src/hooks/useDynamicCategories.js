@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchDistinctCategories } from '../services/supabase';
+import {
+  fetchPickerCategories,
+  upsertStoredCategory,
+} from '../services/supabase';
 import {
   collectCategoriesFromItems,
   resolveSystemCategories,
   toCategoryPickerEntries,
+  validateCategoryName,
 } from '../utils/categories';
 
 /**
@@ -17,7 +21,7 @@ export function useDynamicCategories(items = [], { forAdmin = false } = {}) {
   useEffect(() => {
     let cancelled = false;
 
-    fetchDistinctCategories()
+    fetchPickerCategories({ forAdmin })
       .then((list) => {
         if (!cancelled) setDbCategories(list);
       })
@@ -31,7 +35,7 @@ export function useDynamicCategories(items = [], { forAdmin = false } = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [forAdmin]);
 
   const categoryNames = useMemo(
     () =>
@@ -47,5 +51,18 @@ export function useDynamicCategories(items = [], { forAdmin = false } = {}) {
     [categoryNames, forAdmin]
   );
 
-  return { categoryNames, categoryEntries, loading };
+  async function persistCategory(name) {
+    const check = validateCategoryName(name);
+    if (!check.valid) {
+      throw new Error(check.message);
+    }
+    const saved = await upsertStoredCategory(check.value, { isAdminOnly: false });
+    setDbCategories((prev) => {
+      if (prev.some((entry) => entry.toLowerCase() === saved.toLowerCase())) return prev;
+      return [...prev, saved].sort((a, b) => a.localeCompare(b));
+    });
+    return saved;
+  }
+
+  return { categoryNames, categoryEntries, loading, persistCategory };
 }

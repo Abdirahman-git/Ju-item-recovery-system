@@ -9,4 +9,8 @@ export {
   toCategoryPickerEntries,
   isHighValueCategory,
   isAdminOnlyCategory,
+  isJunkCategoryName,
+  validateCategoryName,
+  canonicalizeCategory,
+  categoriesMatch,
 } from '../utils/categories';

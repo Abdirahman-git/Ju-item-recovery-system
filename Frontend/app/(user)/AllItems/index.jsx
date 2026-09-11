@@ -12,7 +12,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { getAllLostItems, getAllFoundItems } from '../../../src/services/supabase';
 import { Colors } from '../../../src/constants/colors';

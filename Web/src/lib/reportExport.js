@@ -83,17 +83,36 @@ function getAbsoluteLogoUrl() {
   return JU_LOGO_BASE64;
 }
 
-function buildDocumentHtml({ title, subtitle, generatedAt, metaLines = [], bodyHtml }) {
-  const generated = generatedAt
-    ? new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }).format(new Date(generatedAt))
-    : new Date().toLocaleString();
+function buildDocumentHtml({
+  title,
+  subtitle,
+  generatedAt,
+  generatedBy,
+  reportedBy,
+  authorizedBy,
+  authorizedTitle,
+  metaLines = [],
+  bodyHtml,
+}) {
+  const now = generatedAt ? new Date(generatedAt) : new Date();
+  const generated = new Intl.DateTimeFormat('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(now);
+  const dateLong = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(now);
 
+  const byName = String(generatedBy || reportedBy || 'LOFO Administrator').trim();
+  const reportBy = String(reportedBy || byName).trim();
+  const authName = String(authorizedBy || 'Lost & Found Office').trim();
+  const authTitle = String(authorizedTitle || 'Authorized Officer').trim();
+  const reportTitle = String(title || 'Property Registry Report').trim();
   const logoUrl = getAbsoluteLogoUrl();
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -102,133 +121,162 @@ function buildDocumentHtml({ title, subtitle, generatedAt, metaLines = [], bodyH
 <head>
   <meta charset="UTF-8" />
   <base href="${origin}/" />
-  <title>${escapeHtml(title)} — Jazeera University LOFO</title>
+  <title>${escapeHtml(reportTitle)} — Jazeera University LOFO</title>
   <style>
-    /* margin:0 hides browser URL / date / page chrome in print margins */
     @page { size: A4; margin: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      color: #0f172a;
+      font-family: Arial, Helvetica, "Segoe UI", sans-serif;
+      color: #111827;
       background: #ffffff;
-      margin: 16px 20px;
+      margin: 16px 18px 20px;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    .header-banner {
-      background: #ffffff;
-      color: #0f172a;
-      padding: 14px 0 16px;
-      border-bottom: 2px solid #e2e8f0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
+    .doc-header {
+      text-align: center;
+      margin: 0 0 18px;
+      padding: 0 0 4px;
     }
-    .header-branding {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-    .logo-box {
-      width: 72px;
-      height: 72px;
-      background: #ffffff;
-      border-radius: 12px;
-      padding: 2px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid #e2e8f0;
-      flex-shrink: 0;
-    }
-    .logo-box img {
-      width: 100%;
-      height: 100%;
+    .doc-logo {
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 10px;
+      display: block;
       object-fit: contain;
     }
-    .header-title-text h1 {
+    .doc-org {
       margin: 0;
-      font-size: 17px;
-      font-weight: 900;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
+      font-size: 20px;
+      font-weight: 800;
       color: #0f172a;
+      letter-spacing: 0.01em;
+      line-height: 1.25;
     }
-    .header-title-text p {
-      margin: 2px 0 0;
+    .doc-title {
+      margin: 6px 0 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+      line-height: 1.3;
+    }
+    .doc-subtitle {
+      margin: 4px 0 0;
       font-size: 11px;
       font-weight: 600;
       color: #64748b;
     }
-    .badge-report {
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      color: #334155;
-      padding: 5px 12px;
-      border-radius: 16px;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-    .doc-info-bar {
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 10px 14px;
-      margin-bottom: 18px;
+    .gen-row {
       display: flex;
-      align-items: center;
+      align-items: baseline;
       justify-content: space-between;
-      font-size: 11px;
-      color: #475569;
+      gap: 16px;
+      margin: 16px 0 10px;
+      font-size: 12px;
+      color: #111827;
     }
-    .meta { font-size: 11px; color: #475569; line-height: 1.5; margin-bottom: 14px; }
-    .generated { font-size: 10.5px; color: #64748b; font-weight: 600; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
-    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: middle; }
-    th { background: #ffffff; font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 800; color: #334155; }
-    tr:nth-child(even) td { background: #fdfdfd; }
-    .doc-footer {
-      margin-top: 24px;
+    .gen-row span { white-space: nowrap; }
+    .meta { font-size: 11px; color: #475569; line-height: 1.5; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    th {
+      background: #1A56DB;
+      color: #ffffff;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+    tr:nth-child(even) td { background: #fafafa; }
+    .sign-block {
+      margin-top: 52px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 40px;
+    }
+    .sign-col {
+      width: 42%;
+      max-width: 260px;
+    }
+    .sign-col.right {
+      text-align: left;
+      margin-left: auto;
+    }
+    .sign-line {
+      border-top: 1px solid #334155;
+      width: 100%;
+      margin-bottom: 8px;
+    }
+    .sign-label {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .sign-sub {
+      margin: 4px 0 0;
+      font-size: 11px;
+      color: #4b5563;
+    }
+    .doc-footer-brand {
+      margin-top: 28px;
       text-align: center;
-      font-size: 9.5px;
-      color: #94a3b8;
-      border-top: 1px solid #e2e8f0;
-      padding-top: 10px;
+    }
+    .doc-footer-brand .org {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .doc-footer-brand .contact {
+      margin: 4px 0 0;
+      font-size: 11px;
+      color: #6b7280;
     }
     @media print {
-      body { margin: 12mm 14mm; }
+      body { margin: 12mm 12mm 14mm; }
+      .sign-block,
+      .doc-footer-brand { break-inside: avoid; }
     }
   </style>
 </head>
 <body>
-  <div class="header-banner">
-    <div class="header-branding">
-      <div class="logo-box">
-        <img src="${logoUrl}" alt="Jazeera University Logo" />
-      </div>
-      <div class="header-title-text">
-        <h1>Jazeera University — LOFO</h1>
-        <p>${escapeHtml(title || 'Property Registry & Performance Report')}</p>
-      </div>
-    </div>
-    <div class="badge-report">Official Registry</div>
-  </div>
+  <header class="doc-header">
+    <img class="doc-logo" src="${logoUrl}" alt="Jazeera University Logo" />
+    <h1 class="doc-org">Jazeera University</h1>
+    <h2 class="doc-title">${escapeHtml(reportTitle)}</h2>
+    ${subtitle ? `<p class="doc-subtitle">${escapeHtml(subtitle)}</p>` : ''}
+  </header>
 
-  <div class="doc-info-bar">
-    <div>
-      ${subtitle ? `<strong>${escapeHtml(subtitle)}</strong>` : '<strong>Jazeera University Lost & Found Audit</strong>'}
-    </div>
-    <div class="generated">Generated: ${escapeHtml(generated)}</div>
+  <div class="gen-row">
+    <span>Generated at: ${escapeHtml(generated)}</span>
+    <span>Generated by: ${escapeHtml(byName)}</span>
   </div>
 
   ${buildMetaHtml(metaLines)}
   ${bodyHtml}
 
-  <div class="doc-footer">
-    Jazeera University Item Recovery System (LOFO) · Confidential & Verified Registry Data · ${escapeHtml(generated)}
+  <div class="sign-block">
+    <div class="sign-col">
+      <div class="sign-line"></div>
+      <p class="sign-label">Reported By: ${escapeHtml(reportBy)}</p>
+      <p class="sign-sub">Date: ${escapeHtml(dateLong)}</p>
+    </div>
+    <div class="sign-col right">
+      <div class="sign-line"></div>
+      <p class="sign-label">Authorized Signature &amp; Stamp</p>
+      <p class="sign-sub">${escapeHtml(authName)}${authTitle ? ` (${escapeHtml(authTitle)})` : ''}</p>
+    </div>
+  </div>
+
+  <div class="doc-footer-brand">
+    <p class="org">Jazeera University — LOFO</p>
+    <p class="contact">Lost &amp; Found Office · Mogadishu, Somalia · jazeerauniversity.edu.so</p>
   </div>
 </body>
 </html>`;
@@ -356,6 +404,10 @@ function buildReportHtml(options) {
     title: options.title,
     subtitle: options.subtitle,
     generatedAt: options.generatedAt,
+    generatedBy: options.generatedBy,
+    reportedBy: options.reportedBy,
+    authorizedBy: options.authorizedBy,
+    authorizedTitle: options.authorizedTitle,
     metaLines: options.metaLines,
     bodyHtml,
   });
@@ -492,18 +544,29 @@ export function exportSummaryExcel(view, formatGeneratedAt) {
   downloadBlob(blob, `ju-lofo-system-summary-${new Date().toISOString().slice(0, 10)}.xls`);
 }
 
-export function printSummaryReport(view, formatGeneratedAt) {
+export function printSummaryReport(view, formatGeneratedAt, session = {}) {
   const { title, subtitle, generatedAt, metaLines, sections } = buildSummarySections(view, formatGeneratedAt);
+  const adminName = session?.userName || session?.name || 'LOFO Administrator';
   const bodyHtml = sections
     .map(
       (section) =>
         `<h2 style="font-size:14px;margin:18px 0 8px;">${escapeHtml(section.heading)}</h2>` +
-        `<table><tbody>${section.rows
+        `<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>${section.rows
           .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
           .join('')}</tbody></table>`
     )
     .join('');
-  const html = buildDocumentHtml({ title, subtitle, generatedAt, metaLines, bodyHtml });
+  const html = buildDocumentHtml({
+    title,
+    subtitle,
+    generatedAt,
+    generatedBy: adminName,
+    reportedBy: adminName,
+    authorizedBy: 'Lost & Found Office',
+    authorizedTitle: 'Authorized Officer',
+    metaLines,
+    bodyHtml,
+  });
   printHtmlDocument(html);
 }
 

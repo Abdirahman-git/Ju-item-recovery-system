@@ -14,12 +14,15 @@ function hardNavigate(href) {
 }
 
 export function SessionProvider({ children }) {
-  const [session, setSessionState] = useState(() => getSession());
+  // Always start null so SSR HTML matches the first client render.
+  // localStorage is only available in the browser after mount.
+  const [session, setSessionState] = useState(null);
   const [ready, setReady] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSessionState(getSession());
     setReady(true);
   }, []);
 
@@ -28,13 +31,26 @@ export function SessionProvider({ children }) {
 
     const isLogin = pathname === '/login';
     const isAdmin = pathname.startsWith('/admin');
+    const isPortal = pathname.startsWith('/portal');
 
-    if (!session && isAdmin) {
-      hardNavigate('/login');
-      return;
-    }
-    if (session && isLogin) {
-      hardNavigate('/admin');
+    if (!session) {
+      if (isAdmin || isPortal) {
+        hardNavigate('/login');
+        return;
+      }
+    } else {
+      if (isAdmin && session.role !== 'admin') {
+        // Block regular users from admin area
+        hardNavigate('/portal');
+        return;
+      }
+      if (isLogin) {
+        if (session.role === 'admin') {
+          hardNavigate('/admin');
+        } else {
+          hardNavigate('/portal');
+        }
+      }
     }
   }, [ready, session, pathname]);
 
@@ -42,7 +58,7 @@ export function SessionProvider({ children }) {
     const onExpired = () => {
       clearSession();
       setSessionState(null);
-      if (pathname?.startsWith('/admin')) {
+      if (pathname?.startsWith('/admin') || pathname?.startsWith('/portal')) {
         hardNavigate('/login?reason=session');
       }
     };
